@@ -19,6 +19,8 @@ from PySide6.QtSerialPort import QSerialPort, QSerialPortInfo
 
 # 引入 Matplotlib 导航工具栏以支持缩放和拖拽
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 from gnss_parser import (parse_log_line, convert_pogos_to_gga, calculate_metrics,
                     time_str_to_seconds, seconds_to_time_str, gps_tow_to_utc_time,
@@ -27,6 +29,191 @@ from gnss_parser import (parse_log_line, convert_pogos_to_gga, calculate_metrics
 from plot_widget import PlotWidget
 from ui_main import QSS_STYLE, SegmentListItemWidget
 from settings_dialog import SettingsDialog
+
+class CNoPlotCanvas(FigureCanvas):
+    def __init__(self, parent=None, width=5, height=3, dpi=100):
+        # 创建符合主界面 Dark 风格背景色（#172033）的 figure
+        self.fig = Figure(figsize=(width, height), dpi=dpi, facecolor='#172033')
+        self.ax = self.fig.add_subplot(111)
+        self.fig.tight_layout()
+        super().__init__(self.fig)
+        self.setParent(parent)
+        
+        # 预设图表坐标轴背景色为暗黑色 #0B1120
+        self.ax.set_facecolor('#0B1120')
+        self.ax.spines['bottom'].set_color('#1E293B')
+        self.ax.spines['top'].set_color('#1E293B')
+        self.ax.spines['right'].set_color('#1E293B')
+        self.ax.spines['left'].set_color('#1E293B')
+        self.ax.tick_params(colors='#94A3B8', labelsize=8)
+        self.ax.yaxis.grid(True, linestyle='--', color='#1E293B', alpha=0.5)
+        self.ax.set_axisbelow(True)
+        
+        # 固定 Y 轴在 0~55 dB-Hz
+        self.ax.set_ylim(0, 55)
+        self.ax.set_ylabel("载噪比 C/No (dB-Hz)", color='#94A3B8', fontsize=8)
+
+    def render_cno(self, gsv_satellites):
+        """
+        绘制可见卫星载噪比柱状图。
+        gsv_satellites: 字典，格式为 (prefix, prn) -> {signal_id: snr}
+        """
+        self.ax.clear()
+        
+        # 恢复符合暗色调主题的画板细节
+        self.ax.set_facecolor('#0B1120')
+        self.ax.yaxis.grid(True, linestyle='--', color='#1E293B', alpha=0.5)
+        self.ax.set_axisbelow(True)
+        self.ax.set_ylim(0, 55)
+        self.ax.set_ylabel("载噪比 C/No (dB-Hz)", color='#94A3B8', fontsize=8)
+        
+        # 如果没有数据，直接重绘空图表
+        if not gsv_satellites:
+            self.ax.set_xticks([])
+            self.ax.set_xticklabels([])
+            self.fig.canvas.draw_idle()
+            return
+            
+        # 1. 过滤掉所有 snr 均为 0 的卫星
+        active_sats = {}
+        for (prefix, prn), sig_dict in gsv_satellites.items():
+            valid_sig = {sid: snr for sid, snr in sig_dict.items() if snr > 0}
+            if valid_sig:
+                active_sats[(prefix, prn)] = valid_sig
+                
+        if not active_sats:
+            self.ax.set_xticks([])
+            self.ax.set_xticklabels([])
+            self.fig.canvas.draw_idle()
+            return
+
+        # 2. 按星座分组，并进行排序
+        grouped = {'GPS': [], 'BD': [], 'GL': [], 'GA': []}
+        for (prefix, prn) in active_sats.keys():
+            if prefix in grouped:
+                grouped[prefix].append(prn)
+            else:
+                grouped['GPS'].append(prn)
+                
+        # 排序
+        for key in grouped:
+            grouped[key].sort()
+            
+        # 3. 计算横坐标与 Gap 间隙
+        x_positions = []
+        x_labels = []
+        constellation_boundaries = []
+        
+        current_x = 0.0
+        # u-center 配色风格 (GPS=绿, 北斗=红, GLONASS=蓝, Galileo=青) 的明度深浅渐变
+        colors_map = {
+            'GPS': {
+                '1': '#22C55E',  # 亮绿
+                '5': '#15803D',  # 深绿
+                '6': '#047857',  # 深绿
+                '7': '#86EFAC',  # 浅绿
+                '8': '#A7F3D0',  # 浅绿
+                'default': '#22C55E'
+            },
+            'BD': {
+                '1': '#EF4444',  # 亮红
+                '3': '#991B1B',  # 深红
+                'E': '#991B1B',  # B1C/B3I
+                'F': '#991B1B',  # B3I
+                'B': '#FCA5A5',  # 浅红
+                'C': '#FECACA',  # 浅红
+                'default': '#EF4444'
+            },
+            'GL': {
+                '1': '#38BDF8',  # 亮天蓝
+                '3': '#1D4ED8',  # 深蓝
+                'default': '#38BDF8'
+            },
+            'GA': {
+                '1': '#06B6D4',  # 亮青
+                '7': '#0E7490',  # 深青
+                '8': '#22D3EE',  # 浅青
+                'default': '#06B6D4'
+            }
+        }
+        
+        bars_to_draw = []
+        
+        for prefix in ['GPS', 'BD', 'GL', 'GA']:
+            prns = grouped[prefix]
+            if not prns:
+                continue
+                
+            start_x = current_x
+            
+            for prn in prns:
+                sig_dict = active_sats[(prefix, prn)]
+                sids = sorted(list(sig_dict.keys()))
+                n_bands = len(sids)
+                
+                total_w = 0.8
+                bar_w = total_w / max(1, n_bands)
+                
+                offsets = []
+                if n_bands == 1:
+                    offsets = [0.0]
+                else:
+                    for i in range(n_bands):
+                        offsets.append( -total_w/2 + bar_w/2 + i*bar_w )
+                        
+                x_positions.append(current_x)
+                
+                # 格式化卫星标签 (Gxx, Cxx, Rxx, Exx)
+                lbl_prefix = 'G'
+                if prefix == 'BD':
+                    lbl_prefix = 'C'
+                elif prefix == 'GL':
+                    lbl_prefix = 'R'
+                elif prefix == 'GA':
+                    lbl_prefix = 'E'
+                x_labels.append(f"{lbl_prefix}{prn:02d}")
+                
+                for i, sid in enumerate(sids):
+                    val = sig_dict[sid]
+                    x_c = current_x + offsets[i]
+                    
+                    c_dict = colors_map.get(prefix, {})
+                    color = c_dict.get(sid, c_dict.get('default', '#64748B'))
+                    
+                    bars_to_draw.append((x_c, val, bar_w, color))
+                    
+                current_x += 1.2
+                
+            end_x = current_x - 1.2
+            constellation_boundaries.append((prefix, start_x, end_x))
+            current_x += 0.8  # Gap
+
+        # 4. 绘图
+        for x_c, val, bar_w, color in bars_to_draw:
+            self.ax.bar(x_c, val, width=bar_w, color=color, edgecolor='#0B1120', linewidth=0.5, align='center')
+            self.ax.text(x_c, val + 0.8, f"{int(val)}", ha='center', va='bottom', color='#94A3B8', fontsize=7)
+            
+        # 5. X轴属性
+        self.ax.set_xticks(x_positions)
+        self.ax.set_xticklabels(x_labels, rotation=90, ha='center', color='#E2E8F0')
+        
+        # 6. 星座分组虚线及文字标签
+        for prefix, s_x, e_x in constellation_boundaries:
+            self.ax.hlines(52.5, s_x - 0.45, e_x + 0.45, colors='#334155', linestyles=':', linewidths=1.0)
+            mid_x = (s_x + e_x) / 2.0
+            
+            c_name = "GPS"
+            if prefix == 'BD':
+                c_name = "北斗 (BDS)"
+            elif prefix == 'GL':
+                c_name = "GLONASS"
+            elif prefix == 'GA':
+                c_name = "Galileo"
+                
+            self.ax.text(mid_x, 53.0, c_name, ha='center', va='bottom', color='#64748B', fontsize=7, fontweight='bold')
+            
+        self.fig.tight_layout()
+        self.fig.canvas.draw_idle()
 
 class LogParserThread(QThread):
     progress_updated = Signal(int)
@@ -351,6 +538,9 @@ class MainWindow(QMainWindow):
         self.realtime_timeout_timer = QTimer(self)
         self.realtime_timeout_timer.setSingleShot(True)
         self.realtime_timeout_timer.timeout.connect(self.reset_live_status_ui)
+
+        # 卫星载噪比数据缓存 (prefix, prn) -> {signal_id: snr}
+        self.gsv_satellites = {}
 
         # 初始化 UI
         self.init_ui()
@@ -1161,6 +1351,45 @@ class MainWindow(QMainWindow):
         
         # 初始化工具栏样式 (适配系统浅色/深色主题)
         self.update_toolbar_styles()
+
+        # 3. 初始化载噪比停靠监视器 (QDockWidget)
+        from PySide6.QtWidgets import QDockWidget
+        self.dock_cno = QDockWidget("可见卫星载噪比监视器", self)
+        self.dock_cno.setObjectName("dock_cno")
+        self.dock_cno.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea)
+        self.dock_cno.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable)
+        
+        self.canvas_cno = CNoPlotCanvas(self.dock_cno)
+        dock_contents = QWidget()
+        dock_layout = QVBoxLayout(dock_contents)
+        dock_layout.setContentsMargins(2, 2, 2, 2)
+        dock_layout.addWidget(self.canvas_cno)
+        self.dock_cno.setWidget(dock_contents)
+        
+        self.dock_cno.setStyleSheet("""
+            QDockWidget {
+                color: #38BDF8;
+                font-weight: bold;
+                font-size: 11px;
+                border: 1px solid #1E293B;
+            }
+            QDockWidget::title {
+                background-color: #0F172A;
+                text-align: left;
+                padding-left: 8px;
+                color: #38BDF8;
+                border-bottom: 1px solid #1E293B;
+            }
+        """)
+        
+        # 默认停靠在右侧下方区域
+        self.addDockWidget(Qt.RightDockWidgetArea, self.dock_cno)
+        
+        # 将 Dock 的显示隐藏绑定到“视图”菜单
+        view_menu = self.menu_bar.addMenu("视图")
+        toggle_action = self.dock_cno.toggleViewAction()
+        toggle_action.setText("显示载噪比监视器")
+        view_menu.addAction(toggle_action)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -2857,8 +3086,40 @@ class MainWindow(QMainWindow):
                 # 解析 NMEA 行
                 epoch = parse_log_line(line_str, self.get_leap_seconds())
                 if epoch:
-                    self.process_live_epoch(epoch)
-                    has_new_epoch = True
+                    if epoch['type'] == 'GSV':
+                        prefix = epoch['prefix']
+                        total_msg = epoch['total_msg']
+                        msg_num = epoch['msg_num']
+                        signal_id = epoch['signal_id']
+                        
+                        # 第一包时清空当前星座该频段的历史数据，防止残留已消失的卫星
+                        if msg_num == 1:
+                            keys_to_remove = []
+                            for k in list(self.gsv_satellites.keys()):
+                                if k[0] == prefix:
+                                    if signal_id in self.gsv_satellites[k]:
+                                        del self.gsv_satellites[k][signal_id]
+                                    if not self.gsv_satellites[k]:
+                                        keys_to_remove.append(k)
+                            for k in keys_to_remove:
+                                self.gsv_satellites.pop(k, None)
+                                
+                        # 缓存可见卫星载噪比
+                        for sat in epoch['sats']:
+                            prn = sat['prn']
+                            snr = sat['snr']
+                            key = (prefix, prn)
+                            if key not in self.gsv_satellites:
+                                self.gsv_satellites[key] = {}
+                            self.gsv_satellites[key][signal_id] = snr
+                            
+                        # 收齐最后一包时且 Dock 可见时触发重绘柱状图
+                        if msg_num == total_msg:
+                            if hasattr(self, 'canvas_cno') and hasattr(self, 'dock_cno') and self.dock_cno.isVisible():
+                                self.canvas_cno.render_cno(self.gsv_satellites)
+                    else:
+                        self.process_live_epoch(epoch)
+                        has_new_epoch = True
                     
             elif frame_type == 'BK':
                 mtype = frame_data[4]
@@ -2947,6 +3208,11 @@ class MainWindow(QMainWindow):
             self.lbl_ins_status.setStyleSheet(
                 "background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
             )
+            
+        # 3. 清空卫星载噪比缓存及重绘空图表
+        self.gsv_satellites = {}
+        if hasattr(self, 'canvas_cno'):
+            self.canvas_cno.render_cno(self.gsv_satellites)
 
     def process_live_epoch(self, epoch):
         # 刷新实时超时定时器，2.5秒内没有新数据则自动清空UI

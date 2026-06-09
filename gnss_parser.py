@@ -246,6 +246,63 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
             'raw_line': line
         }
 
+    # 1.8 GSV 语句 (可见卫星信息)
+    elif sentence_type.endswith('GSV'):
+        if len(parts) < 4:
+            return None
+        try:
+            total_msg = int(parts[1])
+            msg_num = int(parts[2])
+            total_sats = int(parts[3])
+        except ValueError:
+            return None
+            
+        # 识别星座前缀
+        prefix = 'GPS'
+        if 'BD' in sentence_type or 'GB' in sentence_type:
+            prefix = 'BD'
+        elif 'GL' in sentence_type:
+            prefix = 'GL'
+        elif 'GA' in sentence_type:
+            prefix = 'GA'
+            
+        sats = []
+        signal_id = '1' # 默认频段 ID
+        sat_fields_len = len(parts) - 4
+        if sat_fields_len > 0 and sat_fields_len % 4 == 1:
+            signal_id = parts[-1].strip()
+            loop_parts = parts[:-1]
+        else:
+            loop_parts = parts
+            
+        idx = 4
+        while idx + 3 < len(loop_parts):
+            prn_str = loop_parts[idx].strip()
+            snr_str = loop_parts[idx+3].strip()
+            if prn_str:
+                try:
+                    prn = int(prn_str)
+                    snr = int(snr_str) if snr_str else 0
+                    sats.append({
+                        'prn': prn,
+                        'snr': snr
+                    })
+                except ValueError:
+                    pass
+            idx += 4
+            
+        return {
+            'type': 'GSV',
+            'sentence_type': sentence_type,
+            'prefix': prefix,
+            'total_msg': total_msg,
+            'msg_num': msg_num,
+            'total_sats': total_sats,
+            'signal_id': signal_id,
+            'sats': sats,
+            'raw_line': line
+        }
+
     # 2. 私有 POGOS (GOS) 语句
     elif sentence_type == '$POGOS':
         if len(parts) < 10:
