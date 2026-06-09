@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# PyInstaller / Packaging build artifacts
+build/
+dist/
+*.spec
+
+# Local configurations and temporary files
+vcom_config.json
+error.txt
+logs/
+.gemini/
+.idea/
+.vscode/
