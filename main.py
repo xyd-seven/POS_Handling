@@ -542,6 +542,10 @@ class MainWindow(QMainWindow):
         # 卫星载噪比数据缓存 (prefix, prn) -> {signal_id: snr}
         self.gsv_satellites = {}
 
+        # 载噪比柱状图限频定时器
+        self.cno_refresh_timer = QTimer(self)
+        self.cno_refresh_timer.timeout.connect(self.update_cno_chart)
+
         # 初始化 UI
         self.init_ui()
         self.setAcceptDrops(True)
@@ -2803,6 +2807,8 @@ class MainWindow(QMainWindow):
             self.reset_live_status_ui()
             if hasattr(self, 'realtime_timeout_timer'):
                 self.realtime_timeout_timer.stop()
+            if hasattr(self, 'cno_refresh_timer'):
+                self.cno_refresh_timer.stop()
             self.btn_serial_connect.setText("打开串口")
             self.btn_serial_connect.setStyleSheet("""
                 QPushButton {
@@ -2864,6 +2870,8 @@ class MainWindow(QMainWindow):
                 self.lbl_status.setText(f"已连接串口 {port_name}，波特率 {baud_rate}...")
                 self.add_realtime_segment_item()
                 self.reset_live_status_ui()
+                if hasattr(self, 'cno_refresh_timer'):
+                    self.cno_refresh_timer.start(1000)
             else:
                 QMessageBox.critical(self, "连接失败", f"无法打开串口 {port_name}，可能已被占用或未连接。")
 
@@ -3112,11 +3120,6 @@ class MainWindow(QMainWindow):
                             if key not in self.gsv_satellites:
                                 self.gsv_satellites[key] = {}
                             self.gsv_satellites[key][signal_id] = snr
-                            
-                        # 收齐最后一包时且 Dock 可见时触发重绘柱状图
-                        if msg_num == total_msg:
-                            if hasattr(self, 'canvas_cno') and hasattr(self, 'dock_cno') and self.dock_cno.isVisible():
-                                self.canvas_cno.render_cno(self.gsv_satellites)
                     else:
                         self.process_live_epoch(epoch)
                         has_new_epoch = True
@@ -3213,6 +3216,11 @@ class MainWindow(QMainWindow):
         self.gsv_satellites = {}
         if hasattr(self, 'canvas_cno'):
             self.canvas_cno.render_cno(self.gsv_satellites)
+
+    def update_cno_chart(self):
+        if hasattr(self, 'canvas_cno') and hasattr(self, 'dock_cno') and self.dock_cno.isVisible():
+            self.canvas_cno.render_cno(self.gsv_satellites)
+
 
     def process_live_epoch(self, epoch):
         # 刷新实时超时定时器，2.5秒内没有新数据则自动清空UI
