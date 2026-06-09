@@ -11,15 +11,19 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout,
                              QListWidget, QListWidgetItem, QTableWidget,
                              QTableWidgetItem, QTabWidget, QGroupBox, QSplitter,
                              QHeaderView, QFileDialog, QMessageBox, QMenuBar,
-                             QComboBox, QCheckBox, QProgressDialog, QGridLayout)
-from PySide6.QtCore import Qt, Signal, QThread, QPointF, QRectF
-from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QPen, QBrush
+                             QComboBox, QCheckBox, QProgressDialog, QGridLayout,
+                             QTextEdit)
+from PySide6.QtCore import Qt, Signal, QThread, QPointF, QRectF, QTimer
+from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QPen, QBrush, QTextCursor
+from PySide6.QtSerialPort import QSerialPort, QSerialPortInfo
 
 # 引入 Matplotlib 导航工具栏以支持缩放和拖拽
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 
 from gnss_parser import (parse_log_line, convert_pogos_to_gga, calculate_metrics,
-                    time_str_to_seconds, seconds_to_time_str, gps_tow_to_utc_time, interpolate_dynamic_truth)
+                    time_str_to_seconds, seconds_to_time_str, gps_tow_to_utc_time,
+                    interpolate_dynamic_truth, parse_bk_frame, BKStreamParser,
+                    crc16_ccitt)
 from plot_widget import PlotWidget
 from ui_main import QSS_STYLE, SegmentListItemWidget
 from settings_dialog import SettingsDialog
@@ -239,6 +243,32 @@ def create_app_icon():
             
     return QIcon(pixmap)
 
+def create_refresh_icon(color_hex):
+    from PySide6.QtGui import QPixmap, QPainter, QPen, QBrush, QColor, QIcon, QPolygon
+    from PySide6.QtCore import Qt, QPoint, QRectF
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    
+    pen = QPen(QColor(color_hex))
+    pen.setWidth(3)
+    pen.setCapStyle(Qt.RoundCap)
+    painter.setPen(pen)
+    
+    # Draw arc
+    painter.drawArc(QRectF(6, 6, 20, 20), 960, -4800)
+    
+    # Draw arrowhead
+    brush = QBrush(QColor(color_hex))
+    painter.setBrush(brush)
+    painter.setPen(Qt.NoPen)
+    points = QPolygon([QPoint(23, 6), QPoint(23, 16), QPoint(14, 11)])
+    painter.drawPolygon(points)
+    
+    painter.end()
+    return QIcon(pixmap)
+
 def is_system_dark_mode():
     """读取 Windows 注册表以精准获取操作系统真实的深色/浅色模式"""
     import platform
@@ -299,10 +329,34 @@ class MainWindow(QMainWindow):
         self.show_extrema = True  # 是否显示最值标注
         self.x_axis_mode = '历元数'  # 是否使用时间轴对齐 X 轴
         
+        # 初始化串口组件与录制状态
+        self.serial_port = QSerialPort(self)
+        self.serial_port.readyRead.connect(self.handle_serial_read)
+        self.serial_buffer = BKStreamParser()
+        self.record_file = None
+        self.record_filepath = None
+        self._is_programmatic_scroll = False
+        self.realtime_raw_epochs = []
+        self.latest_quality = 0
+        self.latest_num_sats = 0
+        self.latest_hdop = 1.0
+        self.latest_pdop = 1.0
+
+        # 版本查询状态
+        self.version_lines = []
+        self.version_timer = None
+        self.waiting_for_version = False
+
+        # 实时数据超时清空定时器
+        self.realtime_timeout_timer = QTimer(self)
+        self.realtime_timeout_timer.setSingleShot(True)
+        self.realtime_timeout_timer.timeout.connect(self.reset_live_status_ui)
+
         # 初始化 UI
         self.init_ui()
         self.setAcceptDrops(True)
         self.load_config()
+        self.refresh_serial_ports()
         self.pending_parse_queue = []
         self.total_queue_count = 0
 
@@ -488,12 +542,315 @@ class MainWindow(QMainWindow):
         card_layout_trajectory.addWidget(self.canvas_trajectory)
         layout_trajectory.addWidget(self.card_trajectory)
 
+        # F. 实时串口页
+        self.tab_serial = QWidget()
+        layout_serial = QHBoxLayout(self.tab_serial)
+        layout_serial.setContentsMargins(12, 12, 12, 12)
+        layout_serial.setSpacing(10)
+        
+        # F.1. 左侧控制和指令面板
+        serial_left_panel = QWidget()
+        serial_left_layout = QVBoxLayout(serial_left_panel)
+        serial_left_layout.setContentsMargins(0, 0, 0, 0)
+        serial_left_layout.setSpacing(10)
+        
+        # 串口配置 GroupBox
+        self.group_serial_ctrl = QGroupBox("串口配置")
+        ctrl_layout = QGridLayout(self.group_serial_ctrl)
+        ctrl_layout.setContentsMargins(8, 16, 8, 8)
+        ctrl_layout.setSpacing(6)
+        
+        ctrl_layout.addWidget(QLabel("串口选择:"), 0, 0)
+        self.cmb_port = QComboBox()
+        self.cmb_port.setFixedHeight(28)
+        # 显式设置 QFont 大小，防止样式继承合并 bug 导致 setPointSize(-1) 警告
+        combobox_font = self.cmb_port.font()
+        combobox_font.setPointSize(10)
+        self.cmb_port.setFont(combobox_font)
+        self.cmb_port.view().setFont(combobox_font)
+        self.cmb_port.view().setStyleSheet("font-size: 12px;")
+        ctrl_layout.addWidget(self.cmb_port, 0, 1)
+        
+        self.btn_port_refresh = QPushButton()
+        from PySide6.QtCore import QSize
+        self.btn_port_refresh.setIcon(create_refresh_icon("#38BDF8"))
+        self.btn_port_refresh.setIconSize(QSize(14, 14))
+        self.btn_port_refresh.setFixedSize(26, 28)
+        self.btn_port_refresh.setToolTip("刷新可用串口")
+        self.btn_port_refresh.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(56, 189, 248, 0.15);
+                border: 1px solid #334155;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: rgba(56, 189, 248, 0.25);
+                border-color: #38BDF8;
+                color: #FFFFFF;
+                font-size: 16px;
+            }
+            QPushButton:pressed {
+                background-color: rgba(56, 189, 248, 0.35);
+                border-color: #0EA5E9;
+                font-size: 16px;
+            }
+        """)
+        self.btn_port_refresh.clicked.connect(self.refresh_serial_ports)
+        ctrl_layout.addWidget(self.btn_port_refresh, 0, 2)
+        
+        ctrl_layout.addWidget(QLabel("波特率:"), 1, 0)
+        self.cmb_baud = QComboBox()
+        self.cmb_baud.setFixedHeight(28)
+        # 显式设置 QFont 大小，防止样式继承合并 bug 导致 setPointSize(-1) 警告
+        combobox_font = self.cmb_baud.font()
+        combobox_font.setPointSize(10)
+        self.cmb_baud.setFont(combobox_font)
+        self.cmb_baud.view().setFont(combobox_font)
+        self.cmb_baud.view().setStyleSheet("font-size: 12px;")
+        self.cmb_baud.addItems(["9600", "115200", "230400", "460800", "921600", "2000000"])
+        self.cmb_baud.setCurrentText("115200")
+        ctrl_layout.addWidget(self.cmb_baud, 1, 1, 1, 2)
+        
+        self.btn_serial_connect = QPushButton("打开串口")
+        self.btn_serial_connect.setFixedHeight(32)
+        self.btn_serial_connect.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(16, 185, 129, 0.15);
+                border: 1px solid #10B981;
+                color: #10B981;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: rgba(16, 185, 129, 0.25);
+                color: #FFFFFF;
+                font-size: 12px;
+            }
+            QPushButton:pressed {
+                background-color: rgba(16, 185, 129, 0.35);
+                font-size: 12px;
+            }
+        """)
+        self.btn_serial_connect.clicked.connect(self.toggle_serial_connection)
+        ctrl_layout.addWidget(self.btn_serial_connect, 2, 0, 1, 3)
+        
+        # 显示控制与录制
+        row_display_ctrl = QHBoxLayout()
+        row_display_ctrl.setSpacing(6)
+        self.cb_hex = QCheckBox("Hex显示")
+        self.cb_hex.setStyleSheet("color:#94A3B8; font-size:11px;")
+        self.cb_scroll = QCheckBox("自动滚动")
+        self.cb_scroll.setStyleSheet("color:#94A3B8; font-size:11px;")
+        self.cb_scroll.setChecked(True)
+        self.cb_scroll.stateChanged.connect(self.on_scroll_checkbox_changed)
+        row_display_ctrl.addWidget(self.cb_hex)
+        row_display_ctrl.addWidget(self.cb_scroll)
+        ctrl_layout.addLayout(row_display_ctrl, 3, 0, 1, 3)
+        
+        row_record = QHBoxLayout()
+        row_record.setSpacing(6)
+        self.cb_record = QCheckBox("录制原始数据")
+        self.cb_record.setStyleSheet("color:#38BDF8; font-size:11px;")
+        self.cb_record.stateChanged.connect(self.on_record_state_changed)
+        row_record.addWidget(self.cb_record)
+        ctrl_layout.addLayout(row_record, 4, 0, 1, 3)
+        
+        self.btn_clear_console = QPushButton("清空接收区")
+        self.btn_clear_console.setFixedHeight(26)
+        self.btn_clear_console.clicked.connect(self.clear_serial_console)
+        ctrl_layout.addWidget(self.btn_clear_console, 5, 0, 1, 3)
+        
+        serial_left_layout.addWidget(self.group_serial_ctrl)
+        
+        # 快捷指令 GroupBox
+        self.group_serial_cmd = QGroupBox("快捷指令")
+        cmd_layout = QGridLayout(self.group_serial_cmd)
+        cmd_layout.setContentsMargins(8, 16, 8, 8)
+        cmd_layout.setSpacing(6)
+        
+        self.btn_cmd_cold = QPushButton("冷启动")
+        self.btn_cmd_cold.setToolTip("发送冷启动复位指令")
+        self.btn_cmd_cold.clicked.connect(lambda: self.send_serial_command('cold'))
+        cmd_layout.addWidget(self.btn_cmd_cold, 0, 0)
+        
+        self.btn_cmd_hot = QPushButton("热启动")
+        self.btn_cmd_hot.setToolTip("发送热启动复位指令")
+        self.btn_cmd_hot.clicked.connect(lambda: self.send_serial_command('hot'))
+        cmd_layout.addWidget(self.btn_cmd_hot, 0, 1)
+        
+        self.btn_cmd_ver = QPushButton("查询版本")
+        self.btn_cmd_ver.setToolTip("发送查询固件版本指令")
+        self.btn_cmd_ver.clicked.connect(lambda: self.send_serial_command('version'))
+        cmd_layout.addWidget(self.btn_cmd_ver, 1, 0)
+        
+        self.btn_cmd_save = QPushButton("保存配置")
+        self.btn_cmd_save.setToolTip("发送保存当前配置到 Flash 指令")
+        self.btn_cmd_save.clicked.connect(lambda: self.send_serial_command('save'))
+        cmd_layout.addWidget(self.btn_cmd_save, 1, 1)
+        
+        serial_left_layout.addWidget(self.group_serial_cmd)
+        serial_left_layout.addStretch()
+        serial_left_panel.setFixedWidth(240)
+        layout_serial.addWidget(serial_left_panel)
+        
+        # F.2. 右侧数据展示面板 (包含上部解析卡片与下部原始终端)
+        serial_right_panel = QWidget()
+        serial_right_layout = QVBoxLayout(serial_right_panel)
+        serial_right_layout.setContentsMargins(0, 0, 0, 0)
+        serial_right_layout.setSpacing(10)
+        
+        # 上层：数据解析卡片 QTabWidget
+        self.dashboard_tab = QTabWidget()
+        self.dashboard_tab.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #1E293B;
+                background-color: #172033;
+                border-radius: 8px;
+            }
+            QTabBar::tab {
+                background-color: #0B1120;
+                color: #94A3B8;
+                padding: 6px 12px;
+                font-size: 11px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                border: 1px solid #1E293B;
+                margin-right: 4px;
+            }
+            QTabBar::tab:selected {
+                background-color: #172033;
+                color: #38BDF8;
+                border-bottom: 2px solid #38BDF8;
+            }
+        """)
+        
+        # F.2.1 定位解析数据面板
+        self.pane_pnt = QWidget()
+        pnt_grid = QGridLayout(self.pane_pnt)
+        pnt_grid.setContentsMargins(12, 12, 12, 12)
+        pnt_grid.setSpacing(8)
+        
+        pnt_grid.addWidget(QLabel("UTC 时间:"), 0, 0)
+        self.lbl_pnt_utc = QLabel("--:--:--.--")
+        self.lbl_pnt_utc.setStyleSheet("color: #F8FAFC; font-weight: bold; font-family: Consolas;")
+        pnt_grid.addWidget(self.lbl_pnt_utc, 0, 1)
+        
+        pnt_grid.addWidget(QLabel("定位质量:"), 0, 2)
+        self.lbl_pnt_quality = QLabel("未定位")
+        self.lbl_pnt_quality.setStyleSheet("background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
+        self.lbl_pnt_quality.setAlignment(Qt.AlignCenter)
+        pnt_grid.addWidget(self.lbl_pnt_quality, 0, 3)
+        
+        pnt_grid.addWidget(QLabel("纬度 (Lat):"), 1, 0)
+        self.lbl_pnt_lat = QLabel("---.--------")
+        self.lbl_pnt_lat.setStyleSheet("color: #E2E8F0; font-weight: bold; font-family: Consolas;")
+        pnt_grid.addWidget(self.lbl_pnt_lat, 1, 1)
+        
+        pnt_grid.addWidget(QLabel("经度 (Lon):"), 1, 2)
+        self.lbl_pnt_lon = QLabel("---.--------")
+        self.lbl_pnt_lon.setStyleSheet("color: #E2E8F0; font-weight: bold; font-family: Consolas;")
+        pnt_grid.addWidget(self.lbl_pnt_lon, 1, 3)
+        
+        pnt_grid.addWidget(QLabel("椭球高 (HAE):"), 2, 0)
+        self.lbl_pnt_alt = QLabel("---.--- 米")
+        self.lbl_pnt_alt.setStyleSheet("color: #E2E8F0; font-weight: bold;")
+        pnt_grid.addWidget(self.lbl_pnt_alt, 2, 1)
+        
+        pnt_grid.addWidget(QLabel("解算星数:"), 2, 2)
+        self.lbl_pnt_num = QLabel("0 颗")
+        self.lbl_pnt_num.setStyleSheet("color: #E2E8F0; font-weight: bold;")
+        pnt_grid.addWidget(self.lbl_pnt_num, 2, 3)
+        
+        pnt_grid.addWidget(QLabel("PDOP:"), 3, 0)
+        self.lbl_pnt_pdop = QLabel("---")
+        self.lbl_pnt_pdop.setStyleSheet("color: #94A3B8;")
+        pnt_grid.addWidget(self.lbl_pnt_pdop, 3, 1)
+        
+        pnt_grid.addWidget(QLabel("HDOP:"), 3, 2)
+        self.lbl_pnt_hdop = QLabel("---")
+        self.lbl_pnt_hdop.setStyleSheet("color: #94A3B8;")
+        pnt_grid.addWidget(self.lbl_pnt_hdop, 3, 3)
+        
+        self.dashboard_tab.addTab(self.pane_pnt, "定位基本状态")
+        
+        # F.2.2 惯导解析数据面板
+        self.pane_ins = QWidget()
+        ins_grid = QGridLayout(self.pane_ins)
+        ins_grid.setContentsMargins(12, 12, 12, 12)
+        ins_grid.setSpacing(8)
+        
+        ins_grid.addWidget(QLabel("惯导状态:"), 0, 0)
+        self.lbl_ins_status = QLabel("未激活")
+        self.lbl_ins_status.setStyleSheet("background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
+        self.lbl_ins_status.setAlignment(Qt.AlignCenter)
+        ins_grid.addWidget(self.lbl_ins_status, 0, 1)
+        
+        ins_grid.addWidget(QLabel("载体运动:"), 0, 2)
+        self.lbl_ins_motion = QLabel("未知")
+        self.lbl_ins_motion.setStyleSheet("color: #F8FAFC; font-weight: bold;")
+        ins_grid.addWidget(self.lbl_ins_motion, 0, 3)
+        
+        ins_grid.addWidget(QLabel("滚转 (Roll):"), 1, 0)
+        self.lbl_ins_roll = QLabel("---.--- 度")
+        self.lbl_ins_roll.setStyleSheet("color: #E2E8F0; font-family: Consolas;")
+        ins_grid.addWidget(self.lbl_ins_roll, 1, 1)
+        
+        ins_grid.addWidget(QLabel("俯仰 (Pitch):"), 1, 2)
+        self.lbl_ins_pitch = QLabel("---.--- 度")
+        self.lbl_ins_pitch.setStyleSheet("color: #E2E8F0; font-family: Consolas;")
+        ins_grid.addWidget(self.lbl_ins_pitch, 1, 3)
+        
+        ins_grid.addWidget(QLabel("航向 (Yaw):"), 2, 0)
+        self.lbl_ins_yaw = QLabel("---.--- 度")
+        self.lbl_ins_yaw.setStyleSheet("color: #E2E8F0; font-family: Consolas; font-weight: bold;")
+        ins_grid.addWidget(self.lbl_ins_yaw, 2, 1)
+        
+        ins_grid.addWidget(QLabel("前向速度:"), 2, 2)
+        self.lbl_ins_speed = QLabel("---.- m/s")
+        self.lbl_ins_speed.setStyleSheet("color: #E2E8F0;")
+        ins_grid.addWidget(self.lbl_ins_speed, 2, 3)
+        
+        ins_grid.addWidget(QLabel("累计里程:"), 3, 0)
+        self.lbl_ins_mileage = QLabel("---.- 米")
+        self.lbl_ins_mileage.setStyleSheet("color: #E2E8F0;")
+        ins_grid.addWidget(self.lbl_ins_mileage, 3, 1)
+        
+        ins_grid.addWidget(QLabel("周内秒 (TOW):"), 3, 2)
+        self.lbl_ins_tow = QLabel("------.---")
+        self.lbl_ins_tow.setStyleSheet("color: #94A3B8; font-family: Consolas;")
+        ins_grid.addWidget(self.lbl_ins_tow, 3, 3)
+        
+        self.dashboard_tab.addTab(self.pane_ins, "组合惯导参数")
+        
+        serial_right_layout.addWidget(self.dashboard_tab)
+        
+        # 下层：滚动文本终端 (QTextEdit)
+        self.txt_console = QTextEdit()
+        self.txt_console.setReadOnly(True)
+        self.txt_console.setStyleSheet("""
+            background-color: #0B1120;
+            color: #10B981;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            border: 1px solid #1E293B;
+            border-radius: 6px;
+            padding: 4px;
+        """)
+        self.txt_console.verticalScrollBar().valueChanged.connect(self.on_console_scrollbar_value_changed)
+        serial_right_layout.addWidget(self.txt_console)
+        
+        # 强制下部终端占据较多空间
+        serial_right_layout.setStretch(0, 1)
+        serial_right_layout.setStretch(1, 2)
+        layout_serial.addWidget(serial_right_panel)
+
         # 添加选项卡
         self.tab_widget.addTab(self.tab_scatter, "靶心图")
         self.tab_widget.addTab(self.tab_epoch_h, "水平位置误差历元分布图")
         self.tab_widget.addTab(self.tab_epoch_v, "高程误差历元分布图")
         self.tab_widget.addTab(self.tab_status, "定位质量图")
         self.tab_widget.addTab(self.tab_trajectory, "绝对轨迹图")
+        self.tab_widget.addTab(self.tab_serial, "实时串口")
         
         # E. 精度统计对比页
         self.tab_metrics = QWidget()
@@ -580,6 +937,7 @@ class MainWindow(QMainWindow):
         lbl_history.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
         self.cmb_history = QComboBox()
         self.cmb_history.setFixedHeight(28)
+        self.cmb_history.view().setStyleSheet("font-size: 12px;")
         self.cmb_history.setDisabled(True)  # 默认Auto模式下禁用
         self.cmb_history.currentIndexChanged.connect(self.on_history_coordinate_selected)
         row_history.addWidget(lbl_history)
@@ -726,6 +1084,7 @@ class MainWindow(QMainWindow):
         lbl_tz = QLabel("时间:")
         lbl_tz.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
         self.cmb_timezone = QComboBox()
+        self.cmb_timezone.view().setStyleSheet("font-size: 12px;")
         self.cmb_timezone.addItems(["UTC 时间", "北京时间 (UTC+8)"])
         self.cmb_timezone.setFixedWidth(110)
         self.cmb_timezone.setFixedHeight(28)
@@ -741,6 +1100,7 @@ class MainWindow(QMainWindow):
         lbl_xaxis = QLabel("X轴:")
         lbl_xaxis.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
         self.cmb_xaxis = QComboBox()
+        self.cmb_xaxis.view().setStyleSheet("font-size: 12px;")
         self.cmb_xaxis.addItems(["历元数", "时间轴"])
         self.cmb_xaxis.setFixedWidth(90)
         self.cmb_xaxis.setFixedHeight(28)
@@ -1242,16 +1602,18 @@ class MainWindow(QMainWindow):
         # 只有在完全没有标准 GGA 时，才平均私有 POGOS 数据，防止坐标系偏差导致真值漂移
         gga_epochs = [p for p in self.parsed_epochs if p['type'] == 'GGA']
         target_epochs = gga_epochs if gga_epochs else self.parsed_epochs
+        # 防御性过滤：确保参与平均值计算的历元都包含必要的经纬度和高度字段
+        target_epochs = [p for p in target_epochs if isinstance(p, dict) and 'lat' in p and 'lon' in p and 'alt' in p]
         
-        sum_lat = sum(p['lat'] for p in target_epochs)
-        sum_lon = sum(p['lon'] for p in target_epochs)
-        sum_alt = sum(p['alt'] for p in target_epochs)
         n = len(target_epochs)
         if n == 0:
             self.truth['lat'] = 0.0
             self.truth['lon'] = 0.0
             self.truth['alt'] = 0.0
         else:
+            sum_lat = sum(p['lat'] for p in target_epochs)
+            sum_lon = sum(p['lon'] for p in target_epochs)
+            sum_alt = sum(p['alt'] for p in target_epochs)
             self.truth['lat'] = sum_lat / n
             self.truth['lon'] = sum_lon / n
             self.truth['alt'] = sum_alt / n
@@ -1411,10 +1773,20 @@ class MainWindow(QMainWindow):
             active_segs = [s for s in self.segments if s.get('active') and s.get('epochs')]
             if len(active_segs) > 1:
                 try:
-                    min_sec = min(time_str_to_seconds(s['start_time']) for s in active_segs)
-                    max_sec = max(time_str_to_seconds(s['end_time']) for s in active_segs)
+                    segs_time = []
+                    for s in active_segs:
+                        if s.get('file_id') == "COM_REALTIME" and s.get('epochs'):
+                            t_start = s['epochs'][0]['utc_time_sec']
+                            t_end = s['epochs'][-1]['utc_time_sec']
+                        else:
+                            t_start = time_str_to_seconds(s['start_time'])
+                            t_end = time_str_to_seconds(s['end_time'])
+                        segs_time.append((t_start, t_end))
+                        
+                    min_sec = min(t[0] for t in segs_time)
+                    max_sec = max(t[1] for t in segs_time)
                     total_span = max_sec - min_sec
-                    sum_duration = sum(time_str_to_seconds(s['end_time']) - time_str_to_seconds(s['start_time']) for s in active_segs)
+                    sum_duration = sum(t[1] - t[0] for t in segs_time)
                     
                     if total_span > 14400 and (sum_duration / total_span) < 0.15:
                         QMessageBox.warning(self, "时间轴对齐警告", 
@@ -1665,8 +2037,12 @@ class MainWindow(QMainWindow):
         try:
             segs_time = []
             for s in active_segs:
-                t_start = time_str_to_seconds(s['start_time'])
-                t_end = time_str_to_seconds(s['end_time'])
+                if s.get('file_id') == "COM_REALTIME" and s.get('epochs'):
+                    t_start = s['epochs'][0]['utc_time_sec']
+                    t_end = s['epochs'][-1]['utc_time_sec']
+                else:
+                    t_start = time_str_to_seconds(s['start_time'])
+                    t_end = time_str_to_seconds(s['end_time'])
                 segs_time.append((t_start, t_end))
             
             segs_time.sort(key=lambda x: x[0])
@@ -1732,12 +2108,22 @@ class MainWindow(QMainWindow):
             start_sec = time_str_to_seconds(seg['start_time'])
             end_sec = time_str_to_seconds(seg['end_time'])
             
-            # 使用基于 file_id 的字典查询代替遍历数十万级别的全集列表
-            file_epochs = self.file_epochs_map.get(seg.get('file_id'), [])
+            if seg.get('file_id') == "COM_REALTIME":
+                # 根据当前选定的数据源类型进行动态过滤，保留最近 2000 个
+                if seg['source_type'] == 'GGA':
+                    seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']][-2000:]
+                else:
+                    seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] == seg['source_type']][-2000:]
+            else:
+                # 使用基于 file_id 的字典查询代替遍历数十万级别的全集列表
+                file_epochs = self.file_epochs_map.get(seg.get('file_id'), [])
+                
+                # 使用二分查找 O(log N) 获取时间区间内的历元
+                range_epochs = find_epoch_range(file_epochs, start_sec, end_sec)
+                seg['epochs'] = [ep for ep in range_epochs if ep['type'] == seg['source_type']]
             
-            # 使用二分查找 O(log N) 获取时间区间内的历元
-            range_epochs = find_epoch_range(file_epochs, start_sec, end_sec)
-            seg['epochs'] = [ep for ep in range_epochs if ep['type'] == seg['source_type']]
+            # 防御性过滤：确保所有参与精度统计和绘图的历元都包含必需的定位坐标及质量字段，防止 KeyError
+            seg['epochs'] = [p for p in seg['epochs'] if isinstance(p, dict) and 'lat' in p and 'lon' in p and 'alt' in p and 'quality' in p]
             
             dynamic_truth_array = None
             if self.truth_mode == 'auto':
@@ -2166,6 +2552,562 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "错误", "目标 Word 文件正被另一程序(如 Microsoft Word)打开，请关闭后重试。")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"报告生成失败: {str(e)}")
+
+    def refresh_serial_ports(self):
+        self.cmb_port.clear()
+        ports = QSerialPortInfo.availablePorts()
+        for p in ports:
+            display_name = f"{p.portName()} ({p.description()})" if p.description() else p.portName()
+            self.cmb_port.addItem(display_name, p.portName())
+            
+        # 设置下拉菜单最小宽度为 320px 保证长串口名字完整可见
+        self.cmb_port.view().setMinimumWidth(320)
+        
+        if self.cmb_port.count() == 0:
+            self.lbl_status.setText("未检测到可用串口")
+        else:
+            self.lbl_status.setText(f"已扫描到 {self.cmb_port.count()} 个可用串口")
+
+    def toggle_serial_connection(self):
+        if self.serial_port.isOpen():
+            self.serial_port.close()
+            self.reset_live_status_ui()
+            if hasattr(self, 'realtime_timeout_timer'):
+                self.realtime_timeout_timer.stop()
+            self.btn_serial_connect.setText("打开串口")
+            self.btn_serial_connect.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(16, 185, 129, 0.15);
+                    border: 1px solid #10B981;
+                    color: #10B981;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(16, 185, 129, 0.25);
+                    color: #FFFFFF;
+                    font-size: 12px;
+                }
+                QPushButton:pressed {
+                    background-color: rgba(16, 185, 129, 0.35);
+                    font-size: 12px;
+                }
+            """)
+            self.lbl_status.setText("串口已关闭")
+            if self.record_file:
+                try:
+                    self.record_file.close()
+                except Exception:
+                    pass
+                self.record_file = None
+                self.cb_record.setChecked(False)
+                self.record_filepath = None
+        else:
+            port_name = self.cmb_port.currentData()
+            if not port_name:
+                port_name = self.cmb_port.currentText()
+            if not port_name:
+                QMessageBox.warning(self, "警告", "没有选择有效的串口！")
+                return
+            baud_rate = int(self.cmb_baud.currentText())
+            self.serial_port.setPortName(port_name)
+            self.serial_port.setBaudRate(baud_rate)
+            if self.serial_port.open(QSerialPort.ReadWrite):
+                self.btn_serial_connect.setText("关闭串口")
+                self.btn_serial_connect.setStyleSheet("""
+                    QPushButton {
+                        background-color: rgba(239, 68, 68, 0.15);
+                        border: 1px solid #EF4444;
+                        color: #EF4444;
+                        font-weight: bold;
+                        font-size: 12px;
+                    }
+                    QPushButton:hover {
+                        background-color: rgba(239, 68, 68, 0.25);
+                        color: #FFFFFF;
+                        font-size: 12px;
+                    }
+                    QPushButton:pressed {
+                        background-color: rgba(239, 68, 68, 0.35);
+                        font-size: 12px;
+                    }
+                """)
+                self.lbl_status.setText(f"已连接串口 {port_name}，波特率 {baud_rate}...")
+                self.add_realtime_segment_item()
+                self.reset_live_status_ui()
+            else:
+                QMessageBox.critical(self, "连接失败", f"无法打开串口 {port_name}，可能已被占用或未连接。")
+
+    def on_record_state_changed(self, state):
+        if state == 2:  # Checked (Qt.Checked is 2)
+            filepath, _ = QFileDialog.getSaveFileName(self, "选择保存的原始数据日志文件", "", "GNSS Logs (*.log *.txt *.nmea *.dat)")
+            if not filepath:
+                self.cb_record.setChecked(False)
+                return
+            try:
+                self.record_file = open(filepath, 'wb')
+                self.record_filepath = filepath
+                self.safe_append_console(f"[录制启动] 正在将原始流实时保存到: {filepath}\n")
+            except Exception as e:
+                QMessageBox.critical(self, "启动录制失败", f"无法写入目标文件: {str(e)}")
+                self.cb_record.setChecked(False)
+        else:
+            if self.record_file:
+                try:
+                    self.record_file.close()
+                except Exception:
+                    pass
+                self.record_file = None
+                self.safe_append_console(f"[录制停止] 文件已成功保存: {self.record_filepath}\n")
+                self.record_filepath = None
+
+    def safe_append_console(self, text, scroll=True):
+        self._is_programmatic_scroll = True
+        scrollbar = self.txt_console.verticalScrollBar()
+        old_val = scrollbar.value()
+        self.txt_console.append(text)
+        if not self.cb_scroll.isChecked():
+            scrollbar.setValue(old_val)
+        self._is_programmatic_scroll = False
+        if scroll:
+            self.scroll_console_to_bottom()
+
+    def safe_clear_console(self):
+        self._is_programmatic_scroll = True
+        self.txt_console.clear()
+        self._is_programmatic_scroll = False
+
+    def scroll_console_to_bottom(self):
+        if self.cb_scroll.isChecked():
+            self._is_programmatic_scroll = True
+            self.txt_console.moveCursor(QTextCursor.End)
+            self._is_programmatic_scroll = False
+
+    def on_console_scrollbar_value_changed(self, value):
+        if self._is_programmatic_scroll:
+            return
+        
+        scrollbar = self.txt_console.verticalScrollBar()
+        max_val = scrollbar.maximum()
+        
+        if max_val - value > 10:
+            if self.cb_scroll.isChecked():
+                self.cb_scroll.blockSignals(True)
+                self.cb_scroll.setChecked(False)
+                self.cb_scroll.blockSignals(False)
+        elif max_val > 0 and max_val - value <= 10:
+            if not self.cb_scroll.isChecked():
+                self.cb_scroll.blockSignals(True)
+                self.cb_scroll.setChecked(True)
+                self.cb_scroll.blockSignals(False)
+
+    def on_scroll_checkbox_changed(self, state):
+        if state == 2 or state == Qt.Checked:
+            self.scroll_console_to_bottom()
+
+    def clear_serial_console(self):
+        self.safe_clear_console()
+
+    def send_serial_command(self, cmd_type):
+        if not self.serial_port.isOpen():
+            QMessageBox.warning(self, "警告", "请先打开串口连接！")
+            return
+            
+        if cmd_type == 'cold':
+            # 明文冷启动
+            self.serial_port.write(b"$POLCFGRESET,1\r\n")
+            self.safe_append_console("[下发指令] 冷启动复位\n")
+            self.reset_live_status_ui()
+            
+        elif cmd_type == 'hot':
+            # 明文热启动
+            self.serial_port.write(b"$POLCFGRESET,0\r\n")
+            self.safe_append_console("[下发指令] 热启动复位\n")
+            self.reset_live_status_ui()
+            
+        elif cmd_type == 'version':
+            self.waiting_for_version = True
+            self.version_lines = []
+            QTimer.singleShot(3000, self.reset_version_wait_flag)
+            self.serial_port.write(b"$POLCFGPTVER\r\n")
+            header_data = bytes([0x02, 0x07, 0x00, 0x00])
+            crc = crc16_ccitt(header_data)
+            bk_cmd = bytes([0x42, 0x4B, (crc >> 8) & 0xFF, crc & 0xFF]) + header_data
+            self.serial_port.write(bk_cmd)
+            self.safe_append_console("[下发指令] 查询版本号\n")
+            
+        elif cmd_type == 'save':
+            self.serial_port.write(b"$POLCFGSAVE\r\n")
+            header_data = bytes([0x02, 0x26, 0x00, 0x04])
+            crc = crc16_ccitt(header_data)
+            bk_cmd = bytes([0x42, 0x4B, (crc >> 8) & 0xFF, crc & 0xFF]) + header_data
+            self.serial_port.write(bk_cmd)
+            self.safe_append_console("[下发指令] 保存配置到 Flash\n")
+
+    def add_realtime_segment_item(self):
+        # 避免重复创建
+        for s in self.segments:
+            if s.get('file_id') == "COM_REALTIME":
+                return
+                
+        color = None
+        used_colors = {s['color'].upper() for s in self.segments}
+        for candidate in self.default_colors:
+            if candidate.upper() not in used_colors:
+                color = candidate
+                break
+        if not color:
+            color = self.default_colors[self.segment_counter % len(self.default_colors)]
+            
+        seg_id = self.segment_counter
+        self.segment_counter += 1
+        
+        seg = {
+            'id': seg_id,
+            'name': "串口实时数据",
+            'start_time': "00:00:00",
+            'end_time': "23:59:59",
+            'source_type': 'GGA',
+            'color': color,
+            'active': True,
+            'metrics': None,
+            'epochs': [],
+            'file_id': "COM_REALTIME"
+        }
+        self.segments.append(seg)
+        
+        item_widget = SegmentListItemWidget(seg_id, "串口实时数据", "00:00:00", "23:59:59", "GGA", color, True, True, True)
+        item_widget.active_toggled.connect(self.on_seg_active_toggled)
+        item_widget.name_changed.connect(self.on_seg_name_changed)
+        item_widget.color_changed.connect(self.on_seg_color_changed)
+        item_widget.source_changed.connect(self.on_seg_source_changed)
+        item_widget.delete_clicked.connect(self.on_seg_delete_clicked)
+        
+        list_item = QListWidgetItem(self.list_segments)
+        list_item.setSizeHint(item_widget.sizeHint())
+        self.list_segments.addItem(list_item)
+        self.list_segments.setItemWidget(list_item, item_widget)
+        
+        # 激活全局变量
+        if not self.parsed_epochs:
+            self.parsed_epochs = []
+
+    def handle_serial_read(self):
+        if not self.serial_port.isOpen():
+            return
+            
+        data = self.serial_port.readAll().data()
+        if not data:
+            return
+            
+        # 写入录制文件
+        if self.record_file:
+            try:
+                self.record_file.write(data)
+                self.record_file.flush()
+            except Exception:
+                pass
+                
+        # 喂给流式分包缓冲器
+        self.serial_buffer.feed(data)
+        
+        has_new_epoch = False
+        
+        while True:
+            res = self.serial_buffer.next_frame()
+            if res is None:
+                break
+                
+            frame_type, frame_data = res
+            
+            # 控制台输出限制，防止溢出
+            if len(self.txt_console.toPlainText()) > 50000:
+                self.safe_clear_console()
+                self.safe_append_console("[系统提示] 接收终端缓冲区已满，自动清空...\n", scroll=False)
+                
+            if frame_type == 'NMEA':
+                line_str = frame_data.decode('gbk', errors='replace')
+                if self.cb_hex.isChecked():
+                    self.safe_append_console(frame_data.hex(' ').upper() + '\n', scroll=False)
+                else:
+                    self.safe_append_console(line_str, scroll=False)
+                    
+                # 检查是否是版本查询返回
+                if self.waiting_for_version:
+                    is_version = False
+                    lower_line = line_str.upper()
+                    for kw in ['POLCFGPTVER', 'POLCFGVER', 'POLCFGGETVER', '$BKCHIP', '$POLRS', '$POSYS_BM', '$FWVER', '$HWVER']:
+                        if kw in lower_line:
+                            is_version = True
+                            break
+                    if is_version:
+                        cleaned_line = line_str.strip()
+                        if '*' in cleaned_line:
+                            cleaned_line = cleaned_line.split('*')[0]
+                        if cleaned_line and cleaned_line not in self.version_lines:
+                            self.version_lines.append(cleaned_line)
+                        
+                        if self.version_timer is not None:
+                            self.version_timer.stop()
+                        self.version_timer = QTimer(self)
+                        self.version_timer.setSingleShot(True)
+                        self.version_timer.timeout.connect(self.show_version_dialog)
+                        self.version_timer.start(500)
+
+                # 解析 NMEA 行
+                epoch = parse_log_line(line_str, self.get_leap_seconds())
+                if epoch:
+                    self.process_live_epoch(epoch)
+                    has_new_epoch = True
+                    
+            elif frame_type == 'BK':
+                mtype = frame_data[4]
+                stype = frame_data[5]
+                if self.cb_hex.isChecked():
+                    self.safe_append_console(frame_data.hex(' ').upper() + '\n', scroll=False)
+                else:
+                    payload_len = ((frame_data[6] & 0x0F) << 8) | frame_data[7]
+                    self.safe_append_console(f"[BK 二进制帧] MTYPE={hex(mtype)} STYPE={hex(stype)} 长度={payload_len}\n", scroll=False)
+                    
+                # 检查是否是二进制版本返回 (MTYPE=0x02, STYPE=0x07)
+                if self.waiting_for_version and mtype == 0x02 and stype == 0x07:
+                    payload = frame_data[8:]
+                    try:
+                        version_info = payload.decode('ascii', errors='replace').strip()
+                        version_info = "".join(ch for ch in version_info if ch.isprintable())
+                        if version_info:
+                            cleaned_info = f"[BK 二进制版本] {version_info}"
+                            if cleaned_info not in self.version_lines:
+                                self.version_lines.append(cleaned_info)
+                            
+                            if self.version_timer is not None:
+                                self.version_timer.stop()
+                            self.version_timer = QTimer(self)
+                            self.version_timer.setSingleShot(True)
+                            self.version_timer.timeout.connect(self.show_version_dialog)
+                            self.version_timer.start(500)
+                    except Exception:
+                        pass
+
+                # 解析 BK 帧
+                epoch = parse_bk_frame(frame_data)
+                if epoch:
+                    if epoch['type'] == 'BK_PNT_NAV':
+                        self.process_live_epoch(epoch)
+                        has_new_epoch = True
+                        
+        self.scroll_console_to_bottom()
+                
+        if has_new_epoch:
+            # 实时重绘图表与精度指标
+            self.recompute_all()
+
+    def show_version_dialog(self):
+        self.waiting_for_version = False
+        if not self.version_lines:
+            return
+        content = "\n".join(self.version_lines)
+        self.version_lines = []
+        
+        msg = QMessageBox(self)
+        msg.setWindowTitle("固件版本信息")
+        msg.setText(f"查询到设备固件版本：\n\n{content}")
+        msg.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        msg.setIcon(QMessageBox.Information)
+        msg.exec()
+
+    def reset_version_wait_flag(self):
+        self.waiting_for_version = False
+
+    def reset_live_status_ui(self):
+        # 1. 重置最新的缓存数据
+        self.latest_quality = 0
+        self.latest_num_sats = 0
+        self.latest_hdop = 1.0
+        self.latest_pdop = 1.0
+        
+        # 2. 刷新面板坐标和状态展示为默认值
+        self.lbl_pnt_utc.setText("--:--:--.--")
+        self.lbl_pnt_lat.setText("0.00000000")
+        self.lbl_pnt_lon.setText("0.00000000")
+        self.lbl_pnt_alt.setText("0.000 米")
+        self.lbl_pnt_num.setText("0 颗")
+        self.lbl_pnt_pdop.setText("1.0")
+        self.lbl_pnt_hdop.setText("1.0")
+        
+        # 定位状态卡片重置为 [0] 未定位
+        self.lbl_pnt_quality.setText("[0] 未定位")
+        self.lbl_pnt_quality.setStyleSheet(
+            "background-color: #475569; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+        )
+        
+        # 惯导状态卡片重置为 [0] 未激活
+        if hasattr(self, 'lbl_ins_status'):
+            self.lbl_ins_status.setText("未激活")
+            self.lbl_ins_status.setStyleSheet(
+                "background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+            )
+
+    def process_live_epoch(self, epoch):
+        # 刷新实时超时定时器，2.5秒内没有新数据则自动清空UI
+        if hasattr(self, 'realtime_timeout_timer') and self.serial_port.isOpen():
+            self.realtime_timeout_timer.start(2500)
+            
+        self.add_realtime_segment_item()
+        
+        realtime_seg = None
+        for s in self.segments:
+            if s.get('file_id') == "COM_REALTIME":
+                realtime_seg = s
+                break
+        if not realtime_seg:
+            return
+            
+        # 1. 如果是主定位语句，更新系统状态缓存
+        if epoch['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']:
+            self.latest_quality = epoch.get('quality', 0)
+            if 'num_sats' in epoch:
+                self.latest_num_sats = epoch['num_sats']
+            if 'hdop' in epoch:
+                self.latest_hdop = epoch['hdop']
+            if 'pdop' in epoch:
+                self.latest_pdop = epoch['pdop']
+            elif 'hdop' in epoch:
+                self.latest_pdop = epoch['hdop']
+                
+        # 2. 如果是 GOS 或 DRS，强制继承最新的 GGA/POSOL 系统状态，确保统一性
+        elif epoch['type'] in ['POGOS', 'PODRS']:
+            epoch['quality'] = self.latest_quality
+            epoch['num_sats'] = self.latest_num_sats
+            epoch['hdop'] = self.latest_hdop
+            epoch['pdop'] = self.latest_pdop
+
+        # 3. 追加到全局实时原始缓冲队列中（限制 6000 帧）
+        if epoch['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV', 'POGOS', 'PODRS']:
+            self.realtime_raw_epochs.append(epoch)
+            if len(self.realtime_raw_epochs) > 6000:
+                self.realtime_raw_epochs = self.realtime_raw_epochs[-6000:]
+                
+            # 为了与其他绘图/导出功能兼容，我们需要维护 realtime_seg['epochs']
+            # 我们直接把当前过滤出来的 epoch 赋值刷新给 realtime_seg['epochs']，以便外部通过 realtime_seg['epochs'] 读取当前选定源的实时数据
+            if realtime_seg['source_type'] == 'GGA':
+                realtime_seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']][-2000:]
+            else:
+                realtime_seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] == realtime_seg['source_type']][-2000:]
+            
+            # 同时更新全局 parsed_epochs 中对应的 COM_REALTIME 帧（上限 2000 点），供全局索引
+            # 先给当前帧打上 COM_REALTIME 标记
+            epoch['file_id'] = "COM_REALTIME"
+            self.parsed_epochs.append(epoch)
+            
+            com_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
+            if len(com_epochs) > 2000:
+                self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"] + com_epochs[-2000:]
+                
+            # 建立 file_epochs_map，确保二分查找等其他重计算正常获取
+            self.file_epochs_map["COM_REALTIME"] = realtime_seg['epochs']
+            
+        # 4. 更新实时解析仪表盘
+        self.update_live_dashboard(epoch)
+
+    def update_live_dashboard(self, epoch):
+        # 查找当前实时分段选择的数据源类型
+        realtime_seg = None
+        for s in self.segments:
+            if s.get('file_id') == "COM_REALTIME":
+                realtime_seg = s
+                break
+        
+        current_src_type = 'GGA'
+        if realtime_seg:
+            current_src_type = realtime_seg.get('source_type', 'GGA')
+            
+        is_matched_epoch = False
+        if current_src_type == 'GGA' and epoch['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']:
+            is_matched_epoch = True
+        elif current_src_type == epoch['type']:
+            is_matched_epoch = True
+            
+        if is_matched_epoch:
+            qual = self.latest_quality
+            if qual == 0:
+                # 未定位状态：重置面板（仅保留时间戳指示数据链连通）
+                time_str = epoch.get('time_str', '--:--:--.--')
+                self.reset_live_status_ui()
+                self.lbl_pnt_utc.setText(time_str)
+            else:
+                # 已定位状态：更新面板坐标和时间（使用选定数据源的真实值）
+                self.lbl_pnt_utc.setText(epoch.get('time_str', '--:--:--.--'))
+                self.lbl_pnt_lat.setText(f"{epoch.get('lat', 0.0):.8f}")
+                self.lbl_pnt_lon.setText(f"{epoch.get('lon', 0.0):.8f}")
+                self.lbl_pnt_alt.setText(f"{epoch.get('alt', 0.0):.3f} 米")
+                
+                # 以下系统级指标统一展示系统级最新的缓存数据
+                self.lbl_pnt_num.setText(f"{self.latest_num_sats} 颗")
+                self.lbl_pnt_pdop.setText(f"{self.latest_pdop:.1f}")
+                self.lbl_pnt_hdop.setText(f"{self.latest_hdop:.1f}")
+                
+                qual_str = f"[{qual}] 未定位"
+                badge_style = "background-color: #475569; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                if qual == 4:
+                    qual_str = f"[{qual}] RTK 固定 (FIXED)"
+                    badge_style = "background-color: #10B981; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                elif qual == 5:
+                    qual_str = f"[{qual}] RTK 浮点 (FLOAT)"
+                    badge_style = "background-color: #F59E0B; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                elif qual == 2:
+                    qual_str = f"[{qual}] 差分 (DGPS)"
+                    badge_style = "background-color: #3B82F6; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                elif qual == 1:
+                    qual_str = f"[{qual}] 单点 (SINGLE)"
+                    badge_style = "background-color: #6366F1; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                elif qual == 6:
+                    qual_str = f"[{qual}] 惯导推算 (DR)"
+                    badge_style = "background-color: #8B5CF6; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                elif qual == 7: # BK 二进制下的 RTK Fix
+                    qual_str = f"[{qual}] RTK 固定 (FIXED)"
+                    badge_style = "background-color: #10B981; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                    
+                self.lbl_pnt_quality.setText(qual_str)
+                self.lbl_pnt_quality.setStyleSheet(badge_style)
+            
+        elif epoch['type'] == 'POINS':
+            ins_stat = epoch.get('ins_status', 0)
+            ins_str = f"[{ins_stat}] 未激活"
+            ins_style = "background-color: #475569; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+            if ins_stat == 5:
+                ins_str = f"[{ins_stat}] 已收敛"
+                ins_style = "background-color: #10B981; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+            elif ins_stat == 4:
+                ins_str = f"[{ins_stat}] 未收敛"
+                ins_style = "background-color: #F59E0B; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+            elif ins_stat in [1, 2, 3]:
+                ins_str = f"[{ins_stat}] 初始化/对准中"
+                ins_style = "background-color: #3B82F6; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                
+            self.lbl_ins_status.setText(ins_str)
+            self.lbl_ins_status.setStyleSheet(ins_style)
+            
+            mot = epoch.get('motion_status', 0)
+            mot_map = {0: "0: 未知", 1: "1: 静止", 2: "2: 运动", 3: "3: 直线运动", 4: "4: 曲线运动"}
+            self.lbl_ins_motion.setText(mot_map.get(mot, "0: 未知"))
+            
+            self.lbl_ins_roll.setText(f"{epoch.get('roll', 0.0):.3f} 度")
+            self.lbl_ins_pitch.setText(f"{epoch.get('pitch', 0.0):.3f} 度")
+            self.lbl_ins_yaw.setText(f"{epoch.get('yaw', 0.0):.3f} 度")
+            self.lbl_ins_speed.setText(f"{epoch.get('velocity_forward', 0.0):.2f} m/s")
+            self.lbl_ins_mileage.setText(f"{epoch.get('drive_mileage', 0.0):.1f} 米")
+            self.lbl_ins_tow.setText(f"{epoch.get('gps_tow', 0.0):.3f}")
+
+    def closeEvent(self, event):
+        if hasattr(self, 'serial_port') and self.serial_port.isOpen():
+            self.serial_port.close()
+        if hasattr(self, 'record_file') and self.record_file:
+            try:
+                self.record_file.close()
+            except Exception:
+                pass
+        super().closeEvent(event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

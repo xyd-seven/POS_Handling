@@ -86,6 +86,7 @@ QComboBox QAbstractItemView {
     selection-color: #60A5FA;
     border: 1px solid #334155;
     border-radius: 4px;
+    font-size: 12px;
 }
 
 QPushButton {
@@ -250,21 +251,56 @@ QToolBar::separator {
 
 QScrollBar:vertical {
     border: none;
-    background-color: #0B1120;
-    width: 6px;
+    background-color: #1E293B;
+    width: 16px;
     margin: 0px;
 }
 QScrollBar::handle:vertical {
-    background-color: #1E293B;
-    min-height: 20px;
-    border-radius: 3px;
+    background-color: #94A3B8;
+    min-height: 40px;
+    border-radius: 6px;
+    margin: 2px;
 }
 QScrollBar::handle:vertical:hover {
-    background-color: #334155;
+    background-color: #CBD5E1;
+}
+QScrollBar::handle:vertical:pressed {
+    background-color: #F1F5F9;
 }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     border: none;
     background: none;
+    height: 0px;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background-color: #1E293B;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background-color: #1E293B;
+    height: 16px;
+    margin: 0px;
+}
+QScrollBar::handle:horizontal {
+    background-color: #94A3B8;
+    min-width: 40px;
+    border-radius: 6px;
+    margin: 2px;
+}
+QScrollBar::handle:horizontal:hover {
+    background-color: #CBD5E1;
+}
+QScrollBar::handle:horizontal:pressed {
+    background-color: #F1F5F9;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+    width: 0px;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background-color: #1E293B;
 }
 """
 import os
@@ -371,6 +407,7 @@ class SegmentListItemWidget(QWidget):
         self.cmb_src = QComboBox()
         self.cmb_src.setFixedWidth(80)
         self.cmb_src.setFixedHeight(26)
+        self.cmb_src.view().setStyleSheet("font-size: 12px;")
         if has_gga:
             self.cmb_src.addItem("GGA")
         if has_pogos:
@@ -430,6 +467,7 @@ class SegmentListItemWidget(QWidget):
                 selection-color: #60A5FA;
                 border: 1px solid #334155;
                 border-radius: 4px;
+                font-size: 12px;
             }
         """)
 

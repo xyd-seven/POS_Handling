@@ -6,6 +6,7 @@ import math
 import numpy as np
 import functools
 import operator
+import struct
 # WGS84 椭球体常数
 WGS84_A = 6378137.0       # 长半轴
 WGS84_B = 6356752.314245  # 短半轴
@@ -353,6 +354,150 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
             except ValueError:
                 pass
 
+    # 4.5. POSOL 语句
+    elif sentence_type == '$POSOL':
+        if len(parts) < 27:
+            return None
+        utc_time = parts[1]
+        date_str = parts[2]
+        try:
+            lat_deg = nmea_to_deg(parts[3], parts[4], True)
+            lon_deg = nmea_to_deg(parts[5], parts[6], False)
+        except (ValueError, IndexError):
+            return None
+            
+        try:
+            orth = float(parts[7]) if parts[7].strip() else 0.0
+            geoid = float(parts[8]) if parts[8].strip() else 0.0
+            alt = orth + geoid
+            
+            std_lat = float(parts[9]) if parts[9].strip() else 0.0
+            std_lon = float(parts[10]) if parts[10].strip() else 0.0
+            std_alt = float(parts[11]) if parts[11].strip() else 0.0
+            
+            vel_e = float(parts[13]) if parts[13].strip() else 0.0
+            vel_n = float(parts[14]) if parts[14].strip() else 0.0
+            vel_u = float(parts[15]) if parts[15].strip() else 0.0
+            
+            course = float(parts[19]) if parts[19].strip() else 0.0
+            num_sats = int(parts[21]) if parts[21].strip() else 0
+            num_usv = int(parts[22]) if parts[22].strip() else 0
+            
+            pdop = float(parts[23]) if parts[23].strip() else 99.9
+            hdop = float(parts[24]) if parts[24].strip() else 99.9
+            vdop = float(parts[25]) if parts[25].strip() else 99.9
+            
+            quality = int(parts[26]) if parts[26].strip() else 0
+            
+            age = float(parts[27]) if len(parts) > 27 and parts[27].strip() else 0.0
+        except ValueError:
+            return None
+            
+        if lat_deg is None or lon_deg is None or lat_deg == 0.0 or lon_deg == 0.0:
+            return None
+            
+        return {
+            'type': 'POSOL',
+            'sentence_type': '$POSOL',
+            'time_str': format_time_str(utc_time),
+            'utc_time_sec': time_str_to_seconds(utc_time),
+            'date': date_str,
+            'lat': lat_deg,
+            'lon': lon_deg,
+            'alt': alt,
+            'orth': orth,
+            'geoid': geoid,
+            'std_lat': std_lat,
+            'std_lon': std_lon,
+            'std_alt': std_alt,
+            'vel_e': vel_e,
+            'vel_n': vel_n,
+            'vel_u': vel_u,
+            'course': course,
+            'quality': quality,
+            'num_sats': num_sats,
+            'num_usv': num_usv,
+            'pdop': pdop,
+            'hdop': hdop,
+            'vdop': vdop,
+            'age': age,
+            'raw_line': line
+        }
+
+    # 4.6. POINS 语句
+    elif sentence_type == '$POINS':
+        if len(parts) < 28:
+            return None
+        try:
+            gps_week = int(parts[1]) if parts[1].strip() else 0
+            gps_seconds = float(parts[2]) if parts[2].strip() else 0.0
+            ins_status = int(parts[3]) if parts[3].strip() else 0
+            imu_status = int(parts[4]) if parts[4].strip() else 0
+            gnss_status = int(parts[5]) if parts[5].strip() else 0
+            odometer_status = int(parts[6]) if parts[6].strip() else 0
+            motion_status = int(parts[7]) if parts[7].strip() else 0
+            imu_type = int(parts[8]) if parts[8].strip() else 0
+            work_mode = int(parts[9]) if parts[9].strip() else 0
+            
+            roll = float(parts[10]) if parts[10].strip() else 0.0
+            pitch = float(parts[11]) if parts[11].strip() else 0.0
+            yaw = float(parts[12]) if parts[12].strip() else 0.0
+            
+            speed_status = int(parts[13]) if parts[13].strip() else 0
+            lane_status = int(parts[14]) if parts[14].strip() else 0
+            lean_status = int(parts[15]) if parts[15].strip() else 0
+            bump_status = int(parts[16]) if parts[16].strip() else 0
+            
+            velocity_forward = float(parts[17]) if parts[17].strip() else 0.0
+            velocity_rightward = float(parts[18]) if parts[18].strip() else 0.0
+            velocity_downward = float(parts[19]) if parts[19].strip() else 0.0
+            
+            drive_mileage = float(parts[20]) if parts[20].strip() else 0.0
+            work_time = float(parts[21]) if parts[21].strip() else 0.0
+            
+            acceler_forward = float(parts[22]) if parts[22].strip() else 0.0
+            acceler_rightward = float(parts[23]) if parts[23].strip() else 0.0
+            acceler_downward = float(parts[24]) if parts[24].strip() else 0.0
+            
+            angular_roll = float(parts[25]) if parts[25].strip() else 0.0
+            angular_pitch = float(parts[26]) if parts[26].strip() else 0.0
+            angular_yaw = float(parts[27]) if parts[27].strip() else 0.0
+        except ValueError:
+            return None
+            
+        return {
+            'type': 'POINS',
+            'sentence_type': '$POINS',
+            'gps_week': gps_week,
+            'gps_tow': gps_seconds,
+            'ins_status': ins_status,
+            'imu_status': imu_status,
+            'gnss_status': gnss_status,
+            'odometer_status': odometer_status,
+            'motion_status': motion_status,
+            'imu_type': imu_type,
+            'work_mode': work_mode,
+            'roll': roll,
+            'pitch': pitch,
+            'yaw': yaw,
+            'speed_status': speed_status,
+            'lane_status': lane_status,
+            'lean_status': lean_status,
+            'bump_status': bump_status,
+            'velocity_forward': velocity_forward,
+            'velocity_rightward': velocity_rightward,
+            'velocity_downward': velocity_downward,
+            'drive_mileage': drive_mileage,
+            'work_time': work_time,
+            'acceler_forward': acceler_forward,
+            'acceler_rightward': acceler_rightward,
+            'acceler_downward': acceler_downward,
+            'angular_roll': angular_roll,
+            'angular_pitch': angular_pitch,
+            'angular_yaw': angular_yaw,
+            'raw_line': line
+        }
+
     return {
         'type': 'OTHER',
         'sentence_type': sentence_type,
@@ -565,3 +710,208 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
         'dn': dn.tolist() if isinstance(dn, np.ndarray) else dn
     }
     return metrics, points
+
+def crc16_ccitt(data: bytes) -> int:
+    """
+    计算 CCITT CRC-16 校验值 (多项式 0x1021, 初始值 0x0000)
+    """
+    crc = 0
+    for b in data:
+        crc ^= (b << 8)
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = (crc << 1) ^ 0x1021
+            else:
+                crc <<= 1
+            crc &= 0xFFFF
+    return crc
+
+def parse_bk_frame(frame: bytes) -> dict:
+    """
+    解析完整的 BK 协议二进制帧
+    """
+    if len(frame) < 8:
+        return None
+    if frame[0] != 0x42 or frame[1] != 0x4B:
+        return None
+        
+    crc_pkg = (frame[2] << 8) | frame[3]
+    mtype = frame[4]
+    stype = frame[5]
+    len_msb = frame[6]
+    len_lsb = frame[7]
+    
+    payload_len = ((len_msb & 0x0F) << 8) | len_lsb
+    if len(frame) != 8 + payload_len:
+        return None
+        
+    # 计算 MTYPE 到 Payload 结束的 CRC
+    crc_calc = crc16_ccitt(frame[4:])
+    if crc_calc != crc_pkg:
+        return None
+        
+    payload = frame[8:]
+    
+    # 解析 BK_PNT_NAV (MTYPE=0x41, STYPE=0x00, 长度60字节)
+    if mtype == 0x41 and stype == 0x00:
+        if len(payload) != 60:
+            return None
+            
+        try:
+            fields = struct.unpack("<H6BBBBBH8B8B9e3i", payload)
+        except Exception:
+            return None
+            
+        ms = fields[0]
+        sec = fields[1]
+        minute = fields[2]
+        hour = fields[3]
+        day = fields[4]
+        month = fields[5]
+        year = fields[6]
+        flags = fields[7]
+        num_sats = fields[8]
+        pdop = fields[9] * 0.1
+        version = fields[10]
+        gnss_system_bitmap = fields[11]
+        
+        cno_vals = fields[12:20]
+        sv_num_vals = fields[20:28]
+        
+        h_acc = fields[28]
+        v_acc = fields[29]
+        s_acc = fields[30]
+        heading_acc = fields[31]
+        vel_n = fields[32]
+        vel_e = fields[33]
+        vel_d = fields[34]
+        ground_speed = fields[35]
+        heading = fields[36]
+        
+        lon_raw = fields[37]
+        lat_raw = fields[38]
+        alt_raw = fields[39]
+        
+        # 换算: 经度纬度按 10^-7 换算，高度按 10^-3 换算
+        lon_deg = lon_raw * 1e-7
+        lat_deg = lat_raw * 1e-7
+        alt = alt_raw / 1000.0  # mm -> m
+        
+        quality = flags & 0x07  # bit0-2
+        
+        # 格式化 UTC 时间字符串 hhmmss.ss
+        time_str = f"{hour:02d}{minute:02d}{sec:02d}.{ms//10:02d}"
+        utc_time_sec = hour * 3600 + minute * 60 + sec + (ms / 1000.0)
+        
+        return {
+            'type': 'BK_PNT_NAV',
+            'sentence_type': '$BK_PNT_NAV',
+            'time_str': format_time_str(time_str),
+            'utc_time_sec': utc_time_sec,
+            'lat': lat_deg,
+            'lon': lon_deg,
+            'alt': alt,
+            'quality': quality,
+            'num_sats': num_sats,
+            'hdop': pdop,  # 用 pdop 代替 hdop 展示
+            'pdop': pdop,
+            'h_acc': h_acc,
+            'v_acc': v_acc,
+            's_acc': s_acc,
+            'heading_acc': heading_acc,
+            'vel_n': vel_n,
+            'vel_e': vel_e,
+            'vel_d': vel_d,
+            'ground_speed': ground_speed,
+            'heading': heading,
+            'raw_line': frame.hex()
+        }
+        
+    return {
+        'type': 'OTHER_BK',
+        'mtype': mtype,
+        'stype': stype,
+        'payload': payload.hex()
+    }
+
+class BKStreamParser:
+    """
+    流式协议分包器，从输入流中切分出 NMEA 明文行与 BK 二进制协议帧
+    """
+    def __init__(self):
+        self.buffer = bytearray()
+        
+    def feed(self, data: bytes):
+        self.buffer.extend(data)
+        
+    def next_frame(self):
+        """
+        尝试从缓冲区中提取下一个完整的帧/行
+        返回: (frame_type, frame_data) 或 None
+        """
+        while len(self.buffer) > 0:
+            # 查找第一个特征字节：$ 或 0x42
+            idx_nmea = self.buffer.find(b'$')
+            idx_bk = self.buffer.find(b'\x42')
+            
+            # 确定谁在前
+            first_idx = -1
+            mode = None
+            if idx_nmea != -1 and idx_bk != -1:
+                if idx_nmea < idx_bk:
+                    first_idx = idx_nmea
+                    mode = 'NMEA'
+                else:
+                    first_idx = idx_bk
+                    mode = 'BK'
+            elif idx_nmea != -1:
+                first_idx = idx_nmea
+                mode = 'NMEA'
+            elif idx_bk != -1:
+                first_idx = idx_bk
+                mode = 'BK'
+                
+            if first_idx == -1:
+                # 没有任何同步字，清空
+                self.buffer.clear()
+                return None
+                
+            # 抛弃同步字前面的垃圾字节
+            if first_idx > 0:
+                del self.buffer[:first_idx]
+                
+            # 执行分包
+            if mode == 'NMEA':
+                # 寻找换行符 \n
+                idx_nl = self.buffer.find(b'\n')
+                if idx_nl == -1:
+                    return None
+                line_data = self.buffer[:idx_nl + 1]
+                del self.buffer[:idx_nl + 1]
+                return 'NMEA', line_data
+                
+            elif mode == 'BK':
+                if len(self.buffer) < 2:
+                    return None
+                # 检查下一个字节是否为 0x4B
+                if self.buffer[1] != 0x4B:
+                    # 假同步，抛弃 0x42
+                    del self.buffer[:1]
+                    continue
+                    
+                if len(self.buffer) < 8:
+                    return None
+                    
+                len_msb = self.buffer[6]
+                len_lsb = self.buffer[7]
+                payload_len = ((len_msb & 0x0F) << 8) | len_lsb
+                total_len = 8 + payload_len
+                
+                if len(self.buffer) < total_len:
+                    return None
+                    
+                frame_data = self.buffer[:total_len]
+                del self.buffer[:total_len]
+                return 'BK', frame_data
+                
+        return None

@@ -117,6 +117,7 @@ class SettingsDialog(QDialog):
         layout_render.addRow("动态抽稀阈值:", self.sp_downsample)
         
         self.cb_dpi = QComboBox()
+        self.cb_dpi.view().setStyleSheet("font-size: 14px;")
         self.cb_dpi.addItems(["150 (常规)", "300 (高清)", "600 (超清)"])
         layout_render.addRow("导出图片分辨率:", self.cb_dpi)
         
@@ -151,6 +152,7 @@ class SettingsDialog(QDialog):
         grp_export = QGroupBox("文件导出策略")
         layout_export = QFormLayout(grp_export)
         self.cb_export_dir = QComboBox()
+        self.cb_export_dir.view().setStyleSheet("font-size: 14px;")
         self.cb_export_dir.addItems(["同源文件目录", "记忆上次目录"])
         layout_export.addRow("默认保存目录:", self.cb_export_dir)
         io_layout.addWidget(grp_export)
