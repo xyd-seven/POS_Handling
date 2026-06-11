@@ -291,6 +291,7 @@ class CNoPlotCanvas(FigureCanvas):
         elif pref == 'QZSS':
             if sig_id == '1': return 'L1CA'
             elif sig_id == '7': return 'L5I'
+            elif sig_id == '8': return 'L5Q'
             return f"Q{sig_id}"
         elif pref == 'IRNSS':
             if sig_id == '1': return 'L5I'
@@ -377,6 +378,7 @@ class CNoPlotCanvas(FigureCanvas):
             'QZSS': {
                 '1': '#22C55E',  # L1 C/A
                 '7': '#A7F3D0',  # L5 I
+                '8': '#CCFBF1',  # L5 Q
                 'default': '#22C55E'
             },
             'SBAS': {
