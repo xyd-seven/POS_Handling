@@ -70,7 +70,7 @@ QComboBox {
     border: 1px solid #1E293B;
     color: #E2E8F0;
     padding: 6px 10px;
-    font-size: 12px;
+    font-size: 9pt;
     border-radius: 6px;
 }
 
@@ -86,7 +86,7 @@ QComboBox QAbstractItemView {
     selection-color: #60A5FA;
     border: 1px solid #334155;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 9pt;
 }
 
 QPushButton {
@@ -407,7 +407,7 @@ class SegmentListItemWidget(QWidget):
         self.cmb_src = QComboBox()
         self.cmb_src.setFixedWidth(80)
         self.cmb_src.setFixedHeight(26)
-        self.cmb_src.view().setStyleSheet("font-size: 12px;")
+        self.cmb_src.view().setStyleSheet("font-size: 9pt;")
         if has_gga:
             self.cmb_src.addItem("GGA")
         if has_pogos:
@@ -438,12 +438,12 @@ class SegmentListItemWidget(QWidget):
                 border: 1px solid #1E293B;
                 border-radius: 6px;
                 background-color: #0B1120;
-                font-size: 12px;
+                font-size: 9pt;
                 color: #E2E8F0;
                 padding: 4px 6px;
             }
             TimeLineEdit {
-                font-size: 10px;
+                font-size: 8pt;
                 padding: 2px 4px;
             }
             QLineEdit[invalid="true"] {
@@ -467,7 +467,7 @@ class SegmentListItemWidget(QWidget):
                 selection-color: #60A5FA;
                 border: 1px solid #334155;
                 border-radius: 4px;
-                font-size: 12px;
+                font-size: 9pt;
             }
         """)
 

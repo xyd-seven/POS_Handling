@@ -29,6 +29,162 @@ from gnss_parser import (parse_log_line, convert_pogos_to_gga, calculate_metrics
 from plot_widget import PlotWidget
 from ui_main import QSS_STYLE, SegmentListItemWidget
 from settings_dialog import SettingsDialog
+from PIL import Image, ImageDraw
+
+def ensure_flag_icons():
+    # Target directory inside workspace
+    workspace_dir = os.path.dirname(os.path.abspath(__file__))
+    flags_dir = os.path.join(workspace_dir, "resources", "flags")
+    os.makedirs(flags_dir, exist_ok=True)
+    
+    w, h = 20, 13
+    
+    flag_paths = {
+        'GPS': os.path.join(flags_dir, 'gps.png'),
+        'BD': os.path.join(flags_dir, 'bd.png'),
+        'GL': os.path.join(flags_dir, 'gl.png'),
+        'GA': os.path.join(flags_dir, 'ga.png'),
+        'QZSS': os.path.join(flags_dir, 'qzss.png'),
+        'IRNSS': os.path.join(flags_dir, 'irnss.png'),
+        'SBAS': os.path.join(flags_dir, 'sbas.png'),
+    }
+    
+    # Check if all files exist
+    all_exist = True
+    for path in flag_paths.values():
+        if not os.path.exists(path):
+            all_exist = False
+            break
+            
+    if all_exist:
+        return flag_paths
+
+    # 1. US Flag (GPS)
+    img = Image.new('RGB', (w, h), '#FFFFFF')
+    draw = ImageDraw.Draw(img)
+    for i in range(13):
+        color = '#EF4444' if i % 2 == 0 else '#FFFFFF'
+        draw.rectangle([0, i, w - 1, i], fill=color)
+    draw.rectangle([0, 0, 8, 6], fill='#1E3A8A')
+    stars = [(1, 1), (3, 1), (5, 1), (7, 1),
+             (2, 2), (4, 2), (6, 2),
+             (1, 3), (3, 3), (5, 3), (7, 3),
+             (2, 4), (4, 4), (6, 4),
+             (1, 5), (3, 5), (5, 5), (7, 5)]
+    for sx, sy in stars:
+        draw.point((sx, sy), fill='#FFFFFF')
+    img.save(flag_paths['GPS'])
+    
+    # 2. China Flag (BD)
+    img = Image.new('RGB', (w, h), '#EF4444')
+    draw = ImageDraw.Draw(img)
+    draw.point((2, 2), fill='#F59E0B')
+    draw.point((3, 2), fill='#F59E0B')
+    draw.point((2, 3), fill='#F59E0B')
+    draw.point((3, 3), fill='#F59E0B')
+    draw.point((5, 1), fill='#F59E0B')
+    draw.point((6, 2), fill='#F59E0B')
+    draw.point((6, 4), fill='#F59E0B')
+    draw.point((5, 5), fill='#F59E0B')
+    img.save(flag_paths['BD'])
+    
+    # 3. Russia Flag (GL)
+    img = Image.new('RGB', (w, h), '#FFFFFF')
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, w - 1, 3], fill='#FFFFFF')
+    draw.rectangle([0, 4, w - 1, 7], fill='#1D4ED8')
+    draw.rectangle([0, 8, w - 1, 12], fill='#EF4444')
+    img.save(flag_paths['GL'])
+    
+    # 4. EU Flag (GA)
+    img = Image.new('RGB', (w, h), '#1E40AF')
+    draw = ImageDraw.Draw(img)
+    cx, cy = 10, 6
+    r = 3
+    for angle in range(0, 360, 30):
+        rad = math.radians(angle)
+        sx = int(cx + r * math.cos(rad) + 0.5)
+        sy = int(cy + r * math.sin(rad) + 0.5)
+        draw.point((sx, sy), fill='#F59E0B')
+    img.save(flag_paths['GA'])
+    
+    # 5. Japan Flag (QZSS)
+    img = Image.new('RGB', (w, h), '#FFFFFF')
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([7, 3, 13, 9], fill='#EF4444')
+    img.save(flag_paths['QZSS'])
+    
+    # 6. India Flag (IRNSS)
+    img = Image.new('RGB', (w, h), '#F97316')
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, w - 1, 3], fill='#F97316')
+    draw.rectangle([0, 4, w - 1, 7], fill='#FFFFFF')
+    draw.rectangle([0, 8, w - 1, 12], fill='#15803D')
+    draw.point((10, 5), fill='#1D4ED8')
+    draw.point((10, 6), fill='#1D4ED8')
+    draw.point((9, 5), fill='#1D4ED8')
+    draw.point((11, 5), fill='#1D4ED8')
+    img.save(flag_paths['IRNSS'])
+    
+    # 7. SBAS Flag (Satellite Symbol)
+    img = Image.new('RGB', (w, h), '#0369A1')
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([8, 4, 11, 8], fill='#94A3B8')
+    draw.rectangle([3, 5, 7, 7], fill='#38BDF8')
+    draw.rectangle([12, 5, 16, 7], fill='#38BDF8')
+    draw.rectangle([9, 9, 10, 10], fill='#94A3B8')
+    img.save(flag_paths['SBAS'])
+    
+    return flag_paths
+
+def get_sat_info(prefix_or_talker, prn):
+    p = prefix_or_talker.upper() if prefix_or_talker else ''
+    
+    # 优先支持已完全确定的系统前缀，避免与 talker ID 重合冲突
+    if p == 'SBAS':
+        return 'SBAS', prn, 'S'
+    elif p == 'QZSS':
+        return 'QZSS', prn, 'Q'
+    elif p == 'IRNSS':
+        return 'IRNSS', prn, 'I'
+        
+    # 严格按照博通 BK166X 协议说明书 表 2-7 定义的系统与 PRN 范围进行映射
+    if 'GP' in p or 'GPS' in p:
+        if 1 <= prn <= 32:
+            return 'GPS', prn, 'G'
+        elif 33 <= prn <= 64:
+            return 'SBAS', prn, 'S'
+        elif 193 <= prn <= 202:
+            return 'QZSS', prn, 'Q'
+    elif 'GL' in p or 'GLONASS' in p:
+        if 33 <= prn <= 64:
+            return 'SBAS', prn, 'S'
+        elif 65 <= prn <= 99:
+            return 'GL', prn, 'R'
+    elif 'GA' in p or 'GALILEO' in p or 'GAL' in p:
+        if 37 <= prn <= 64:
+            return 'SBAS', prn, 'S'
+        elif 1 <= prn <= 36:
+            return 'GA', prn, 'E'
+    elif 'BD' in p or 'GB' in p or 'BDS' in p:
+        if 1 <= prn <= 63:
+            return 'BD', prn, 'B'
+    elif 'IR' in p or 'GI' in p or 'IRNSS' in p:
+        if 1 <= prn <= 14:
+            return 'IRNSS', prn, 'I'
+        elif 15 <= prn <= 64:
+            return 'SBAS', prn, 'S'
+            
+    # 兜底默认分类
+    if 'GL' in p:
+        return 'GL', prn, 'R'
+    elif 'GA' in p:
+        return 'GA', prn, 'E'
+    elif 'BD' in p or 'GB' in p:
+        return 'BD', prn, 'B'
+    elif 'IR' in p or 'GI' in p:
+        return 'IRNSS', prn, 'I'
+    return 'GPS', prn, 'G'
 
 class CNoPlotCanvas(FigureCanvas):
     def __init__(self, parent=None, width=5, height=3, dpi=100):
@@ -51,13 +207,81 @@ class CNoPlotCanvas(FigureCanvas):
         
         # 固定 Y 轴在 0~55 dB-Hz
         self.ax.set_ylim(0, 55)
-        self.ax.set_ylabel("载噪比 C/No (dB-Hz)", color='#94A3B8', fontsize=8)
+        self.ax.set_ylabel("载噪比 C/No (dB-Hz)", color='#94A3B8', fontsize=9)
+        
+        # 自动生成并加载国旗图片路径
+        self.flag_paths = ensure_flag_icons()
+        self.flag_images = {}
+        try:
+            import matplotlib.image as mpimg
+            for prefix, path in self.flag_paths.items():
+                if os.path.exists(path):
+                    self.flag_images[prefix] = mpimg.imread(path)
+        except Exception as e:
+            print(f"Error pre-loading flag icons: {e}")
+        
+        # 初始化渲染星体位置列表，并绑定鼠标移动事件以展示悬浮气泡
+        self.rendered_sats = []
+        self.fig.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
 
-    def render_cno(self, gsv_satellites):
+    def get_signal_name(self, pref, sig_id):
+        if pref == 'GPS':
+            if sig_id == '1': return 'L1CA'
+            elif sig_id == '2': return 'L1P'
+            elif sig_id == '3': return 'L1M'
+            elif sig_id == '4': return 'L2P'
+            elif sig_id == '5': return 'L2CM'
+            elif sig_id == '6': return 'L2CL'
+            elif sig_id == '7': return 'L5I'
+            elif sig_id == '8': return 'L5Q'
+            return f"L{sig_id}"
+        elif pref == 'BD':
+            if sig_id == '1': return 'B1I'
+            elif sig_id == '3': return 'B1C'
+            elif sig_id == '5': return 'B2a'
+            elif sig_id == 'B': return 'B2I'
+            elif sig_id == '6': return 'B2b'
+            elif sig_id == '7': return 'B2AB'
+            elif sig_id == '8': return 'B3I'
+            return f"B{sig_id}"
+        elif pref == 'GL':
+            if sig_id == '1': return 'G1CA'
+            elif sig_id == '2': return 'G1P'
+            elif sig_id == '3': return 'G2CA'
+            elif sig_id == '4': return 'G2P'
+            return f"G{sig_id}"
+        elif pref == 'GA':
+            if sig_id == '1': return 'E5a'
+            elif sig_id == '2': return 'E5b'
+            elif sig_id == '3': return 'E5ab'
+            elif sig_id == '4': return 'E6A'
+            elif sig_id == '5': return 'E6B'
+            elif sig_id == '6': return 'L1A'
+            elif sig_id == '7': return 'E1'
+            return f"E{sig_id}"
+        elif pref == 'QZSS':
+            if sig_id == '1': return 'L1CA'
+            elif sig_id == '7': return 'L5I'
+            return f"Q{sig_id}"
+        elif pref == 'IRNSS':
+            if sig_id == '1': return 'L5I'
+            return f"I{sig_id}"
+        elif pref == 'SBAS':
+            if sig_id == '1': return 'L1CA'
+            elif sig_id == '7': return 'L5I'
+            elif sig_id == '8': return 'L5Q'
+            return f"S{sig_id}"
+        return sig_id
+
+    def render_cno(self, gsv_satellites, used_satellites=None, has_gsa=False, sat_metadata=None):
         """
-        绘制可见卫星载噪比柱状图。
+        绘制可见卫星载噪比柱状图，区分在用和可见卫星。
         gsv_satellites: 字典，格式为 (prefix, prn) -> {signal_id: snr}
+        used_satellites: 集合，包含当前在用卫星 (prefix, prn) 元组
+        has_gsa: 布尔值，当前会话是否已接收到过 GSA 语句
+        sat_metadata: 字典，包含卫星仰角方位角元数据 (prefix, prn) -> {'elevation': elev, 'azimuth': azim}
         """
+        self.rendered_sats = []
         self.ax.clear()
         
         # 恢复符合暗色调主题的画板细节
@@ -65,7 +289,7 @@ class CNoPlotCanvas(FigureCanvas):
         self.ax.yaxis.grid(True, linestyle='--', color='#1E293B', alpha=0.5)
         self.ax.set_axisbelow(True)
         self.ax.set_ylim(0, 55)
-        self.ax.set_ylabel("载噪比 C/No (dB-Hz)", color='#94A3B8', fontsize=8)
+        self.ax.set_ylabel("载噪比 C/No (dB-Hz)", color='#94A3B8', fontsize=9)
         
         # 如果没有数据，直接重绘空图表
         if not gsv_satellites:
@@ -87,133 +311,315 @@ class CNoPlotCanvas(FigureCanvas):
             self.fig.canvas.draw_idle()
             return
 
-        # 2. 按星座分组，并进行排序
-        grouped = {'GPS': [], 'BD': [], 'GL': [], 'GA': []}
-        for (prefix, prn) in active_sats.keys():
-            if prefix in grouped:
-                grouped[prefix].append(prn)
-            else:
-                grouped['GPS'].append(prn)
-                
-        # 排序
-        for key in grouped:
-            grouped[key].sort()
+        # 2. 扁平化提取所有活跃的信号通道 [(prefix, prn, sid, val), ...]
+        system_order = {
+            'GPS': 0, 'QZSS': 1, 'BD': 2, 'GL': 3, 'GA': 4, 'IRNSS': 5, 'SBAS': 6
+        }
+        def channel_sort_key(item):
+            prefix, prn, sid, val = item
+            sys_idx = system_order.get(prefix, 99)
+            return (sys_idx, prn, sid)
             
-        # 3. 计算横坐标与 Gap 间隙
+        channels = []
+        for (prefix, prn), sig_dict in active_sats.items():
+            for sid, val in sig_dict.items():
+                channels.append((prefix, prn, sid, val))
+        channels.sort(key=channel_sort_key)
+        
+        if not channels:
+            self.ax.set_xticks([])
+            self.ax.set_xticklabels([])
+            self.fig.canvas.draw_idle()
+            return
+            
+        # 3. 计算横坐标
         x_positions = []
         x_labels = []
-        constellation_boundaries = []
         
-        current_x = 0.0
-        # u-center 配色风格 (GPS=绿, 北斗=红, GLONASS=蓝, Galileo=青) 的明度深浅渐变
+        # 配色风格 (GPS=绿, 北斗=红, GLONASS=蓝, Galileo=青, QZSS/SBAS/IRNSS=绿/薄荷绿等类似配色)
         colors_map = {
             'GPS': {
-                '1': '#22C55E',  # 亮绿
-                '5': '#15803D',  # 深绿
-                '6': '#047857',  # 深绿
-                '7': '#86EFAC',  # 浅绿
-                '8': '#A7F3D0',  # 浅绿
+                '1': '#22C55E',  # L1 C/A (亮绿)
+                '2': '#16A34A',  # L1 P(Y) (中绿)
+                '3': '#15803D',  # L1 M (深绿)
+                '4': '#14532D',  # L2 P(Y) (极深绿)
+                '5': '#4ADE80',  # L2C M (明绿)
+                '6': '#86EFAC',  # L2C L (淡绿)
+                '7': '#A7F3D0',  # L5 I (薄荷绿)
+                '8': '#CCFBF1',  # L5 Q (青绿)
                 'default': '#22C55E'
             },
+            'QZSS': {
+                '1': '#22C55E',  # L1 C/A
+                '7': '#A7F3D0',  # L5 I
+                'default': '#22C55E'
+            },
+            'SBAS': {
+                '1': '#22C55E',  # L1 C/A
+                '7': '#A7F3D0',  # L5 I
+                '8': '#CCFBF1',  # L5 Q
+                'default': '#22C55E'
+            },
+            'IRNSS': {
+                '1': '#A7F3D0',  # L5 I
+                'default': '#A7F3D0'
+            },
             'BD': {
-                '1': '#EF4444',  # 亮红
-                '3': '#991B1B',  # 深红
-                'E': '#991B1B',  # B1C/B3I
-                'F': '#991B1B',  # B3I
-                'B': '#FCA5A5',  # 浅红
-                'C': '#FECACA',  # 浅红
+                '1': '#EF4444',  # B1I (亮红)
+                '3': '#FCA5A5',  # B1C (浅红)
+                '5': '#FECACA',  # B2a (淡红)
+                'B': '#DC2626',  # B2I (中红)
+                '6': '#F87171',  # B2b (粉红)
+                '7': '#FEE2E2',  # B2 A+B (极淡红)
+                '8': '#991B1B',  # B3I (深红)
                 'default': '#EF4444'
             },
             'GL': {
-                '1': '#38BDF8',  # 亮天蓝
-                '3': '#1D4ED8',  # 深蓝
+                '1': '#38BDF8',  # G1 C/A (亮天蓝)
+                '2': '#0EA5E9',  # G1 P (中蓝)
+                '3': '#1D4ED8',  # G2 C/A (深蓝)
+                '4': '#1E3A8A',  # G2 P (极深蓝)
                 'default': '#38BDF8'
             },
             'GA': {
-                '1': '#06B6D4',  # 亮青
-                '7': '#0E7490',  # 深青
-                '8': '#22D3EE',  # 浅青
+                '1': '#22D3EE',  # E5a (浅青)
+                '2': '#0EA5E9',  # E5b (中青/蓝)
+                '3': '#06B6D4',  # E5 a+b (亮青)
+                '4': '#0891B2',  # E6 A (中深青)
+                '5': '#0E7490',  # E6 B (深青)
+                '6': '#155E75',  # L1 A (极深青)
+                '7': '#06B6D4',  # E1 (亮青)
                 'default': '#06B6D4'
             }
         }
         
-        bars_to_draw = []
+        from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+        import matplotlib.image as mpimg
         
-        for prefix in ['GPS', 'BD', 'GL', 'GA']:
-            prns = grouped[prefix]
-            if not prns:
-                continue
-                
-            start_x = current_x
+        N = len(channels)
+        
+        for idx, (prefix, prn, sid, val) in enumerate(channels):
+            x_c = idx + 0.5
+            x_positions.append(x_c)
             
-            for prn in prns:
-                sig_dict = active_sats[(prefix, prn)]
-                sids = sorted(list(sig_dict.keys()))
-                n_bands = len(sids)
+            sig_name = self.get_signal_name(prefix, sid)
+            _, _, lbl_char = get_sat_info(prefix, prn)
+            if lbl_char == 'S':
+                prn_str = f"S{prn:03d}"
+            else:
+                prn_str = f"{lbl_char}{prn:02d}"
                 
-                total_w = 0.8
-                bar_w = total_w / max(1, n_bands)
+            x_labels.append(f"{sig_name}\n{prn_str}")
+            
+            c_dict = colors_map.get(prefix, {})
+            color = c_dict.get(sid, c_dict.get('default', '#64748B'))
+            
+            # 默认若未收到过任何 GSA 语句，则全部视为在用以保持兼容；若已接收到 GSA，则以当前在用集合为准
+            is_used = True
+            if has_gsa and used_satellites is not None:
+                is_used = (prefix, prn) in used_satellites
                 
-                offsets = []
-                if n_bands == 1:
-                    offsets = [0.0]
-                else:
-                    for i in range(n_bands):
-                        offsets.append( -total_w/2 + bar_w/2 + i*bar_w )
-                        
-                x_positions.append(current_x)
+            bar_w = 0.98
+            if is_used:
+                self.ax.bar(x_c, val, width=bar_w, color=color, edgecolor='#0B1120', linewidth=0.5, align='center', alpha=1.0)
+                self.ax.text(x_c, val + 0.8, f"{int(val)}", ha='center', va='bottom', color='#FFFFFF', fontsize=9, fontweight='semibold')
+            else:
+                self.ax.bar(x_c, val, width=bar_w, facecolor=color, edgecolor=color, linewidth=1.2, align='center', alpha=0.25)
+                self.ax.text(x_c, val + 0.8, f"{int(val)}", ha='center', va='bottom', color='#94A3B8', fontsize=9, fontweight='semibold')
                 
-                # 格式化卫星标签 (Gxx, Cxx, Rxx, Exx)
-                lbl_prefix = 'G'
-                if prefix == 'BD':
-                    lbl_prefix = 'C'
-                elif prefix == 'GL':
-                    lbl_prefix = 'R'
-                elif prefix == 'GA':
-                    lbl_prefix = 'E'
-                x_labels.append(f"{lbl_prefix}{prn:02d}")
-                
-                for i, sid in enumerate(sids):
-                    val = sig_dict[sid]
-                    x_c = current_x + offsets[i]
-                    
-                    c_dict = colors_map.get(prefix, {})
-                    color = c_dict.get(sid, c_dict.get('default', '#64748B'))
-                    
-                    bars_to_draw.append((x_c, val, bar_w, color))
-                    
-                current_x += 1.2
-                
-            end_x = current_x - 1.2
-            constellation_boundaries.append((prefix, start_x, end_x))
-            current_x += 0.8  # Gap
+            # 绘制国旗图标
+            img = self.flag_images.get(prefix) if hasattr(self, 'flag_images') else None
+            if img is not None:
+                try:
+                    imagebox = OffsetImage(img, zoom=1.0)
+                    ab = AnnotationBbox(imagebox, (x_c, 0),
+                                        xybox=(0, -10),
+                                        xycoords=('data', 'axes fraction'),
+                                        boxcoords="offset points",
+                                        frameon=False)
+                    self.ax.add_artist(ab)
+                except Exception as e:
+                    print(f"Error drawing flag: {e}")
+            
+            # 记录渲染星体用于鼠标悬停计算
+            elev = None
+            azim = None
+            if sat_metadata is not None:
+                meta = sat_metadata.get((prefix, prn), {})
+                elev = meta.get('elevation')
+                azim = meta.get('azimuth')
+            self.rendered_sats.append({
+                'center_x': x_c,
+                'prefix': prefix,
+                'prn': prn,
+                'sig_id': sid,
+                'snr': val,
+                'elevation': elev,
+                'azimuth': azim,
+                'sig_dict': active_sats.get((prefix, prn), {sid: val})
+            })
+            
+        # 4. 绘制分界虚线网格
+        for x_grid in range(1, N):
+            self.ax.axvline(x_grid, color='#1E293B', linestyle='--', linewidth=0.8, alpha=0.5)
 
-        # 4. 绘图
-        for x_c, val, bar_w, color in bars_to_draw:
-            self.ax.bar(x_c, val, width=bar_w, color=color, edgecolor='#0B1120', linewidth=0.5, align='center')
-            self.ax.text(x_c, val + 0.8, f"{int(val)}", ha='center', va='bottom', color='#94A3B8', fontsize=7)
-            
-        # 5. X轴属性
+        # 5. X轴属性与 Padding 调整以避让国旗图标
+        self.ax.set_xlim(0, N)
         self.ax.set_xticks(x_positions)
-        self.ax.set_xticklabels(x_labels, rotation=90, ha='center', color='#E2E8F0')
+        self.ax.tick_params(axis='x', colors='#94A3B8', labelsize=8, pad=18)
+        self.ax.set_xticklabels(x_labels, ha='center', color='#F8FAFC', fontsize=8, fontweight='bold')
         
-        # 6. 星座分组虚线及文字标签
-        for prefix, s_x, e_x in constellation_boundaries:
-            self.ax.hlines(52.5, s_x - 0.45, e_x + 0.45, colors='#334155', linestyles=':', linewidths=1.0)
-            mid_x = (s_x + e_x) / 2.0
-            
-            c_name = "GPS"
-            if prefix == 'BD':
-                c_name = "北斗 (BDS)"
-            elif prefix == 'GL':
-                c_name = "GLONASS"
-            elif prefix == 'GA':
-                c_name = "Galileo"
-                
-            self.ax.text(mid_x, 53.0, c_name, ha='center', va='bottom', color='#64748B', fontsize=7, fontweight='bold')
-            
         self.fig.tight_layout()
         self.fig.canvas.draw_idle()
+
+    def on_mouse_move(self, event):
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QToolTip
+
+        if event.inaxes != self.ax or not hasattr(self, 'rendered_sats') or not self.rendered_sats:
+            QToolTip.hideText()
+            return
+            
+        x_mouse = event.xdata
+        y_mouse = event.ydata
+        
+        if x_mouse is None or y_mouse is None:
+            QToolTip.hideText()
+            return
+            
+        idx = int(x_mouse)
+        if idx < 0 or idx >= len(self.rendered_sats) or not (0 <= y_mouse <= 55):
+            QToolTip.hideText()
+            return
+            
+        hovered_sat = self.rendered_sats[idx]
+        
+        # 提取当前悬停卫星的数据
+        prefix = hovered_sat['prefix']
+        prn = hovered_sat['prn']
+        elev = hovered_sat['elevation']
+        azim = hovered_sat['azimuth']
+        sig_dict = hovered_sat.get('sig_dict', {hovered_sat['sig_id']: hovered_sat['snr']})
+        
+        # 卫星标识前缀
+        _, _, lbl_char = get_sat_info(prefix, prn)
+        if lbl_char == 'S':
+            sat_id_str = f"S{prn:03d}"
+        else:
+            sat_id_str = f"{lbl_char}{prn:02d}"
+            
+        # 仰角与方位角显示字符串
+        elev_str = f"{elev}°" if elev is not None else "--"
+        azim_str = f"{azim}°" if azim is not None else "--"
+        
+        # u-center 颜色映射配置，使气泡内频段字体颜色和图表中一致
+        colors_map = {
+            'GPS': {
+                '1': '#22C55E', '2': '#16A34A', '3': '#15803D', '4': '#14532D', '5': '#4ADE80', '6': '#86EFAC', '7': '#A7F3D0', '8': '#CCFBF1', 'default': '#22C55E'
+            },
+            'QZSS': {
+                '1': '#22C55E', '7': '#A7F3D0', 'default': '#22C55E'
+            },
+            'SBAS': {
+                '1': '#22C55E', '7': '#A7F3D0', '8': '#CCFBF1', 'default': '#22C55E'
+            },
+            'IRNSS': {
+                '1': '#A7F3D0', 'default': '#A7F3D0'
+            },
+            'BD': {
+                '1': '#EF4444', '3': '#FCA5A5', '5': '#FECACA', 'B': '#DC2626', '6': '#F87171', '7': '#FEE2E2', '8': '#991B1B', 'default': '#EF4444'
+            },
+            'GL': {
+                '1': '#38BDF8', '2': '#0EA5E9', '3': '#1D4ED8', '4': '#1E3A8A', 'default': '#38BDF8'
+            },
+            'GA': {
+                '1': '#22D3EE', '2': '#0EA5E9', '3': '#06B6D4', '4': '#0891B2', '5': '#0E7490', '6': '#155E75', '7': '#06B6D4', 'default': '#06B6D4'
+            }
+        }
+        
+        def get_signal_name(pref, sig_id):
+            if pref == 'GPS':
+                if sig_id == '1': return 'L1 C/A'
+                elif sig_id == '2': return 'L1 P(Y)'
+                elif sig_id == '3': return 'L1 M'
+                elif sig_id == '4': return 'L2 P(Y)'
+                elif sig_id == '5': return 'L2C M'
+                elif sig_id == '6': return 'L2C L'
+                elif sig_id == '7': return 'L5 I'
+                elif sig_id == '8': return 'L5 Q'
+                return f"L{sig_id}"
+            elif pref == 'BD':
+                if sig_id == '1': return 'B1I'
+                elif sig_id == '3': return 'B1C'
+                elif sig_id == '5': return 'B2a'
+                elif sig_id == 'B': return 'B2I'
+                elif sig_id == '6': return 'B2b'
+                elif sig_id == '7': return 'B2 A+B'
+                elif sig_id == '8': return 'B3I'
+                return f"B{sig_id}"
+            elif pref == 'GL':
+                if sig_id == '1': return 'G1 C/A'
+                elif sig_id == '2': return 'G1 P'
+                elif sig_id == '3': return 'G2 C/A'
+                elif sig_id == '4': return 'G2 P'
+                return f"G{sig_id}"
+            elif pref == 'GA':
+                if sig_id == '1': return 'E5a'
+                elif sig_id == '2': return 'E5b'
+                elif sig_id == '3': return 'E5 a+b'
+                elif sig_id == '4': return 'E6 A'
+                elif sig_id == '5': return 'E6 B'
+                elif sig_id == '6': return 'L1 A'
+                elif sig_id == '7': return 'E1'
+                return f"E{sig_id}"
+            elif pref == 'QZSS':
+                if sig_id == '1': return 'L1 C/A'
+                elif sig_id == '7': return 'L5 I'
+                return f"Q{sig_id}"
+            elif pref == 'IRNSS':
+                if sig_id == '1': return 'L5 I'
+                return f"I{sig_id}"
+            elif pref == 'SBAS':
+                if sig_id == '1': return 'L1 C/A'
+                elif sig_id == '7': return 'L5 I'
+                elif sig_id == '8': return 'L5 Q'
+                return f"S{sig_id}"
+            return sig_id
+
+        # 构造精美的 HTML 表格气泡，完全匹配模组厂商参考图设计
+        html = f"""
+        <div style="background-color: #172033; color: #F8FAFC; border: 1px solid #334155; border-radius: 6px; padding: 8px; font-family: 'Consolas', 'Segoe UI', 'Microsoft YaHei', sans-serif;">
+            <div style="font-weight: bold; font-size: 13px; color: #38BDF8; margin-bottom: 6px; border-bottom: 1px solid #1E293B; padding-bottom: 4px;">
+                {sat_id_str} &nbsp; E:{elev_str} &nbsp; A:{azim_str}
+            </div>
+            <table style="border-collapse: collapse; font-size: 11px; width: 100%;">
+                <tr style="border-bottom: 1px solid #1E293B; color: #94A3B8; font-weight: bold;">
+                    <th style="text-align: left; padding: 2px 12px 2px 0;">signal</th>
+                    <th style="text-align: right; padding: 2px 0 2px 12px;">CN0</th>
+                </tr>
+        """
+        
+        sids = sorted(list(sig_dict.keys()))
+        for sid in sids:
+            val = sig_dict[sid]
+            sig_name = get_signal_name(prefix, sid)
+            
+            c_dict = colors_map.get(prefix, {})
+            color = c_dict.get(sid, c_dict.get('default', '#64748B'))
+            
+            html += f"""
+                <tr style="color: {color};">
+                    <td style="text-align: left; padding: 2px 12px 2px 0; font-weight: bold;">{sig_name}</td>
+                    <td style="text-align: right; padding: 2px 0 2px 12px; font-weight: bold;">{int(val)}</td>
+                </tr>
+            """
+            
+        html += """
+            </table>
+        </div>
+        """
+        
+        QToolTip.showText(QCursor.pos(), html, self)
 
 class LogParserThread(QThread):
     progress_updated = Signal(int)
@@ -541,6 +947,9 @@ class MainWindow(QMainWindow):
 
         # 卫星载噪比数据缓存 (prefix, prn) -> {signal_id: snr}
         self.gsv_satellites = {}
+        self.used_satellites = set()  # 在用(定位解算)卫星集合，存储 (prefix, prn) 元组
+        self.has_received_gsa = False  # 标记是否接收到过 GSA 语句
+        self.sat_metadata = {}  # 卫星仰角方位角元数据缓存 (prefix, prn) -> {'elevation': elev, 'azimuth': azim}
 
         # 载噪比柱状图限频定时器
         self.cno_refresh_timer = QTimer(self)
@@ -739,13 +1148,50 @@ class MainWindow(QMainWindow):
         # F. 实时串口页
         self.tab_serial = QWidget()
         layout_serial = QHBoxLayout(self.tab_serial)
-        layout_serial.setContentsMargins(12, 12, 12, 12)
-        layout_serial.setSpacing(10)
+        layout_serial.setContentsMargins(8, 8, 8, 8)
+        layout_serial.setSpacing(0)
+        
+        # 预先定义数据解析卡片 QTabWidget，并在之后做上下垂直堆叠
+        self.dashboard_tab = QTabWidget()
+        self.dashboard_tab.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #1E293B;
+                background-color: #172033;
+                border-radius: 8px;
+            }
+            QTabBar::tab {
+                background-color: #0B1120;
+                color: #94A3B8;
+                padding: 6px 12px;
+                font-size: 11px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                border: 1px solid #1E293B;
+                margin-right: 4px;
+            }
+            QTabBar::tab:selected {
+                background-color: #172033;
+                color: #38BDF8;
+                border-bottom: 2px solid #38BDF8;
+            }
+        """)
+        
+        # 主垂直分割条 (上层为水平切分，下层为载噪比监视器)
+        self.serial_vertical_splitter = QSplitter(Qt.Vertical)
+        self.serial_vertical_splitter.setHandleWidth(5)
+        self.serial_vertical_splitter.setStyleSheet("QSplitter::handle { background-color: #1E293B; }")
+        layout_serial.addWidget(self.serial_vertical_splitter)
+        
+        # 上层水平分割条 (左侧堆叠栏 + 右侧终端)
+        self.serial_upper_splitter = QSplitter(Qt.Horizontal)
+        self.serial_upper_splitter.setHandleWidth(5)
+        self.serial_upper_splitter.setStyleSheet("QSplitter::handle { background-color: #1E293B; }")
+        self.serial_vertical_splitter.addWidget(self.serial_upper_splitter)
         
         # F.1. 左侧控制和指令面板
-        serial_left_panel = QWidget()
-        serial_left_layout = QVBoxLayout(serial_left_panel)
-        serial_left_layout.setContentsMargins(0, 0, 0, 0)
+        self.serial_left_panel = QWidget()
+        serial_left_layout = QVBoxLayout(self.serial_left_panel)
+        serial_left_layout.setContentsMargins(4, 4, 4, 4)
         serial_left_layout.setSpacing(10)
         
         # 串口配置 GroupBox
@@ -762,7 +1208,7 @@ class MainWindow(QMainWindow):
         combobox_font.setPointSize(10)
         self.cmb_port.setFont(combobox_font)
         self.cmb_port.view().setFont(combobox_font)
-        self.cmb_port.view().setStyleSheet("font-size: 12px;")
+        self.cmb_port.view().setStyleSheet("font-size: 9pt;")
         ctrl_layout.addWidget(self.cmb_port, 0, 1)
         
         self.btn_port_refresh = QPushButton()
@@ -800,7 +1246,7 @@ class MainWindow(QMainWindow):
         combobox_font.setPointSize(10)
         self.cmb_baud.setFont(combobox_font)
         self.cmb_baud.view().setFont(combobox_font)
-        self.cmb_baud.view().setStyleSheet("font-size: 12px;")
+        self.cmb_baud.view().setStyleSheet("font-size: 9pt;")
         self.cmb_baud.addItems(["9600", "115200", "230400", "460800", "921600", "2000000"])
         self.cmb_baud.setCurrentText("115200")
         ctrl_layout.addWidget(self.cmb_baud, 1, 1, 1, 2)
@@ -856,169 +1302,167 @@ class MainWindow(QMainWindow):
         
         serial_left_layout.addWidget(self.group_serial_ctrl)
         
-        # 快捷指令 GroupBox
-        self.group_serial_cmd = QGroupBox("快捷指令")
-        cmd_layout = QGridLayout(self.group_serial_cmd)
-        cmd_layout.setContentsMargins(8, 16, 8, 8)
-        cmd_layout.setSpacing(6)
+        # 将数据解析卡片直接垂直叠放在左侧串口配置下方
+        serial_left_layout.addWidget(self.dashboard_tab)
+        self.serial_upper_splitter.addWidget(self.serial_left_panel)
         
-        self.btn_cmd_cold = QPushButton("冷启动")
-        self.btn_cmd_cold.setToolTip("发送冷启动复位指令")
-        self.btn_cmd_cold.clicked.connect(lambda: self.send_serial_command('cold'))
-        cmd_layout.addWidget(self.btn_cmd_cold, 0, 0)
+        # 串口文本终端卡片包裹
+        self.group_console = QGroupBox("串口文本终端")
+        console_layout = QVBoxLayout(self.group_console)
+        console_layout.setContentsMargins(8, 16, 8, 8)
+        console_layout.setSpacing(0)
         
-        self.btn_cmd_hot = QPushButton("热启动")
-        self.btn_cmd_hot.setToolTip("发送热启动复位指令")
-        self.btn_cmd_hot.clicked.connect(lambda: self.send_serial_command('hot'))
-        cmd_layout.addWidget(self.btn_cmd_hot, 0, 1)
-        
-        self.btn_cmd_ver = QPushButton("查询版本")
-        self.btn_cmd_ver.setToolTip("发送查询固件版本指令")
-        self.btn_cmd_ver.clicked.connect(lambda: self.send_serial_command('version'))
-        cmd_layout.addWidget(self.btn_cmd_ver, 1, 0)
-        
-        self.btn_cmd_save = QPushButton("保存配置")
-        self.btn_cmd_save.setToolTip("发送保存当前配置到 Flash 指令")
-        self.btn_cmd_save.clicked.connect(lambda: self.send_serial_command('save'))
-        cmd_layout.addWidget(self.btn_cmd_save, 1, 1)
-        
-        serial_left_layout.addWidget(self.group_serial_cmd)
-        serial_left_layout.addStretch()
-        serial_left_panel.setFixedWidth(240)
-        layout_serial.addWidget(serial_left_panel)
-        
-        # F.2. 右侧数据展示面板 (包含上部解析卡片与下部原始终端)
-        serial_right_panel = QWidget()
-        serial_right_layout = QVBoxLayout(serial_right_panel)
-        serial_right_layout.setContentsMargins(0, 0, 0, 0)
-        serial_right_layout.setSpacing(10)
-        
-        # 上层：数据解析卡片 QTabWidget
-        self.dashboard_tab = QTabWidget()
-        self.dashboard_tab.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #1E293B;
-                background-color: #172033;
-                border-radius: 8px;
-            }
-            QTabBar::tab {
-                background-color: #0B1120;
-                color: #94A3B8;
-                padding: 6px 12px;
-                font-size: 11px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-                border: 1px solid #1E293B;
-                margin-right: 4px;
-            }
-            QTabBar::tab:selected {
-                background-color: #172033;
-                color: #38BDF8;
-                border-bottom: 2px solid #38BDF8;
-            }
-        """)
+        # F.2.1 定位解析数据及快捷指令 Tab 构建
         
         # F.2.1 定位解析数据面板
         self.pane_pnt = QWidget()
+        self.pane_pnt.setStyleSheet("QLabel { font-size: 13px; }")
         pnt_grid = QGridLayout(self.pane_pnt)
-        pnt_grid.setContentsMargins(12, 12, 12, 12)
-        pnt_grid.setSpacing(8)
+        pnt_grid.setContentsMargins(16, 20, 16, 20)
+        pnt_grid.setSpacing(12)
         
         pnt_grid.addWidget(QLabel("UTC 时间:"), 0, 0)
         self.lbl_pnt_utc = QLabel("--:--:--.--")
-        self.lbl_pnt_utc.setStyleSheet("color: #F8FAFC; font-weight: bold; font-family: Consolas;")
+        self.lbl_pnt_utc.setStyleSheet("color: #F8FAFC; font-weight: bold; font-family: Consolas; font-size: 15px;")
         pnt_grid.addWidget(self.lbl_pnt_utc, 0, 1)
         
         pnt_grid.addWidget(QLabel("定位质量:"), 0, 2)
         self.lbl_pnt_quality = QLabel("未定位")
-        self.lbl_pnt_quality.setStyleSheet("background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
+        self.lbl_pnt_quality.setStyleSheet("background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;")
         self.lbl_pnt_quality.setAlignment(Qt.AlignCenter)
         pnt_grid.addWidget(self.lbl_pnt_quality, 0, 3)
         
         pnt_grid.addWidget(QLabel("纬度 (Lat):"), 1, 0)
         self.lbl_pnt_lat = QLabel("---.--------")
-        self.lbl_pnt_lat.setStyleSheet("color: #E2E8F0; font-weight: bold; font-family: Consolas;")
+        self.lbl_pnt_lat.setStyleSheet("color: #E2E8F0; font-weight: bold; font-family: Consolas; font-size: 15px;")
         pnt_grid.addWidget(self.lbl_pnt_lat, 1, 1)
         
         pnt_grid.addWidget(QLabel("经度 (Lon):"), 1, 2)
         self.lbl_pnt_lon = QLabel("---.--------")
-        self.lbl_pnt_lon.setStyleSheet("color: #E2E8F0; font-weight: bold; font-family: Consolas;")
+        self.lbl_pnt_lon.setStyleSheet("color: #E2E8F0; font-weight: bold; font-family: Consolas; font-size: 15px;")
         pnt_grid.addWidget(self.lbl_pnt_lon, 1, 3)
         
         pnt_grid.addWidget(QLabel("椭球高 (HAE):"), 2, 0)
         self.lbl_pnt_alt = QLabel("---.--- 米")
-        self.lbl_pnt_alt.setStyleSheet("color: #E2E8F0; font-weight: bold;")
+        self.lbl_pnt_alt.setStyleSheet("color: #E2E8F0; font-weight: bold; font-size: 14px;")
         pnt_grid.addWidget(self.lbl_pnt_alt, 2, 1)
         
         pnt_grid.addWidget(QLabel("解算星数:"), 2, 2)
         self.lbl_pnt_num = QLabel("0 颗")
-        self.lbl_pnt_num.setStyleSheet("color: #E2E8F0; font-weight: bold;")
+        self.lbl_pnt_num.setStyleSheet("color: #E2E8F0; font-weight: bold; font-size: 14px;")
         pnt_grid.addWidget(self.lbl_pnt_num, 2, 3)
         
         pnt_grid.addWidget(QLabel("PDOP:"), 3, 0)
         self.lbl_pnt_pdop = QLabel("---")
-        self.lbl_pnt_pdop.setStyleSheet("color: #94A3B8;")
+        self.lbl_pnt_pdop.setStyleSheet("color: #E2E8F0; font-weight: bold; font-size: 14px;")
         pnt_grid.addWidget(self.lbl_pnt_pdop, 3, 1)
         
         pnt_grid.addWidget(QLabel("HDOP:"), 3, 2)
         self.lbl_pnt_hdop = QLabel("---")
-        self.lbl_pnt_hdop.setStyleSheet("color: #94A3B8;")
+        self.lbl_pnt_hdop.setStyleSheet("color: #E2E8F0; font-weight: bold; font-size: 14px;")
         pnt_grid.addWidget(self.lbl_pnt_hdop, 3, 3)
+        
+        # 均匀分配行拉伸以合理利用垂直空白
+        pnt_grid.setRowStretch(0, 1)
+        pnt_grid.setRowStretch(1, 1)
+        pnt_grid.setRowStretch(2, 1)
+        pnt_grid.setRowStretch(3, 1)
         
         self.dashboard_tab.addTab(self.pane_pnt, "定位基本状态")
         
         # F.2.2 惯导解析数据面板
         self.pane_ins = QWidget()
+        self.pane_ins.setStyleSheet("QLabel { font-size: 13px; }")
         ins_grid = QGridLayout(self.pane_ins)
-        ins_grid.setContentsMargins(12, 12, 12, 12)
-        ins_grid.setSpacing(8)
+        ins_grid.setContentsMargins(16, 20, 16, 20)
+        ins_grid.setSpacing(12)
         
         ins_grid.addWidget(QLabel("惯导状态:"), 0, 0)
         self.lbl_ins_status = QLabel("未激活")
-        self.lbl_ins_status.setStyleSheet("background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
+        self.lbl_ins_status.setStyleSheet("background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;")
         self.lbl_ins_status.setAlignment(Qt.AlignCenter)
         ins_grid.addWidget(self.lbl_ins_status, 0, 1)
         
         ins_grid.addWidget(QLabel("载体运动:"), 0, 2)
         self.lbl_ins_motion = QLabel("未知")
-        self.lbl_ins_motion.setStyleSheet("color: #F8FAFC; font-weight: bold;")
+        self.lbl_ins_motion.setStyleSheet("color: #F8FAFC; font-weight: bold; font-size: 14px;")
         ins_grid.addWidget(self.lbl_ins_motion, 0, 3)
         
         ins_grid.addWidget(QLabel("滚转 (Roll):"), 1, 0)
         self.lbl_ins_roll = QLabel("---.--- 度")
-        self.lbl_ins_roll.setStyleSheet("color: #E2E8F0; font-family: Consolas;")
+        self.lbl_ins_roll.setStyleSheet("color: #E2E8F0; font-family: Consolas; font-size: 14px;")
         ins_grid.addWidget(self.lbl_ins_roll, 1, 1)
         
         ins_grid.addWidget(QLabel("俯仰 (Pitch):"), 1, 2)
         self.lbl_ins_pitch = QLabel("---.--- 度")
-        self.lbl_ins_pitch.setStyleSheet("color: #E2E8F0; font-family: Consolas;")
+        self.lbl_ins_pitch.setStyleSheet("color: #E2E8F0; font-family: Consolas; font-size: 14px;")
         ins_grid.addWidget(self.lbl_ins_pitch, 1, 3)
         
         ins_grid.addWidget(QLabel("航向 (Yaw):"), 2, 0)
         self.lbl_ins_yaw = QLabel("---.--- 度")
-        self.lbl_ins_yaw.setStyleSheet("color: #E2E8F0; font-family: Consolas; font-weight: bold;")
+        self.lbl_ins_yaw.setStyleSheet("color: #E2E8F0; font-family: Consolas; font-weight: bold; font-size: 15px;")
         ins_grid.addWidget(self.lbl_ins_yaw, 2, 1)
         
         ins_grid.addWidget(QLabel("前向速度:"), 2, 2)
         self.lbl_ins_speed = QLabel("---.- m/s")
-        self.lbl_ins_speed.setStyleSheet("color: #E2E8F0;")
+        self.lbl_ins_speed.setStyleSheet("color: #E2E8F0; font-size: 14px; font-weight: bold;")
         ins_grid.addWidget(self.lbl_ins_speed, 2, 3)
         
         ins_grid.addWidget(QLabel("累计里程:"), 3, 0)
         self.lbl_ins_mileage = QLabel("---.- 米")
-        self.lbl_ins_mileage.setStyleSheet("color: #E2E8F0;")
+        self.lbl_ins_mileage.setStyleSheet("color: #E2E8F0; font-size: 14px; font-weight: bold;")
         ins_grid.addWidget(self.lbl_ins_mileage, 3, 1)
         
         ins_grid.addWidget(QLabel("周内秒 (TOW):"), 3, 2)
         self.lbl_ins_tow = QLabel("------.---")
-        self.lbl_ins_tow.setStyleSheet("color: #94A3B8; font-family: Consolas;")
+        self.lbl_ins_tow.setStyleSheet("color: #94A3B8; font-family: Consolas; font-size: 14px;")
         ins_grid.addWidget(self.lbl_ins_tow, 3, 3)
+        
+        # 均匀分配行拉伸以合理利用垂直空白
+        ins_grid.setRowStretch(0, 1)
+        ins_grid.setRowStretch(1, 1)
+        ins_grid.setRowStretch(2, 1)
+        ins_grid.setRowStretch(3, 1)
         
         self.dashboard_tab.addTab(self.pane_ins, "组合惯导参数")
         
-        serial_right_layout.addWidget(self.dashboard_tab)
+        # F.2.3 快捷指令面板
+        self.pane_cmd = QWidget()
+        cmd_grid = QGridLayout(self.pane_cmd)
+        cmd_grid.setContentsMargins(16, 20, 16, 20)
+        cmd_grid.setSpacing(12)
         
-        # 下层：滚动文本终端 (QTextEdit)
+        self.btn_cmd_cold = QPushButton("冷启动")
+        self.btn_cmd_cold.setFixedHeight(28)
+        self.btn_cmd_cold.setToolTip("发送冷启动复位指令")
+        self.btn_cmd_cold.clicked.connect(lambda: self.send_serial_command('cold'))
+        cmd_grid.addWidget(self.btn_cmd_cold, 0, 0)
+        
+        self.btn_cmd_hot = QPushButton("热启动")
+        self.btn_cmd_hot.setFixedHeight(28)
+        self.btn_cmd_hot.setToolTip("发送热启动复位指令")
+        self.btn_cmd_hot.clicked.connect(lambda: self.send_serial_command('hot'))
+        cmd_grid.addWidget(self.btn_cmd_hot, 0, 1)
+        
+        self.btn_cmd_ver = QPushButton("查询版本")
+        self.btn_cmd_ver.setFixedHeight(28)
+        self.btn_cmd_ver.setToolTip("发送查询固件版本指令")
+        self.btn_cmd_ver.clicked.connect(lambda: self.send_serial_command('version'))
+        cmd_grid.addWidget(self.btn_cmd_ver, 1, 0)
+        
+        self.btn_cmd_save = QPushButton("保存配置")
+        self.btn_cmd_save.setFixedHeight(28)
+        self.btn_cmd_save.setToolTip("发送保存当前配置到 Flash 指令")
+        self.btn_cmd_save.clicked.connect(lambda: self.send_serial_command('save'))
+        cmd_grid.addWidget(self.btn_cmd_save, 1, 1)
+        
+        # 均匀分配行拉伸以合理利用垂直空白
+        cmd_grid.setRowStretch(0, 1)
+        cmd_grid.setRowStretch(1, 1)
+        
+        self.dashboard_tab.addTab(self.pane_cmd, "快捷指令")
+        
+        # 将控制台和解析卡片加入上层水平分割条 (控制台在右侧)
         self.txt_console = QTextEdit()
         self.txt_console.setReadOnly(True)
         self.txt_console.setStyleSheet("""
@@ -1031,12 +1475,88 @@ class MainWindow(QMainWindow):
             padding: 4px;
         """)
         self.txt_console.verticalScrollBar().valueChanged.connect(self.on_console_scrollbar_value_changed)
-        serial_right_layout.addWidget(self.txt_console)
+        console_layout.addWidget(self.txt_console)
         
-        # 强制下部终端占据较多空间
-        serial_right_layout.setStretch(0, 1)
-        serial_right_layout.setStretch(1, 2)
-        layout_serial.addWidget(serial_right_panel)
+        # 新增串口发送控制行
+        send_layout = QHBoxLayout()
+        send_layout.setSpacing(6)
+        
+        self.txt_send_input = QLineEdit()
+        self.txt_send_input.setFixedHeight(28)
+        self.txt_send_input.setPlaceholderText("输入要发送的命令或数据...")
+        self.txt_send_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #0B1120;
+                color: #F8FAFC;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding-left: 6px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #38BDF8;
+            }
+        """)
+        self.txt_send_input.returnPressed.connect(self.send_custom_data)
+        send_layout.addWidget(self.txt_send_input, 1)
+        
+        self.cb_send_ln = QCheckBox("加换行")
+        self.cb_send_ln.setChecked(True)
+        self.cb_send_ln.setStyleSheet("""
+            QCheckBox { color: #94A3B8; font-size: 11px; }
+            QCheckBox:disabled { color: #475569; }
+        """)
+        send_layout.addWidget(self.cb_send_ln)
+        
+        self.cb_send_hex = QCheckBox("Hex发送")
+        self.cb_send_hex.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        self.cb_send_hex.stateChanged.connect(self.update_send_ln_state)
+        send_layout.addWidget(self.cb_send_hex)
+        
+        self.btn_send = QPushButton("发送")
+        self.btn_send.setFixedSize(60, 28)
+        self.btn_send.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(56, 189, 248, 0.15);
+                border: 1px solid #38BDF8;
+                color: #38BDF8;
+                font-weight: bold;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: rgba(56, 189, 248, 0.25);
+                color: #FFFFFF;
+            }
+            QPushButton:pressed {
+                background-color: rgba(56, 189, 248, 0.35);
+            }
+        """)
+        self.btn_send.clicked.connect(self.send_custom_data)
+        send_layout.addWidget(self.btn_send)
+        
+        console_layout.addLayout(send_layout)
+        
+        self.serial_upper_splitter.addWidget(self.group_console)
+        
+        # F.2.2 下层：可见卫星载噪比监视器卡片包裹
+        self.group_cno = QGroupBox("可见卫星载噪比监视器")
+        cno_layout = QVBoxLayout(self.group_cno)
+        cno_layout.setContentsMargins(8, 16, 8, 8)
+        cno_layout.setSpacing(0)
+        
+        self.canvas_cno = CNoPlotCanvas(self.group_cno)
+        cno_layout.addWidget(self.canvas_cno)
+        self.serial_vertical_splitter.addWidget(self.group_cno)
+        
+        # 设置初始分割比例 (左侧堆叠栏宽度 320px，右侧串口终端宽度 920px)
+        self.serial_upper_splitter.setSizes([320, 920])
+        self.serial_upper_splitter.setCollapsible(0, False)
+        self.serial_upper_splitter.setCollapsible(1, False)
+        self.serial_vertical_splitter.setSizes([600, 300])
+        self.serial_vertical_splitter.setCollapsible(0, False)
+        self.serial_vertical_splitter.setCollapsible(1, False)
 
         # 添加选项卡
         self.tab_widget.addTab(self.tab_scatter, "靶心图")
@@ -1131,7 +1651,7 @@ class MainWindow(QMainWindow):
         lbl_history.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
         self.cmb_history = QComboBox()
         self.cmb_history.setFixedHeight(28)
-        self.cmb_history.view().setStyleSheet("font-size: 12px;")
+        self.cmb_history.view().setStyleSheet("font-size: 9pt;")
         self.cmb_history.setDisabled(True)  # 默认Auto模式下禁用
         self.cmb_history.currentIndexChanged.connect(self.on_history_coordinate_selected)
         row_history.addWidget(lbl_history)
@@ -1278,7 +1798,7 @@ class MainWindow(QMainWindow):
         lbl_tz = QLabel("时间:")
         lbl_tz.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
         self.cmb_timezone = QComboBox()
-        self.cmb_timezone.view().setStyleSheet("font-size: 12px;")
+        self.cmb_timezone.view().setStyleSheet("font-size: 9pt;")
         self.cmb_timezone.addItems(["UTC 时间", "北京时间 (UTC+8)"])
         self.cmb_timezone.setFixedWidth(110)
         self.cmb_timezone.setFixedHeight(28)
@@ -1294,7 +1814,7 @@ class MainWindow(QMainWindow):
         lbl_xaxis = QLabel("X轴:")
         lbl_xaxis.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
         self.cmb_xaxis = QComboBox()
-        self.cmb_xaxis.view().setStyleSheet("font-size: 12px;")
+        self.cmb_xaxis.view().setStyleSheet("font-size: 9pt;")
         self.cmb_xaxis.addItems(["历元数", "时间轴"])
         self.cmb_xaxis.setFixedWidth(90)
         self.cmb_xaxis.setFixedHeight(28)
@@ -1356,44 +1876,40 @@ class MainWindow(QMainWindow):
         # 初始化工具栏样式 (适配系统浅色/深色主题)
         self.update_toolbar_styles()
 
-        # 3. 初始化载噪比停靠监视器 (QDockWidget)
-        from PySide6.QtWidgets import QDockWidget
-        self.dock_cno = QDockWidget("可见卫星载噪比监视器", self)
-        self.dock_cno.setObjectName("dock_cno")
-        self.dock_cno.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea)
-        self.dock_cno.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable)
-        
-        self.canvas_cno = CNoPlotCanvas(self.dock_cno)
-        dock_contents = QWidget()
-        dock_layout = QVBoxLayout(dock_contents)
-        dock_layout.setContentsMargins(2, 2, 2, 2)
-        dock_layout.addWidget(self.canvas_cno)
-        self.dock_cno.setWidget(dock_contents)
-        
-        self.dock_cno.setStyleSheet("""
-            QDockWidget {
-                color: #38BDF8;
-                font-weight: bold;
-                font-size: 11px;
-                border: 1px solid #1E293B;
-            }
-            QDockWidget::title {
-                background-color: #0F172A;
-                text-align: left;
-                padding-left: 8px;
-                color: #38BDF8;
-                border-bottom: 1px solid #1E293B;
-            }
-        """)
-        
-        # 默认停靠在右侧下方区域
-        self.addDockWidget(Qt.RightDockWidgetArea, self.dock_cno)
-        
-        # 将 Dock 的显示隐藏绑定到“视图”菜单
+        # 3. 初始化视图菜单并绑定显示隐藏各个模块的动作
         view_menu = self.menu_bar.addMenu("视图")
-        toggle_action = self.dock_cno.toggleViewAction()
-        toggle_action.setText("显示载噪比监视器")
-        view_menu.addAction(toggle_action)
+        
+        self.action_toggle_serial_ctrl = view_menu.addAction("显示串口配置")
+        self.action_toggle_serial_ctrl.setCheckable(True)
+        self.action_toggle_serial_ctrl.setChecked(True)
+        self.action_toggle_serial_ctrl.triggered.connect(self.toggle_serial_ctrl_visibility)
+        
+        self.action_toggle_dashboard = view_menu.addAction("显示定位状态解析")
+        self.action_toggle_dashboard.setCheckable(True)
+        self.action_toggle_dashboard.setChecked(True)
+        self.action_toggle_dashboard.triggered.connect(self.toggle_dashboard_visibility)
+        
+        self.action_toggle_console = view_menu.addAction("显示串口打印终端")
+        self.action_toggle_console.setCheckable(True)
+        self.action_toggle_console.setChecked(True)
+        self.action_toggle_console.triggered.connect(self.toggle_console_visibility)
+        
+        self.action_toggle_ref = view_menu.addAction("显示参考位置")
+        self.action_toggle_ref.setCheckable(True)
+        self.action_toggle_ref.setChecked(True)
+        self.action_toggle_ref.triggered.connect(self.toggle_ref_visibility)
+        
+        self.action_toggle_file = view_menu.addAction("显示文件与分析分段")
+        self.action_toggle_file.setCheckable(True)
+        self.action_toggle_file.setChecked(True)
+        self.action_toggle_file.triggered.connect(self.toggle_file_visibility)
+        
+        view_menu.addSeparator()
+        
+        self.action_toggle_cno = view_menu.addAction("显示载噪比监视器")
+        self.action_toggle_cno.setCheckable(True)
+        self.action_toggle_cno.setChecked(True)
+        self.action_toggle_cno.triggered.connect(self.toggle_cno_visibility)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -2942,6 +3458,53 @@ class MainWindow(QMainWindow):
         if state == 2 or state == Qt.Checked:
             self.scroll_console_to_bottom()
 
+    def update_send_ln_state(self):
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+        is_hex = self.cb_send_hex.isChecked()
+        self.cb_send_ln.setEnabled(not is_hex)
+        if is_hex:
+            effect = QGraphicsOpacityEffect(self.cb_send_ln)
+            effect.setOpacity(0.4)
+            self.cb_send_ln.setGraphicsEffect(effect)
+        else:
+            self.cb_send_ln.setGraphicsEffect(None)
+
+    def send_custom_data(self):
+        if not self.serial_port.isOpen():
+            QMessageBox.warning(self, "警告", "请先打开串口连接！")
+            return
+            
+        text = self.txt_send_input.text()
+        if not text:
+            return
+            
+        if self.cb_send_hex.isChecked():
+            hex_cleaned = "".join(text.split())
+            try:
+                data = bytes.fromhex(hex_cleaned)
+            except ValueError:
+                QMessageBox.warning(self, "错误", "非法的十六进制数据格式！请确保输入只包含 0-9, a-f, A-F 等字符（可含空格）。")
+                return
+        else:
+            if self.cb_send_ln.isChecked():
+                text += "\r\n"
+            data = text.encode('utf-8', errors='ignore')
+            
+        try:
+            self.serial_port.write(data)
+            
+            if self.cb_send_hex.isChecked():
+                echo_str = f">> [HEX] {' '.join(f'{b:02X}' for b in data)}\n"
+            else:
+                echo_str = f">> {text}"
+                if not echo_str.endswith('\n'):
+                    echo_str += '\n'
+            
+            self.safe_append_console(echo_str)
+            self.txt_send_input.clear()
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"数据发送失败: {e}")
+
     def clear_serial_console(self):
         self.safe_clear_console()
 
@@ -3041,7 +3604,6 @@ class MainWindow(QMainWindow):
         if self.record_file:
             try:
                 self.record_file.write(data)
-                self.record_file.flush()
             except Exception:
                 pass
                 
@@ -3060,7 +3622,6 @@ class MainWindow(QMainWindow):
             # 控制台输出限制，防止溢出
             if len(self.txt_console.toPlainText()) > 50000:
                 self.safe_clear_console()
-                self.safe_append_console("[系统提示] 接收终端缓冲区已满，自动清空...\n", scroll=False)
                 
             if frame_type == 'NMEA':
                 line_str = frame_data.decode('gbk', errors='replace')
@@ -3104,7 +3665,8 @@ class MainWindow(QMainWindow):
                         if msg_num == 1:
                             keys_to_remove = []
                             for k in list(self.gsv_satellites.keys()):
-                                if k[0] == prefix:
+                                mapped_sys, _, _ = get_sat_info(prefix, k[1])
+                                if k[0] == mapped_sys:
                                     if signal_id in self.gsv_satellites[k]:
                                         del self.gsv_satellites[k][signal_id]
                                     if not self.gsv_satellites[k]:
@@ -3112,14 +3674,25 @@ class MainWindow(QMainWindow):
                             for k in keys_to_remove:
                                 self.gsv_satellites.pop(k, None)
                                 
-                        # 缓存可见卫星载噪比
+                        # 缓存可见卫星载噪比及仰角方位角元数据
                         for sat in epoch['sats']:
                             prn = sat['prn']
                             snr = sat['snr']
-                            key = (prefix, prn)
+                            sys_prefix, real_prn, _ = get_sat_info(prefix, prn)
+                            key = (sys_prefix, real_prn)
                             if key not in self.gsv_satellites:
                                 self.gsv_satellites[key] = {}
                             self.gsv_satellites[key][signal_id] = snr
+                            
+                            # 更新卫星的仰角和方位角信息
+                            elev = sat.get('elevation')
+                            azim = sat.get('azimuth')
+                            if key not in self.sat_metadata:
+                                self.sat_metadata[key] = {}
+                            if elev is not None:
+                                self.sat_metadata[key]['elevation'] = elev
+                            if azim is not None:
+                                self.sat_metadata[key]['azimuth'] = azim
                     else:
                         self.process_live_epoch(epoch)
                         has_new_epoch = True
@@ -3202,24 +3775,84 @@ class MainWindow(QMainWindow):
         # 定位状态卡片重置为 [0] 未定位
         self.lbl_pnt_quality.setText("[0] 未定位")
         self.lbl_pnt_quality.setStyleSheet(
-            "background-color: #475569; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+            "background-color: #475569; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
         )
         
         # 惯导状态卡片重置为 [0] 未激活
         if hasattr(self, 'lbl_ins_status'):
             self.lbl_ins_status.setText("未激活")
             self.lbl_ins_status.setStyleSheet(
-                "background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                "background-color: #334155; color: #94A3B8; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
             )
             
         # 3. 清空卫星载噪比缓存及重绘空图表
         self.gsv_satellites = {}
+        self.used_satellites.clear()
+        self.has_received_gsa = False
+        self.sat_metadata.clear()
         if hasattr(self, 'canvas_cno'):
-            self.canvas_cno.render_cno(self.gsv_satellites)
+            self.canvas_cno.render_cno(self.gsv_satellites, self.used_satellites, self.has_received_gsa, self.sat_metadata)
 
     def update_cno_chart(self):
-        if hasattr(self, 'canvas_cno') and hasattr(self, 'dock_cno') and self.dock_cno.isVisible():
-            self.canvas_cno.render_cno(self.gsv_satellites)
+        if hasattr(self, 'canvas_cno') and self.canvas_cno.isVisible():
+            self.canvas_cno.render_cno(self.gsv_satellites, self.used_satellites, self.has_received_gsa, self.sat_metadata)
+
+    def toggle_cno_visibility(self, visible):
+        if hasattr(self, 'group_cno'):
+            self.group_cno.setVisible(visible)
+            if hasattr(self, 'action_toggle_cno'):
+                self.action_toggle_cno.setChecked(visible)
+
+    def toggle_serial_ctrl_visibility(self, visible):
+        if hasattr(self, 'group_serial_ctrl'):
+            self.group_serial_ctrl.setVisible(visible)
+            if hasattr(self, 'action_toggle_serial_ctrl'):
+                self.action_toggle_serial_ctrl.setChecked(visible)
+            self.adjust_serial_left_panel_visibility()
+
+    def toggle_dashboard_visibility(self, visible):
+        if hasattr(self, 'dashboard_tab'):
+            self.dashboard_tab.setVisible(visible)
+            if hasattr(self, 'action_toggle_dashboard'):
+                self.action_toggle_dashboard.setChecked(visible)
+            self.adjust_serial_left_panel_visibility()
+
+    def toggle_console_visibility(self, visible):
+        if hasattr(self, 'group_console'):
+            self.group_console.setVisible(visible)
+            if hasattr(self, 'action_toggle_console'):
+                self.action_toggle_console.setChecked(visible)
+
+    def toggle_ref_visibility(self, visible):
+        if hasattr(self, 'group_ref'):
+            self.group_ref.setVisible(visible)
+            if hasattr(self, 'action_toggle_ref'):
+                self.action_toggle_ref.setChecked(visible)
+            self.adjust_sidebar_visibility()
+
+    def toggle_file_visibility(self, visible):
+        if hasattr(self, 'group_file'):
+            self.group_file.setVisible(visible)
+            if hasattr(self, 'action_toggle_file'):
+                self.action_toggle_file.setChecked(visible)
+            self.adjust_sidebar_visibility()
+
+    def adjust_serial_left_panel_visibility(self):
+        if hasattr(self, 'serial_left_panel') and hasattr(self, 'group_serial_ctrl') and hasattr(self, 'dashboard_tab'):
+            left_visible = self.group_serial_ctrl.isVisible() or self.dashboard_tab.isVisible()
+            self.serial_left_panel.setVisible(left_visible)
+            if left_visible and hasattr(self, 'serial_upper_splitter'):
+                sizes = self.serial_upper_splitter.sizes()
+                if len(sizes) >= 2 and sizes[0] < 50:
+                    total_w = sum(sizes)
+                    w_left = 320
+                    w_right = max(100, total_w - w_left) if total_w > w_left else 920
+                    self.serial_upper_splitter.setSizes([w_left, w_right])
+
+    def adjust_sidebar_visibility(self):
+        if hasattr(self, 'sidebar_widget') and hasattr(self, 'group_ref') and hasattr(self, 'group_file'):
+            sidebar_visible = self.group_ref.isVisible() or self.group_file.isVisible()
+            self.sidebar_widget.setVisible(sidebar_visible)
 
 
     def process_live_epoch(self, epoch):
@@ -3237,8 +3870,9 @@ class MainWindow(QMainWindow):
         if not realtime_seg:
             return
             
-        # 1. 如果是主定位语句，更新系统状态缓存
+        # 1. 如果是主定位语句，更新系统状态缓存，并清空当前 Epoch 在用卫星集合
         if epoch['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']:
+            self.used_satellites.clear()
             self.latest_quality = epoch.get('quality', 0)
             if 'num_sats' in epoch:
                 self.latest_num_sats = epoch['num_sats']
@@ -3248,6 +3882,55 @@ class MainWindow(QMainWindow):
                 self.latest_pdop = epoch['pdop']
             elif 'hdop' in epoch:
                 self.latest_pdop = epoch['hdop']
+                
+        # 1.5. 如果是 GSA 语句，收集当前在用卫星 PRN
+        elif epoch['type'] == 'GSA':
+            self.has_received_gsa = True
+            sats_used = epoch.get('sats_used', [])
+            sentence_type = epoch.get('sentence_type', '')
+            talker = sentence_type[1:3] if len(sentence_type) >= 3 else ''
+            
+            # 识别基本星座
+            gsa_prefix = None
+            if talker == 'GP':
+                gsa_prefix = 'GPS'
+            elif talker in ['BD', 'GB']:
+                gsa_prefix = 'BD'
+            elif talker == 'GL':
+                gsa_prefix = 'GL'
+            elif talker == 'GA':
+                gsa_prefix = 'GA'
+            
+            # 若是多星座合一 NMEA 帧，且存在 system ID 扩展字段
+            raw_line = epoch.get('raw_line', '')
+            parts = [p.strip() for p in raw_line.split(',')]
+            if talker == 'GN' and len(parts) > 18:
+                sys_id = parts[18].split('*')[0].strip()
+                if sys_id == '1':
+                    gsa_prefix = 'GPS'
+                elif sys_id == '2':
+                    gsa_prefix = 'GL'
+                elif sys_id == '3':
+                    gsa_prefix = 'GA'
+                elif sys_id == '4':
+                    gsa_prefix = 'BD'
+                    
+            for prn in sats_used:
+                # 备用方案：若无法获取前缀，根据常规 NMEA 规范 PRN 区间猜测星座
+                prn_prefix = gsa_prefix
+                if prn_prefix is None:
+                    if 1 <= prn <= 32 or 193 <= prn <= 202:
+                        prn_prefix = 'GPS'
+                    elif 65 <= prn <= 99:
+                        prn_prefix = 'GL'
+                    elif 141 <= prn <= 172 or 1 <= prn <= 63:
+                        prn_prefix = 'BD'
+                    else:
+                        prn_prefix = 'GPS'
+                        
+                if prn_prefix:
+                    sys_prefix, real_prn, _ = get_sat_info(prn_prefix, prn)
+                    self.used_satellites.add((sys_prefix, real_prn))
                 
         # 2. 如果是 GOS 或 DRS，强制继承最新的 GGA/POSOL 系统状态，确保统一性
         elif epoch['type'] in ['POGOS', 'PODRS']:
@@ -3322,25 +4005,25 @@ class MainWindow(QMainWindow):
                 self.lbl_pnt_hdop.setText(f"{self.latest_hdop:.1f}")
                 
                 qual_str = f"[{qual}] 未定位"
-                badge_style = "background-color: #475569; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                badge_style = "background-color: #475569; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
                 if qual == 4:
                     qual_str = f"[{qual}] RTK 固定 (FIXED)"
-                    badge_style = "background-color: #10B981; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                    badge_style = "background-color: #10B981; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
                 elif qual == 5:
                     qual_str = f"[{qual}] RTK 浮点 (FLOAT)"
-                    badge_style = "background-color: #F59E0B; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                    badge_style = "background-color: #F59E0B; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
                 elif qual == 2:
                     qual_str = f"[{qual}] 差分 (DGPS)"
-                    badge_style = "background-color: #3B82F6; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                    badge_style = "background-color: #3B82F6; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
                 elif qual == 1:
                     qual_str = f"[{qual}] 单点 (SINGLE)"
-                    badge_style = "background-color: #6366F1; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                    badge_style = "background-color: #6366F1; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
                 elif qual == 6:
                     qual_str = f"[{qual}] 惯导推算 (DR)"
-                    badge_style = "background-color: #8B5CF6; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                    badge_style = "background-color: #8B5CF6; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
                 elif qual == 7: # BK 二进制下的 RTK Fix
                     qual_str = f"[{qual}] RTK 固定 (FIXED)"
-                    badge_style = "background-color: #10B981; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                    badge_style = "background-color: #10B981; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
                     
                 self.lbl_pnt_quality.setText(qual_str)
                 self.lbl_pnt_quality.setStyleSheet(badge_style)
@@ -3348,16 +4031,16 @@ class MainWindow(QMainWindow):
         elif epoch['type'] == 'POINS':
             ins_stat = epoch.get('ins_status', 0)
             ins_str = f"[{ins_stat}] 未激活"
-            ins_style = "background-color: #475569; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+            ins_style = "background-color: #475569; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
             if ins_stat == 5:
                 ins_str = f"[{ins_stat}] 已收敛"
-                ins_style = "background-color: #10B981; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                ins_style = "background-color: #10B981; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
             elif ins_stat == 4:
                 ins_str = f"[{ins_stat}] 未收敛"
-                ins_style = "background-color: #F59E0B; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                ins_style = "background-color: #F59E0B; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
             elif ins_stat in [1, 2, 3]:
                 ins_str = f"[{ins_stat}] 初始化/对准中"
-                ins_style = "background-color: #3B82F6; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+                ins_style = "background-color: #3B82F6; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 12px;"
                 
             self.lbl_ins_status.setText(ins_str)
             self.lbl_ins_status.setStyleSheet(ins_style)

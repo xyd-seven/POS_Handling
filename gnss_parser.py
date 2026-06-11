@@ -265,6 +265,8 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
             prefix = 'GL'
         elif 'GA' in sentence_type:
             prefix = 'GA'
+        elif 'IR' in sentence_type or 'GI' in sentence_type:
+            prefix = 'IRNSS'
             
         sats = []
         signal_id = '1' # 默认频段 ID
@@ -278,13 +280,19 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
         idx = 4
         while idx + 3 < len(loop_parts):
             prn_str = loop_parts[idx].strip()
+            elev_str = loop_parts[idx+1].strip()
+            azim_str = loop_parts[idx+2].strip()
             snr_str = loop_parts[idx+3].strip()
             if prn_str:
                 try:
                     prn = int(prn_str)
+                    elev = int(elev_str) if elev_str else None
+                    azim = int(azim_str) if azim_str else None
                     snr = int(snr_str) if snr_str else 0
                     sats.append({
                         'prn': prn,
+                        'elevation': elev,
+                        'azimuth': azim,
                         'snr': snr
                     })
                 except ValueError:
@@ -400,12 +408,21 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
                 pdop = float(parts[15]) if parts[15].strip() else 99.9
                 hdop = float(parts[16]) if parts[16].strip() else 99.9
                 vdop = float(parts[17]) if parts[17].strip() else 99.9
+                sats_used = []
+                for p in parts[3:15]:
+                    p = p.strip()
+                    if p:
+                        try:
+                            sats_used.append(int(p))
+                        except ValueError:
+                            pass
                 return {
                     'type': 'GSA',
                     'sentence_type': sentence_type,
                     'pdop': pdop,
                     'hdop': hdop,
                     'vdop': vdop,
+                    'sats_used': sats_used,
                     'raw_line': line
                 }
             except ValueError:
