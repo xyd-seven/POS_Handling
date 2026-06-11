@@ -30,6 +30,8 @@ class PlotWidget(FigureCanvas):
         super().__init__(self.fig)
         self.setParent(parent)
         self.downsample_threshold = 100000
+        self.min_downsample_points = 2000
+        self.max_downsample_points = 50000
 
     def resizeEvent(self, event):
         from PySide6.QtCore import QTimer
@@ -61,6 +63,34 @@ class PlotWidget(FigureCanvas):
         # Connect double-click event if not already connected
         if not hasattr(self, 'cid_dblclick'):
             self.cid_dblclick = self.fig.canvas.mpl_connect('button_press_event', self.on_double_click)
+
+    def _target_plot_points(self):
+        width_px = max(1, int(self.figure.bbox.width))
+        target = width_px * 4
+        return max(self.min_downsample_points, min(self.max_downsample_points, target))
+
+    def _downsample_minmax(self, x_values, y_values):
+        total_pts = len(y_values)
+        target_points = self._target_plot_points()
+        if total_pts <= target_points:
+            return x_values, y_values
+
+        chunk_size = max(1, total_pts // max(1, target_points // 2))
+        n_chunks = total_pts // chunk_size
+        trunc_pts = n_chunks * chunk_size
+        y_trunc = y_values[:trunc_pts].reshape((n_chunks, chunk_size))
+
+        max_idx = np.argmax(y_trunc, axis=1) + np.arange(n_chunks) * chunk_size
+        min_idx = np.argmin(y_trunc, axis=1) + np.arange(n_chunks) * chunk_size
+
+        indices = np.sort(np.concatenate([max_idx, min_idx]))
+        if indices[0] != 0:
+            indices = np.insert(indices, 0, 0)
+        if indices[-1] != total_pts - 1:
+            indices = np.append(indices, total_pts - 1)
+        indices = np.unique(indices)
+
+        return x_values[indices], y_values[indices]
             
     def on_double_click(self, event):
         if not event.dblclick or not getattr(self, 'ax_sats', None):
@@ -397,26 +427,7 @@ class PlotWidget(FigureCanvas):
             else:
                 x = np.arange(1, len(h_errors) + 1)
                 
-            total_pts = len(h_errors)
-            if total_pts > self.downsample_threshold:
-                chunk_size = max(1, total_pts // (self.downsample_threshold // 2))
-                n_chunks = total_pts // chunk_size
-                trunc_pts = n_chunks * chunk_size
-                y_trunc = h_errors[:trunc_pts].reshape((n_chunks, chunk_size))
-                
-                max_idx = np.argmax(y_trunc, axis=1) + np.arange(n_chunks) * chunk_size
-                min_idx = np.argmin(y_trunc, axis=1) + np.arange(n_chunks) * chunk_size
-                
-                indices = np.sort(np.concatenate([max_idx, min_idx]))
-                if indices[0] != 0: indices = np.insert(indices, 0, 0)
-                if indices[-1] != total_pts - 1: indices = np.append(indices, total_pts - 1)
-                indices = np.unique(indices)
-                
-                plot_x = x[indices]
-                plot_y = h_errors[indices]
-            else:
-                plot_x = x
-                plot_y = h_errors
+            plot_x, plot_y = self._downsample_minmax(x, h_errors)
             
             marker_style = 'o' if len(plot_x) <= 5000 else 'none'
             self.ax.plot(plot_x, plot_y, color=seg['color'], marker=marker_style, markersize=4, 
@@ -510,26 +521,7 @@ class PlotWidget(FigureCanvas):
             else:
                 x = np.arange(1, len(u_errors) + 1)
                 
-            total_pts = len(u_errors)
-            if total_pts > self.downsample_threshold:
-                chunk_size = max(1, total_pts // (self.downsample_threshold // 2))
-                n_chunks = total_pts // chunk_size
-                trunc_pts = n_chunks * chunk_size
-                y_trunc = u_errors[:trunc_pts].reshape((n_chunks, chunk_size))
-                
-                max_idx = np.argmax(y_trunc, axis=1) + np.arange(n_chunks) * chunk_size
-                min_idx = np.argmin(y_trunc, axis=1) + np.arange(n_chunks) * chunk_size
-                
-                indices = np.sort(np.concatenate([max_idx, min_idx]))
-                if indices[0] != 0: indices = np.insert(indices, 0, 0)
-                if indices[-1] != total_pts - 1: indices = np.append(indices, total_pts - 1)
-                indices = np.unique(indices)
-                
-                plot_x = x[indices]
-                plot_y = u_errors[indices]
-            else:
-                plot_x = x
-                plot_y = u_errors
+            plot_x, plot_y = self._downsample_minmax(x, u_errors)
             
             marker_style = 'o' if len(plot_x) <= 5000 else 'none'
             self.ax.plot(plot_x, plot_y, color=seg['color'], marker=marker_style, markersize=4, 
@@ -646,8 +638,9 @@ class PlotWidget(FigureCanvas):
             dop_valid = dop[valid_idx]
                 
             total_pts = len(sats_valid)
-            if total_pts > self.downsample_threshold:
-                step = max(1, total_pts // (self.downsample_threshold // 2))
+            target_points = self._target_plot_points()
+            if total_pts > target_points:
+                step = max(1, total_pts // target_points)
                 if x_valid[-1] != x_valid[::step][-1]:
                     plot_x = np.concatenate([x_valid[::step], [x_valid[-1]]])
                     plot_sats = np.concatenate([sats_valid[::step], [sats_valid[-1]]])
