@@ -1001,6 +1001,7 @@ class MainWindow(QMainWindow):
         self.version_lines = []
         self.version_timer = None
         self.waiting_for_version = False
+        self.is_dialog_open = False
 
         # 实时数据超时清空定时器
         self.realtime_timeout_timer = QTimer(self)
@@ -3813,9 +3814,32 @@ class MainWindow(QMainWindow):
             default_filename = f"GNSS_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
             initial_path = os.path.join(initial_dir, default_filename) if initial_dir else default_filename
             
-            filepath, _ = QFileDialog.getSaveFileName(
-                self, "选择保存的原始数据日志文件", initial_path, "GNSS Logs (*.log *.txt *.nmea *.dat)"
-            )
+            # 临时停止定时器，防止在保存文件对话框阻塞主线程期间，超时定时器误触发清空状态，或刷新定时器绘制不一致状态
+            was_timeout_active = False
+            if hasattr(self, 'realtime_timeout_timer') and self.realtime_timeout_timer.isActive():
+                self.realtime_timeout_timer.stop()
+                was_timeout_active = True
+                
+            was_cno_active = False
+            if hasattr(self, 'cno_refresh_timer') and self.cno_refresh_timer.isActive():
+                self.cno_refresh_timer.stop()
+                was_cno_active = True
+
+            self.is_dialog_open = True
+            try:
+                filepath, _ = QFileDialog.getSaveFileName(
+                    self, "选择保存的原始数据日志文件", initial_path, "GNSS Logs (*.log *.txt *.nmea *.dat)"
+                )
+            finally:
+                self.is_dialog_open = False
+                # 恢复定时器
+                if was_timeout_active and hasattr(self, 'realtime_timeout_timer'):
+                    self.realtime_timeout_timer.start(2500)
+                if was_cno_active and hasattr(self, 'cno_refresh_timer'):
+                    self.cno_refresh_timer.start(1000)
+                # 处理对话框挂起期间累积的数据
+                self.handle_serial_read()
+
             if not filepath:
                 self.cb_record.setChecked(False)
                 return
@@ -4497,6 +4521,8 @@ class MainWindow(QMainWindow):
             self.parsed_epochs = []
 
     def handle_serial_read(self):
+        if getattr(self, 'is_dialog_open', False):
+            return
         if not self.serial_port.isOpen():
             return
 
