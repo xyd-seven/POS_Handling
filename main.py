@@ -3789,7 +3789,16 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "连接失败", f"无法打开串口 {port_name}，可能已被占用或未连接。")
 
     def on_record_state_changed(self, state):
-        if state == 2:  # Checked (Qt.Checked is 2)
+        # 兼容不同 Qt 版本的 CheckState 枚举与整型/布尔值，且以 widget 实际选中状态进行双重保障
+        is_checked = False
+        if state == 2 or state == Qt.CheckState.Checked:
+            is_checked = True
+        elif hasattr(state, 'value') and state.value == 2:
+            is_checked = True
+        elif self.cb_record.isChecked():
+            is_checked = True
+
+        if is_checked:
             import os
             import datetime
             
