@@ -1362,7 +1362,7 @@ class MainWindow(QMainWindow):
             }
         """)
         self.btn_replay_browse = QPushButton("浏览")
-        self.btn_replay_browse.setFixedSize(50, 26)
+        self.btn_replay_browse.setFixedSize(46, 26)
         self.btn_replay_browse.setStyleSheet("""
             QPushButton {
                 background-color: #1E293B;
@@ -1376,8 +1376,31 @@ class MainWindow(QMainWindow):
             }
         """)
         self.btn_replay_browse.clicked.connect(self.on_replay_browse)
+        
+        self.btn_replay_clear = QPushButton("清除")
+        self.btn_replay_clear.setFixedSize(46, 26)
+        self.btn_replay_clear.setEnabled(False)
+        self.btn_replay_clear.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B;
+                color: #EF4444;
+                border: 1px solid #EF4444;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: rgba(239, 68, 68, 0.15);
+            }
+            QPushButton:disabled {
+                border-color: #334155;
+                color: #475569;
+            }
+        """)
+        self.btn_replay_clear.clicked.connect(self.clear_replay_data)
+        
         row_file.addWidget(self.txt_replay_file)
         row_file.addWidget(self.btn_replay_browse)
+        row_file.addWidget(self.btn_replay_clear)
         replay_layout.addLayout(row_file)
         
         row_ctrl = QHBoxLayout()
@@ -3706,6 +3729,29 @@ class MainWindow(QMainWindow):
         if filepath:
             self.load_replay_file(filepath)
 
+    def clear_replay_data(self):
+        self.stop_replay()
+        self.replay_blocks = []
+        self.txt_replay_file.clear()
+        self.btn_replay_play.setEnabled(False)
+        self.btn_replay_stop.setEnabled(False)
+        self.btn_replay_clear.setEnabled(False)
+        self.slider_replay.setEnabled(False)
+        self.slider_replay.setValue(0)
+        self.lbl_replay_time.setText("00:00:00 / 00:00:00")
+        
+        # 清除所有解析数据缓存并重绘为空白
+        self.gsv_satellites.clear()
+        self.used_satellites.clear()
+        self.sat_metadata.clear()
+        self.has_received_gsa = False
+        self.realtime_raw_epochs = []
+        self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
+        
+        self.reset_live_status_ui()
+        self.recompute_all()
+        self.update_cno_chart()
+
     def load_replay_file(self, filepath):
         import os
         from PySide6.QtWidgets import QProgressDialog
@@ -3743,6 +3789,14 @@ class MainWindow(QMainWindow):
             return
 
         self.stop_replay()
+        self.gsv_satellites.clear()
+        self.used_satellites.clear()
+        self.sat_metadata.clear()
+        self.has_received_gsa = False
+        self.realtime_raw_epochs = []
+        self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
+        self.recompute_all()
+        self.update_cno_chart()
         self.replay_blocks = []
         self.replay_index = 0
         
@@ -3819,6 +3873,7 @@ class MainWindow(QMainWindow):
                 self.txt_replay_file.clear()
                 self.btn_replay_play.setEnabled(False)
                 self.btn_replay_stop.setEnabled(False)
+                self.btn_replay_clear.setEnabled(False)
                 self.slider_replay.setEnabled(False)
                 self.lbl_replay_time.setText("00:00:00 / 00:00:00")
                 return
@@ -3827,10 +3882,18 @@ class MainWindow(QMainWindow):
             self.txt_replay_file.setText(filepath)
             self.btn_replay_play.setEnabled(True)
             self.btn_replay_stop.setEnabled(True)
+            self.btn_replay_clear.setEnabled(True)
             self.slider_replay.setEnabled(True)
             self.slider_replay.setRange(0, len(self.replay_blocks) - 1)
             self.slider_replay.setValue(0)
             
+            # 导入后立即解析并重绘第1个分包以显示初始数据
+            if self.replay_blocks:
+                _, block_bytes = self.replay_blocks[0]
+                self.parse_raw_chunk(block_bytes)
+                self.recompute_all()
+                self.update_cno_chart()
+                
             self.update_replay_time_display()
             
         except Exception as e:
@@ -3968,11 +4031,12 @@ class MainWindow(QMainWindow):
             self.slider_replay.blockSignals(False)
             self.update_replay_time_display()
             
-            if has_new_epoch:
-                cur_time = time.time()
-                if cur_time - self.last_recompute_time >= 0.5:
+            cur_time = time.time()
+            if cur_time - self.last_recompute_time >= 0.5:
+                if has_new_epoch:
                     self.recompute_all()
-                    self.last_recompute_time = cur_time
+                self.update_cno_chart()
+                self.last_recompute_time = cur_time
 
     def on_slider_pressed(self):
         self.is_slider_dragging = True
@@ -4004,6 +4068,7 @@ class MainWindow(QMainWindow):
                 _, block_bytes = self.replay_blocks[self.replay_index]
                 self.parse_raw_chunk(block_bytes)
                 self.recompute_all()
+                self.update_cno_chart()
 
     def on_slider_value_changed(self, value):
         if self.is_slider_dragging:
