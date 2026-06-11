@@ -367,7 +367,7 @@ class CNoPlotCanvas(FigureCanvas):
             'BD': {
                 '1': '#EF4444',  # B1I (亮红)
                 '3': '#FB7185',  # B1C (玫瑰粉红)
-                '5': '#FDBA74',  # B2a (沙桔)
+                '5': '#D946EF',  # B2a (极光洋红)
                 'B': '#DC2626',  # B2I (中红)
                 '6': '#F87171',  # B2b (粉红)
                 '7': '#FEE2E2',  # B2 A+B (极淡红)
