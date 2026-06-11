@@ -989,7 +989,6 @@ class MainWindow(QMainWindow):
         self.record_file = None
         self.record_filepath = None
         self.record_error_reported = False
-        self._is_programmatic_scroll = False
         self.realtime_raw_epochs = deque(maxlen=6000)
         self.latest_quality = 0
         self.latest_num_sats = 0
@@ -1378,12 +1377,7 @@ class MainWindow(QMainWindow):
         row_display_ctrl.setSpacing(6)
         self.cb_hex = QCheckBox("Hex显示")
         self.cb_hex.setStyleSheet("color:#94A3B8; font-size:11px;")
-        self.cb_scroll = QCheckBox("自动滚动")
-        self.cb_scroll.setStyleSheet("color:#94A3B8; font-size:11px;")
-        self.cb_scroll.setChecked(True)
-        self.cb_scroll.stateChanged.connect(self.on_scroll_checkbox_changed)
         row_display_ctrl.addWidget(self.cb_hex)
-        row_display_ctrl.addWidget(self.cb_scroll)
         ctrl_layout.addLayout(row_display_ctrl, 3, 0, 1, 3)
 
         row_record = QHBoxLayout()
@@ -1740,9 +1734,6 @@ class MainWindow(QMainWindow):
         self.txt_console = QTextEdit()
         self.txt_console.setReadOnly(True)
         self.txt_console.document().setMaximumBlockCount(500)
-        self.console_scroll_timer = QTimer(self)
-        self.console_scroll_timer.setSingleShot(True)
-        self.console_scroll_timer.timeout.connect(self.scroll_console_to_bottom)
         self.txt_console.setStyleSheet("""
             background-color: #0B1120;
             color: #10B981;
@@ -1752,8 +1743,6 @@ class MainWindow(QMainWindow):
             border-radius: 6px;
             padding: 4px;
         """)
-        self.txt_console.verticalScrollBar().valueChanged.connect(self.on_console_scrollbar_value_changed)
-        self.txt_console.verticalScrollBar().rangeChanged.connect(self.on_console_scrollbar_range_changed)
         console_layout.addWidget(self.txt_console)
 
         # 新增串口发送控制行
@@ -3871,64 +3860,10 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "录制失败", f"写入原始数据日志失败，录制已停止。\n\n{err_msg}")
 
     def safe_append_console(self, text, scroll=True):
-        scrollbar = self.txt_console.verticalScrollBar()
-        old_val = scrollbar.value()
-        self._is_programmatic_scroll = True
-        try:
-            self.txt_console.append(text)
-            if not self.cb_scroll.isChecked():
-                scrollbar.setValue(old_val)
-        finally:
-            self._is_programmatic_scroll = False
-        if scroll:
-            self.request_console_scroll_to_bottom()
+        self.txt_console.append(text)
 
     def safe_clear_console(self):
-        self._is_programmatic_scroll = True
-        try:
-            self.txt_console.clear()
-        finally:
-            self._is_programmatic_scroll = False
-
-    def scroll_console_to_bottom(self):
-        if self.cb_scroll.isChecked():
-            self._is_programmatic_scroll = True
-            self.txt_console.moveCursor(QTextCursor.End)
-            self._is_programmatic_scroll = False
-
-    def request_console_scroll_to_bottom(self):
-        if self.cb_scroll.isChecked() and hasattr(self, 'console_scroll_timer'):
-            self.console_scroll_timer.start(50)
-
-    def on_console_scrollbar_value_changed(self, value):
-        if self._is_programmatic_scroll:
-            return
-
-        scrollbar = self.txt_console.verticalScrollBar()
-        max_val = scrollbar.maximum()
-
-        if max_val - value > 10:
-            if self.cb_scroll.isChecked():
-                self.cb_scroll.blockSignals(True)
-                self.cb_scroll.setChecked(False)
-                self.cb_scroll.blockSignals(False)
-        elif max_val > 0 and max_val - value <= 10:
-            if not self.cb_scroll.isChecked():
-                self.cb_scroll.blockSignals(True)
-                self.cb_scroll.setChecked(True)
-                self.cb_scroll.blockSignals(False)
-
-    def on_console_scrollbar_range_changed(self, min_val, max_val):
-        if self.cb_scroll.isChecked():
-            self._is_programmatic_scroll = True
-            try:
-                self.txt_console.verticalScrollBar().setValue(max_val)
-            finally:
-                self._is_programmatic_scroll = False
-
-    def on_scroll_checkbox_changed(self, state):
-        if state == 2 or state == Qt.Checked:
-            self.scroll_console_to_bottom()
+        self.txt_console.clear()
 
     def update_send_ln_state(self):
         from PySide6.QtWidgets import QGraphicsOpacityEffect
@@ -4704,7 +4639,6 @@ class MainWindow(QMainWindow):
                         self.process_live_epoch(epoch)
                         has_new_epoch = True
 
-        self.request_console_scroll_to_bottom()
         return has_new_epoch
 
     def show_version_dialog(self):
