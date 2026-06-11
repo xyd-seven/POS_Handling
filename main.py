@@ -469,7 +469,10 @@ class CNoPlotCanvas(FigureCanvas):
         self.ax.tick_params(axis='x', colors='#94A3B8', labelsize=8, pad=18)
         self.ax.set_xticklabels(x_labels, ha='center', color='#F8FAFC', fontsize=8, fontweight='bold')
         
-        self.fig.tight_layout()
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            self.fig.tight_layout()
         self.fig.canvas.draw_idle()
 
     def on_mouse_move(self, event):
