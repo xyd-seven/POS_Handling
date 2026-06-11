@@ -3549,7 +3549,6 @@ class MainWindow(QMainWindow):
     def toggle_serial_connection(self):
         if self.serial_port.isOpen():
             self.serial_port.close()
-            self.reset_live_status_ui()
             if hasattr(self, 'realtime_timeout_timer'):
                 self.realtime_timeout_timer.stop()
             if hasattr(self, 'cno_refresh_timer'):
@@ -3809,6 +3808,7 @@ class MainWindow(QMainWindow):
             return
 
         self.stop_replay()
+        self.reset_live_status_ui()
         self.gsv_satellites.clear()
         self.used_satellites.clear()
         self.sat_metadata.clear()
@@ -3990,7 +3990,6 @@ class MainWindow(QMainWindow):
         if self.replay_blocks:
             self.slider_replay.setValue(0)
             self.update_replay_time_display()
-        self.reset_live_status_ui()
 
     def on_replay_speed_changed(self, text):
         if self.is_replaying:
