@@ -407,7 +407,6 @@ class SegmentListItemWidget(QWidget):
         self.cmb_src = QComboBox()
         self.cmb_src.setFixedWidth(80)
         self.cmb_src.setFixedHeight(26)
-        self.cmb_src.view().setStyleSheet("font-size: 9pt;")
         if has_gga:
             self.cmb_src.addItem("GGA")
         if has_pogos:

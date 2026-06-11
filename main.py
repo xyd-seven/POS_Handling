@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout,
                              QTableWidgetItem, QTabWidget, QGroupBox, QSplitter,
                              QHeaderView, QFileDialog, QMessageBox, QMenuBar,
                              QComboBox, QCheckBox, QProgressDialog, QGridLayout,
-                             QTextEdit)
+                             QTextEdit, QSlider)
 from PySide6.QtCore import Qt, Signal, QThread, QPointF, QRectF, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QPen, QBrush, QTextCursor
 from PySide6.QtSerialPort import QSerialPort, QSerialPortInfo
@@ -955,6 +955,17 @@ class MainWindow(QMainWindow):
         self.cno_refresh_timer = QTimer(self)
         self.cno_refresh_timer.timeout.connect(self.update_cno_chart)
 
+        # 串口回放相关状态
+        self.replay_blocks = []
+        self.replay_index = 0
+        self.is_replaying = False
+        self.replay_timer = QTimer(self)
+        self.replay_timer.timeout.connect(self.replay_tick)
+        self.is_slider_dragging = False
+        self.last_recompute_time = 0.0
+        self.replay_start_time = 0.0
+        self.replay_start_index = 0
+
         # 初始化 UI
         self.init_ui()
         self.setAcceptDrops(True)
@@ -1194,21 +1205,48 @@ class MainWindow(QMainWindow):
         serial_left_layout.setContentsMargins(4, 4, 4, 4)
         serial_left_layout.setSpacing(10)
         
-        # 串口配置 GroupBox
-        self.group_serial_ctrl = QGroupBox("串口配置")
-        ctrl_layout = QGridLayout(self.group_serial_ctrl)
-        ctrl_layout.setContentsMargins(8, 16, 8, 8)
+        # 串口与回放配置 GroupBox
+        self.group_serial_ctrl = QGroupBox("串口与回放配置")
+        outer_layout = QVBoxLayout(self.group_serial_ctrl)
+        outer_layout.setContentsMargins(4, 12, 4, 4)
+        outer_layout.setSpacing(0)
+        
+        self.mode_tab = QTabWidget()
+        self.mode_tab.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #1E293B;
+                background-color: #172033;
+                border-radius: 6px;
+            }
+            QTabBar::tab {
+                background-color: #0B1120;
+                color: #94A3B8;
+                padding: 6px 12px;
+                font-size: 11px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                border: 1px solid #1E293B;
+                margin-right: 4px;
+            }
+            QTabBar::tab:selected {
+                background-color: #172033;
+                color: #38BDF8;
+                border-bottom: 1px solid #172033;
+            }
+        """)
+        
+        # --- Tab 1: 串口连接 ---
+        self.tab_serial_conn = QWidget()
+        ctrl_layout = QGridLayout(self.tab_serial_conn)
+        ctrl_layout.setContentsMargins(6, 10, 6, 6)
         ctrl_layout.setSpacing(6)
         
         ctrl_layout.addWidget(QLabel("串口选择:"), 0, 0)
         self.cmb_port = QComboBox()
         self.cmb_port.setFixedHeight(28)
-        # 显式设置 QFont 大小，防止样式继承合并 bug 导致 setPointSize(-1) 警告
         combobox_font = self.cmb_port.font()
         combobox_font.setPointSize(10)
         self.cmb_port.setFont(combobox_font)
-        self.cmb_port.view().setFont(combobox_font)
-        self.cmb_port.view().setStyleSheet("font-size: 9pt;")
         ctrl_layout.addWidget(self.cmb_port, 0, 1)
         
         self.btn_port_refresh = QPushButton()
@@ -1241,12 +1279,9 @@ class MainWindow(QMainWindow):
         ctrl_layout.addWidget(QLabel("波特率:"), 1, 0)
         self.cmb_baud = QComboBox()
         self.cmb_baud.setFixedHeight(28)
-        # 显式设置 QFont 大小，防止样式继承合并 bug 导致 setPointSize(-1) 警告
         combobox_font = self.cmb_baud.font()
         combobox_font.setPointSize(10)
         self.cmb_baud.setFont(combobox_font)
-        self.cmb_baud.view().setFont(combobox_font)
-        self.cmb_baud.view().setStyleSheet("font-size: 9pt;")
         self.cmb_baud.addItems(["9600", "115200", "230400", "460800", "921600", "2000000"])
         self.cmb_baud.setCurrentText("115200")
         ctrl_layout.addWidget(self.cmb_baud, 1, 1, 1, 2)
@@ -1274,7 +1309,6 @@ class MainWindow(QMainWindow):
         self.btn_serial_connect.clicked.connect(self.toggle_serial_connection)
         ctrl_layout.addWidget(self.btn_serial_connect, 2, 0, 1, 3)
         
-        # 显示控制与录制
         row_display_ctrl = QHBoxLayout()
         row_display_ctrl.setSpacing(6)
         self.cb_hex = QCheckBox("Hex显示")
@@ -1299,6 +1333,158 @@ class MainWindow(QMainWindow):
         self.btn_clear_console.setFixedHeight(26)
         self.btn_clear_console.clicked.connect(self.clear_serial_console)
         ctrl_layout.addWidget(self.btn_clear_console, 5, 0, 1, 3)
+        
+        self.mode_tab.addTab(self.tab_serial_conn, "串口连接")
+        
+        # --- Tab 2: 日志回放 ---
+        self.tab_replay = QWidget()
+        replay_layout = QVBoxLayout(self.tab_replay)
+        replay_layout.setContentsMargins(6, 10, 6, 6)
+        replay_layout.setSpacing(8)
+        
+        row_file = QHBoxLayout()
+        row_file.setSpacing(4)
+        self.txt_replay_file = QLineEdit()
+        self.txt_replay_file.setReadOnly(True)
+        self.txt_replay_file.setFixedHeight(26)
+        self.txt_replay_file.setPlaceholderText("请选择日志文件...")
+        self.txt_replay_file.setStyleSheet("""
+            QLineEdit {
+                background-color: #0B1120;
+                color: #94A3B8;
+                border: 1px solid #1E293B;
+                border-radius: 4px;
+                padding-left: 4px;
+                font-size: 11px;
+            }
+        """)
+        self.btn_replay_browse = QPushButton("浏览")
+        self.btn_replay_browse.setFixedSize(50, 26)
+        self.btn_replay_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B;
+                color: #F8FAFC;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+            }
+        """)
+        self.btn_replay_browse.clicked.connect(self.on_replay_browse)
+        row_file.addWidget(self.txt_replay_file)
+        row_file.addWidget(self.btn_replay_browse)
+        replay_layout.addLayout(row_file)
+        
+        row_ctrl = QHBoxLayout()
+        row_ctrl.setSpacing(6)
+        
+        self.btn_replay_play = QPushButton("播放")
+        self.btn_replay_play.setFixedSize(56, 28)
+        self.btn_replay_play.setEnabled(False)
+        self.btn_replay_play.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(56, 189, 248, 0.15);
+                border: 1px solid #38BDF8;
+                color: #38BDF8;
+                font-weight: bold;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: rgba(56, 189, 248, 0.25);
+                color: #FFFFFF;
+            }
+            QPushButton:disabled {
+                background-color: transparent;
+                border-color: #334155;
+                color: #475569;
+            }
+        """)
+        self.btn_replay_play.clicked.connect(self.toggle_replay_playback)
+        
+        self.btn_replay_stop = QPushButton("停止")
+        self.btn_replay_stop.setFixedSize(56, 28)
+        self.btn_replay_stop.setEnabled(False)
+        self.btn_replay_stop.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(248, 113, 113, 0.15);
+                border: 1px solid #F87171;
+                color: #F87171;
+                font-weight: bold;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: rgba(248, 113, 113, 0.25);
+                color: #FFFFFF;
+            }
+            QPushButton:disabled {
+                background-color: transparent;
+                border-color: #334155;
+                color: #475569;
+            }
+        """)
+        self.btn_replay_stop.clicked.connect(self.stop_replay)
+        
+        lbl_speed = QLabel("倍速:")
+        lbl_speed.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        
+        self.cmb_replay_speed = QComboBox()
+        self.cmb_replay_speed.setFixedHeight(28)
+        self.cmb_replay_speed.setFixedWidth(64)
+        self.cmb_replay_speed.addItems(["0.5x", "1.0x", "2.0x", "5.0x", "10.0x"])
+        self.cmb_replay_speed.setCurrentText("1.0x")
+        self.cmb_replay_speed.currentTextChanged.connect(self.on_replay_speed_changed)
+        
+        row_ctrl.addWidget(self.btn_replay_play)
+        row_ctrl.addWidget(self.btn_replay_stop)
+        row_ctrl.addWidget(lbl_speed)
+        row_ctrl.addWidget(self.cmb_replay_speed)
+        row_ctrl.addStretch()
+        replay_layout.addLayout(row_ctrl)
+        
+        self.slider_replay = QSlider(Qt.Horizontal)
+        self.slider_replay.setEnabled(False)
+        self.slider_replay.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #1E293B;
+                height: 4px;
+                background: #0B1120;
+                border-radius: 2px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #38BDF8;
+                border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                background: #38BDF8;
+                border: 1px solid #38BDF8;
+                width: 12px;
+                height: 12px;
+                margin: -4px 0;
+                border-radius: 6px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #F8FAFC;
+                border-color: #F8FAFC;
+            }
+        """)
+        self.slider_replay.sliderPressed.connect(self.on_slider_pressed)
+        self.slider_replay.sliderReleased.connect(self.on_slider_released)
+        self.slider_replay.valueChanged.connect(self.on_slider_value_changed)
+        
+        self.lbl_replay_time = QLabel("00:00:00 / 00:00:00")
+        self.lbl_replay_time.setStyleSheet("color: #94A3B8; font-size: 11px; font-family: Consolas;")
+        self.lbl_replay_time.setAlignment(Qt.AlignCenter)
+        
+        replay_layout.addWidget(self.slider_replay)
+        replay_layout.addWidget(self.lbl_replay_time)
+        
+        self.mode_tab.addTab(self.tab_replay, "数据回放")
+        self.mode_tab.currentChanged.connect(self.on_mode_tab_changed)
+        outer_layout.addWidget(self.mode_tab)
         
         serial_left_layout.addWidget(self.group_serial_ctrl)
         
@@ -1651,7 +1837,6 @@ class MainWindow(QMainWindow):
         lbl_history.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
         self.cmb_history = QComboBox()
         self.cmb_history.setFixedHeight(28)
-        self.cmb_history.view().setStyleSheet("font-size: 9pt;")
         self.cmb_history.setDisabled(True)  # 默认Auto模式下禁用
         self.cmb_history.currentIndexChanged.connect(self.on_history_coordinate_selected)
         row_history.addWidget(lbl_history)
@@ -1798,7 +1983,6 @@ class MainWindow(QMainWindow):
         lbl_tz = QLabel("时间:")
         lbl_tz.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
         self.cmb_timezone = QComboBox()
-        self.cmb_timezone.view().setStyleSheet("font-size: 9pt;")
         self.cmb_timezone.addItems(["UTC 时间", "北京时间 (UTC+8)"])
         self.cmb_timezone.setFixedWidth(110)
         self.cmb_timezone.setFixedHeight(28)
@@ -1814,7 +1998,6 @@ class MainWindow(QMainWindow):
         lbl_xaxis = QLabel("X轴:")
         lbl_xaxis.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
         self.cmb_xaxis = QComboBox()
-        self.cmb_xaxis.view().setStyleSheet("font-size: 9pt;")
         self.cmb_xaxis.addItems(["历元数", "时间轴"])
         self.cmb_xaxis.setFixedWidth(90)
         self.cmb_xaxis.setFixedHeight(28)
@@ -3505,6 +3688,325 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"数据发送失败: {e}")
 
+    def on_mode_tab_changed(self, index):
+        if index == 1:  # 日志回放 Tab
+            if self.serial_port.isOpen():
+                self.toggle_serial_connection()
+        else:  # 串口连接 Tab
+            if self.is_replaying:
+                self.pause_replay()
+
+    def on_replay_browse(self):
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "选择回放日志文件", "", "GNSS Logs (*.log *.txt *.nmea *.dat)"
+        )
+        if filepath:
+            self.load_replay_file(filepath)
+
+    def load_replay_file(self, filepath):
+        import os
+        from PySide6.QtWidgets import QProgressDialog
+        
+        if not os.path.exists(filepath):
+            QMessageBox.critical(self, "错误", "目标日志文件不存在！")
+            return
+            
+        file_size = os.path.getsize(filepath)
+        if file_size == 0:
+            QMessageBox.warning(self, "警告", "选定的日志文件大小为 0 字节，无法回放！")
+            return
+            
+        # 预分析特征检出
+        nmea_count = 0
+        bk_count = 0
+        try:
+            with open(filepath, 'rb') as f:
+                header_data = f.read(50000)
+                nmea_count = header_data.count(b'$')
+                bk_count = 0
+                idx = 0
+                while idx < len(header_data) - 1:
+                    if header_data[idx] == 0x42 and header_data[idx+1] == 0x4B:
+                        bk_count += 1
+                        idx += 8
+                    else:
+                        idx += 1
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"读取日志特征失败: {e}")
+            return
+            
+        if nmea_count == 0 and bk_count == 0:
+            QMessageBox.warning(self, "错误", "未能在文件中检测到任何符合规范的 NMEA 或博通二进制协议数据特征！请检查选择的文件。")
+            return
+
+        self.stop_replay()
+        self.replay_blocks = []
+        self.replay_index = 0
+        
+        progress = QProgressDialog("正在分析日志并切分时间块...", "取消", 0, 100, self)
+        progress.setWindowTitle("载入中")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(500)
+        
+        def extract_time_str(line):
+            if not line.startswith('$'):
+                return None
+            parts = line.split(',')
+            if len(parts) > 1:
+                stype = parts[0]
+                if 'GGA' in stype or 'RMC' in stype:
+                    t_field = parts[1]
+                    if len(t_field) >= 6:
+                        return f"{t_field[0:2]}:{t_field[2:4]}:{t_field[4:6]}"
+            return None
+
+        try:
+            is_pure_binary = (nmea_count == 0 and bk_count > 0)
+            blocks = []
+            
+            if is_pure_binary:
+                with open(filepath, 'rb') as f:
+                    chunk_idx = 0
+                    while True:
+                        if progress.wasCanceled():
+                            break
+                        chunk = f.read(2048)
+                        if not chunk:
+                            break
+                        t_str = f"Offset:{chunk_idx * 2}KB"
+                        blocks.append((t_str, chunk))
+                        chunk_idx += 1
+                        progress.setValue(min(int((f.tell() / file_size) * 100), 99))
+            else:
+                current_time = "00:00:00"
+                current_block = []
+                
+                with open(filepath, 'rb') as f:
+                    line_idx = 0
+                    while True:
+                        if progress.wasCanceled():
+                            break
+                        line_bytes = f.readline()
+                        if not line_bytes:
+                            break
+                            
+                        if line_idx % 2000 == 0:
+                            progress.setValue(min(int((f.tell() / file_size) * 100), 99))
+                        line_idx += 1
+                        
+                        line_str = line_bytes.decode('utf-8', errors='replace')
+                        t = extract_time_str(line_str)
+                        if t is not None and t != current_time:
+                            if current_block:
+                                block_bytes = b"".join(current_block)
+                                blocks.append((current_time, block_bytes))
+                            current_time = t
+                            current_block = [line_bytes]
+                        else:
+                            current_block.append(line_bytes)
+                            
+                    if current_block and not progress.wasCanceled():
+                        block_bytes = b"".join(current_block)
+                        blocks.append((current_time, block_bytes))
+                        
+            progress.setValue(100)
+            
+            if progress.wasCanceled():
+                self.replay_blocks = []
+                self.txt_replay_file.clear()
+                self.btn_replay_play.setEnabled(False)
+                self.btn_replay_stop.setEnabled(False)
+                self.slider_replay.setEnabled(False)
+                self.lbl_replay_time.setText("00:00:00 / 00:00:00")
+                return
+                
+            self.replay_blocks = blocks
+            self.txt_replay_file.setText(filepath)
+            self.btn_replay_play.setEnabled(True)
+            self.btn_replay_stop.setEnabled(True)
+            self.slider_replay.setEnabled(True)
+            self.slider_replay.setRange(0, len(self.replay_blocks) - 1)
+            self.slider_replay.setValue(0)
+            
+            self.update_replay_time_display()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"日志预分包失败: {e}")
+
+    def update_replay_time_display(self):
+        if not self.replay_blocks:
+            self.lbl_replay_time.setText("00:00:00 / 00:00:00")
+            return
+        curr_time = self.replay_blocks[self.replay_index][0]
+        total_time = self.replay_blocks[-1][0]
+        self.lbl_replay_time.setText(f"{curr_time} / {total_time}")
+
+    def toggle_replay_playback(self):
+        if not self.replay_blocks:
+            return
+        if self.is_replaying:
+            self.pause_replay()
+        else:
+            self.start_replay()
+
+    def start_replay(self):
+        if not self.replay_blocks or self.is_replaying:
+            return
+        if self.replay_index >= len(self.replay_blocks) - 1:
+            self.replay_index = 0
+            self.slider_replay.setValue(0)
+            
+        self.is_replaying = True
+        self.btn_replay_play.setText("暂停")
+        self.btn_replay_play.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(245, 158, 11, 0.15);
+                border: 1px solid #F59E0B;
+                color: #F59E0B;
+                font-weight: bold;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: rgba(245, 158, 11, 0.25);
+                color: #FFFFFF;
+            }
+        """)
+        import time
+        self.replay_start_time = time.time()
+        self.replay_start_index = self.replay_index
+        self.replay_timer.start(50)
+
+    def pause_replay(self):
+        if not self.is_replaying:
+            return
+        self.is_replaying = False
+        self.replay_timer.stop()
+        self.btn_replay_play.setText("播放")
+        self.btn_replay_play.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(56, 189, 248, 0.15);
+                border: 1px solid #38BDF8;
+                color: #38BDF8;
+                font-weight: bold;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: rgba(56, 189, 248, 0.25);
+                color: #FFFFFF;
+            }
+        """)
+
+    def stop_replay(self):
+        self.pause_replay()
+        self.replay_index = 0
+        if self.replay_blocks:
+            self.slider_replay.setValue(0)
+            self.update_replay_time_display()
+        self.reset_live_status_ui()
+
+    def on_replay_speed_changed(self, text):
+        if self.is_replaying:
+            import time
+            self.replay_start_time = time.time()
+            self.replay_start_index = self.replay_index
+            
+    def get_replay_speed_multiplier(self):
+        txt = self.cmb_replay_speed.currentText()
+        try:
+            return float(txt.replace('x', ''))
+        except ValueError:
+            return 1.0
+
+    def replay_tick(self):
+        if not self.is_replaying or not self.replay_blocks:
+            self.replay_timer.stop()
+            return
+            
+        import time
+        multiplier = self.get_replay_speed_multiplier()
+        elapsed = (time.time() - self.replay_start_time) * multiplier
+        target_index = self.replay_start_index + int(elapsed)
+        
+        if target_index >= len(self.replay_blocks):
+            self.replay_index = len(self.replay_blocks) - 1
+            self.slider_replay.setValue(self.replay_index)
+            self.update_replay_time_display()
+            self.stop_replay()
+            return
+            
+        if target_index > self.replay_index:
+            blocks_to_process = target_index - self.replay_index
+            if blocks_to_process > 20:
+                blocks_to_process = 20
+                self.replay_index = target_index - 20
+                self.replay_start_index = self.replay_index
+                self.replay_start_time = time.time()
+                
+            has_new_epoch = False
+            for i in range(blocks_to_process):
+                curr_idx = self.replay_index + 1
+                if curr_idx >= len(self.replay_blocks):
+                    break
+                self.replay_index = curr_idx
+                _, block_bytes = self.replay_blocks[self.replay_index]
+                
+                if multiplier >= 5.0:
+                    self._disable_console_append = True
+                has_epoch = self.parse_raw_chunk(block_bytes)
+                if has_epoch:
+                    has_new_epoch = True
+                if multiplier >= 5.0:
+                    self._disable_console_append = False
+                    
+            self.slider_replay.blockSignals(True)
+            self.slider_replay.setValue(self.replay_index)
+            self.slider_replay.blockSignals(False)
+            self.update_replay_time_display()
+            
+            if has_new_epoch:
+                cur_time = time.time()
+                if cur_time - self.last_recompute_time >= 0.5:
+                    self.recompute_all()
+                    self.last_recompute_time = cur_time
+
+    def on_slider_pressed(self):
+        self.is_slider_dragging = True
+        if self.is_replaying:
+            self.replay_timer.stop()
+
+    def on_slider_released(self):
+        self.is_slider_dragging = False
+        self.replay_index = self.slider_replay.value()
+        self.gsv_satellites.clear()
+        self.used_satellites.clear()
+        self.sat_metadata.clear()
+        self.has_received_gsa = False
+        self.realtime_raw_epochs = []
+        self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
+        
+        if hasattr(self, 'canvas_cno'):
+            self.canvas_cno.render_cno(self.gsv_satellites, self.used_satellites, self.has_received_gsa, self.sat_metadata)
+            
+        self.update_replay_time_display()
+        
+        if self.is_replaying:
+            import time
+            self.replay_start_time = time.time()
+            self.replay_start_index = self.replay_index
+            self.replay_timer.start(50)
+        else:
+            if self.replay_blocks and self.replay_index < len(self.replay_blocks):
+                _, block_bytes = self.replay_blocks[self.replay_index]
+                self.parse_raw_chunk(block_bytes)
+                self.recompute_all()
+
+    def on_slider_value_changed(self, value):
+        if self.is_slider_dragging:
+            self.replay_index = value
+            self.update_replay_time_display()
+
     def clear_serial_console(self):
         self.safe_clear_console()
 
@@ -3607,9 +4109,12 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
                 
-        # 喂给流式分包缓冲器
+        has_new_epoch = self.parse_raw_chunk(data)
+        if has_new_epoch:
+            self.recompute_all()
+
+    def parse_raw_chunk(self, data):
         self.serial_buffer.feed(data)
-        
         has_new_epoch = False
         
         while True:
@@ -3625,11 +4130,14 @@ class MainWindow(QMainWindow):
                 
             if frame_type == 'NMEA':
                 line_str = frame_data.decode('gbk', errors='replace')
-                if self.cb_hex.isChecked():
-                    self.safe_append_console(frame_data.hex(' ').upper() + '\n', scroll=False)
-                else:
-                    self.safe_append_console(line_str, scroll=False)
-                    
+                
+                # 如果没有被阻断，正常输出
+                if not getattr(self, '_disable_console_append', False):
+                    if self.cb_hex.isChecked():
+                        self.safe_append_console(frame_data.hex(' ').upper() + '\n', scroll=False)
+                    else:
+                        self.safe_append_console(line_str, scroll=False)
+                        
                 # 检查是否是版本查询返回
                 if self.waiting_for_version:
                     is_version = False
@@ -3696,16 +4204,19 @@ class MainWindow(QMainWindow):
                     else:
                         self.process_live_epoch(epoch)
                         has_new_epoch = True
-                    
+                        
             elif frame_type == 'BK':
                 mtype = frame_data[4]
                 stype = frame_data[5]
-                if self.cb_hex.isChecked():
-                    self.safe_append_console(frame_data.hex(' ').upper() + '\n', scroll=False)
-                else:
-                    payload_len = ((frame_data[6] & 0x0F) << 8) | frame_data[7]
-                    self.safe_append_console(f"[BK 二进制帧] MTYPE={hex(mtype)} STYPE={hex(stype)} 长度={payload_len}\n", scroll=False)
-                    
+                
+                # 如果没有被阻断，正常输出
+                if not getattr(self, '_disable_console_append', False):
+                    if self.cb_hex.isChecked():
+                        self.safe_append_console(frame_data.hex(' ').upper() + '\n', scroll=False)
+                    else:
+                        payload_len = ((frame_data[6] & 0x0F) << 8) | frame_data[7]
+                        self.safe_append_console(f"[BK 二进制帧] MTYPE={hex(mtype)} STYPE={hex(stype)} 长度={payload_len}\n", scroll=False)
+                        
                 # 检查是否是二进制版本返回 (MTYPE=0x02, STYPE=0x07)
                 if self.waiting_for_version and mtype == 0x02 and stype == 0x07:
                     payload = frame_data[8:]
@@ -3734,10 +4245,7 @@ class MainWindow(QMainWindow):
                         has_new_epoch = True
                         
         self.scroll_console_to_bottom()
-                
-        if has_new_epoch:
-            # 实时重绘图表与精度指标
-            self.recompute_all()
+        return has_new_epoch
 
     def show_version_dialog(self):
         self.waiting_for_version = False
