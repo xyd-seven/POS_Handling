@@ -302,6 +302,16 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background-color: #1E293B;
 }
+
+QSplitter::handle {
+    background-color: #1E293B;
+}
+QSplitter::handle:hover {
+    background-color: #38BDF8;
+}
+QSplitter::handle:pressed {
+    background-color: #0EA5E9;
+}
 """
 import os
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))

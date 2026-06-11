@@ -1016,6 +1016,7 @@ class MainWindow(QMainWindow):
 
         # 主中央分割窗
         self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.setHandleWidth(7)
         self.setCentralWidget(self.main_splitter)
         
         # 2. 左侧工作区 (包含 Tab 嵌套画布及工具栏)
@@ -1212,14 +1213,12 @@ class MainWindow(QMainWindow):
         
         # 主垂直分割条 (上层为水平切分，下层为载噪比监视器)
         self.serial_vertical_splitter = QSplitter(Qt.Vertical)
-        self.serial_vertical_splitter.setHandleWidth(5)
-        self.serial_vertical_splitter.setStyleSheet("QSplitter::handle { background-color: #1E293B; }")
+        self.serial_vertical_splitter.setHandleWidth(7)
         layout_serial.addWidget(self.serial_vertical_splitter)
         
         # 上层水平分割条 (左侧堆叠栏 + 右侧终端)
         self.serial_upper_splitter = QSplitter(Qt.Horizontal)
-        self.serial_upper_splitter.setHandleWidth(5)
-        self.serial_upper_splitter.setStyleSheet("QSplitter::handle { background-color: #1E293B; }")
+        self.serial_upper_splitter.setHandleWidth(7)
         self.serial_vertical_splitter.addWidget(self.serial_upper_splitter)
         
         # F.1. 左侧控制和指令面板
