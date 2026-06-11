@@ -2858,6 +2858,7 @@ class MainWindow(QMainWindow):
     def load_config(self):
         CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vcom_config.json")
         self.coordinate_history = []
+        self.last_record_dir = ""
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -2870,6 +2871,7 @@ class MainWindow(QMainWindow):
                 self.show_extrema = self.app_config.get("show_extrema", True)
                 self.x_axis_mode = self.app_config.get("x_axis_mode", "历元数")
                 self.truth_mode = self.app_config.get("truth_mode", "auto")
+                self.last_record_dir = self.app_config.get("last_record_dir", "")
 
                 # 坐标历史
                 self.coordinate_history = self.app_config.get("coordinate_history", [])
@@ -2956,6 +2958,7 @@ class MainWindow(QMainWindow):
             "truth_mode": self.truth_mode,
             "leap_seconds": self.get_leap_seconds(),
             "coordinate_history": self.coordinate_history,
+            "last_record_dir": getattr(self, 'last_record_dir', ""),
             "view_visibility": self.collect_view_visibility_config()
         })
         try:
@@ -3802,10 +3805,29 @@ class MainWindow(QMainWindow):
 
     def on_record_state_changed(self, state):
         if state == 2:  # Checked (Qt.Checked is 2)
-            filepath, _ = QFileDialog.getSaveFileName(self, "选择保存的原始数据日志文件", "", "GNSS Logs (*.log *.txt *.nmea *.dat)")
+            import os
+            import datetime
+            
+            # 自动选择上次保存的文件夹，若不存在则留空（使用系统默认目录）
+            initial_dir = ""
+            if getattr(self, 'last_record_dir', None) and os.path.exists(self.last_record_dir):
+                initial_dir = self.last_record_dir
+            
+            # 自动生成建议的命名：GNSS_年月日_时分秒.log
+            default_filename = f"GNSS_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            initial_path = os.path.join(initial_dir, default_filename) if initial_dir else default_filename
+            
+            filepath, _ = QFileDialog.getSaveFileName(
+                self, "选择保存的原始数据日志文件", initial_path, "GNSS Logs (*.log *.txt *.nmea *.dat)"
+            )
             if not filepath:
                 self.cb_record.setChecked(False)
                 return
+                
+            # 保存并更新上次记录的文件夹
+            self.last_record_dir = os.path.dirname(filepath)
+            self.save_config()
+            
             try:
                 self.record_file = open(filepath, 'wb')
                 self.record_filepath = filepath
