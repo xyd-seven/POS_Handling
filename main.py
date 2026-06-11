@@ -366,8 +366,8 @@ class CNoPlotCanvas(FigureCanvas):
             },
             'BD': {
                 '1': '#EF4444',  # B1I (亮红)
-                '3': '#FCA5A5',  # B1C (浅红)
-                '5': '#FECACA',  # B2a (淡红)
+                '3': '#FB7185',  # B1C (玫瑰粉红)
+                '5': '#FDBA74',  # B2a (沙桔)
                 'B': '#DC2626',  # B2I (中红)
                 '6': '#F87171',  # B2b (粉红)
                 '7': '#FEE2E2',  # B2 A+B (极淡红)
@@ -375,11 +375,11 @@ class CNoPlotCanvas(FigureCanvas):
                 'default': '#EF4444'
             },
             'GL': {
-                '1': '#38BDF8',  # G1 C/A (亮天蓝)
-                '2': '#0EA5E9',  # G1 P (中蓝)
-                '3': '#1D4ED8',  # G2 C/A (深蓝)
-                '4': '#1E3A8A',  # G2 P (极深蓝)
-                'default': '#38BDF8'
+                '1': '#FBBF24',  # G1 C/A (亮金黄)
+                '2': '#F59E0B',  # G1 P (琥珀黄)
+                '3': '#D97706',  # G2 C/A (金黄棕)
+                '4': '#92400E',  # G2 P (深古铜)
+                'default': '#F59E0B'
             },
             'GA': {
                 '1': '#22D3EE',  # E5a (浅青)
@@ -388,7 +388,7 @@ class CNoPlotCanvas(FigureCanvas):
                 '4': '#0891B2',  # E6 A (中深青)
                 '5': '#0E7490',  # E6 B (深青)
                 '6': '#155E75',  # L1 A (极深青)
-                '7': '#06B6D4',  # E1 (亮青)
+                '7': '#2563EB',  # E1 (深宝蓝)
                 'default': '#06B6D4'
             }
         }
