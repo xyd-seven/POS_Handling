@@ -194,6 +194,26 @@ class CNoPlotCanvas(FigureCanvas):
         self.fig.tight_layout()
         super().__init__(self.fig)
         self.setParent(parent)
+
+    def resizeEvent(self, event):
+        from PySide6.QtWidgets import QWidget
+        from PySide6.QtCore import QTimer
+        QWidget.resizeEvent(self, event)
+        self._pending_width = event.size().width()
+        self._pending_height = event.size().height()
+        if not hasattr(self, '_resize_timer'):
+            self._resize_timer = QTimer(self)
+            self._resize_timer.setSingleShot(True)
+            self._resize_timer.timeout.connect(self._handle_delayed_resize)
+        self._resize_timer.start(100)
+
+    def _handle_delayed_resize(self):
+        if hasattr(self, '_pending_width') and hasattr(self, '_pending_height'):
+            dpival = self.figure.dpi
+            winch = self._pending_width / dpival
+            hinch = self._pending_height / dpival
+            self.figure.set_size_inches(winch, hinch, forward=False)
+            self.draw_idle()
         
         # 预设图表坐标轴背景色为暗黑色 #0B1120
         self.ax.set_facecolor('#0B1120')
