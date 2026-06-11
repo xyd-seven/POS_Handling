@@ -1374,24 +1374,20 @@ class MainWindow(QMainWindow):
         ctrl_layout.addWidget(self.btn_serial_connect, 2, 0, 1, 3)
 
         row_display_ctrl = QHBoxLayout()
-        row_display_ctrl.setSpacing(6)
+        row_display_ctrl.setSpacing(12)
         self.cb_hex = QCheckBox("Hex显示")
         self.cb_hex.setStyleSheet("color:#94A3B8; font-size:11px;")
-        row_display_ctrl.addWidget(self.cb_hex)
-        ctrl_layout.addLayout(row_display_ctrl, 3, 0, 1, 3)
-
-        row_record = QHBoxLayout()
-        row_record.setSpacing(6)
         self.cb_record = QCheckBox("录制原始数据")
         self.cb_record.setStyleSheet("color:#38BDF8; font-size:11px;")
         self.cb_record.stateChanged.connect(self.on_record_state_changed)
-        row_record.addWidget(self.cb_record)
-        ctrl_layout.addLayout(row_record, 4, 0, 1, 3)
+        row_display_ctrl.addWidget(self.cb_hex)
+        row_display_ctrl.addWidget(self.cb_record)
+        ctrl_layout.addLayout(row_display_ctrl, 3, 0, 1, 3)
 
         self.btn_clear_console = QPushButton("清空接收区")
         self.btn_clear_console.setFixedHeight(26)
         self.btn_clear_console.clicked.connect(self.clear_serial_console)
-        ctrl_layout.addWidget(self.btn_clear_console, 5, 0, 1, 3)
+        ctrl_layout.addWidget(self.btn_clear_console, 4, 0, 1, 3)
 
         self.mode_tab.addTab(self.tab_serial_conn, "串口连接")
 
