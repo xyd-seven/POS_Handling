@@ -1753,6 +1753,7 @@ class MainWindow(QMainWindow):
             padding: 4px;
         """)
         self.txt_console.verticalScrollBar().valueChanged.connect(self.on_console_scrollbar_value_changed)
+        self.txt_console.verticalScrollBar().rangeChanged.connect(self.on_console_scrollbar_range_changed)
         console_layout.addWidget(self.txt_console)
 
         # 新增串口发送控制行
@@ -3894,6 +3895,14 @@ class MainWindow(QMainWindow):
                 self.cb_scroll.blockSignals(True)
                 self.cb_scroll.setChecked(True)
                 self.cb_scroll.blockSignals(False)
+
+    def on_console_scrollbar_range_changed(self, min_val, max_val):
+        if self.cb_scroll.isChecked():
+            self._is_programmatic_scroll = True
+            try:
+                self.txt_console.verticalScrollBar().setValue(max_val)
+            finally:
+                self._is_programmatic_scroll = False
 
     def on_scroll_checkbox_changed(self, state):
         if state == 2 or state == Qt.Checked:
