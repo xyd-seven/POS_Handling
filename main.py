@@ -921,6 +921,7 @@ class MainWindow(QMainWindow):
         self.replay_snapshot_interval = 500
         self.replay_snapshots = {}
         self.replay_memory_cache = []
+        self.is_replay_realtime_source = False
         self.is_replaying = False
         self.is_bulk_parsing = False
         self.replay_timer = QTimer(self)
@@ -3107,9 +3108,10 @@ class MainWindow(QMainWindow):
             if seg.get('file_id') == "COM_REALTIME":
                 # 根据当前选定的数据源类型进行动态过滤，保留最近 2000 个
                 if seg['source_type'] == 'GGA':
-                    seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']][-2000:]
+                    epochs = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']]
                 else:
-                    seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] == seg['source_type']][-2000:]
+                    epochs = [ep for ep in self.realtime_raw_epochs if ep['type'] == seg['source_type']]
+                seg['epochs'] = epochs if self.is_replay_realtime_source else epochs[-2000:]
             else:
                 # 使用基于 file_id 的字典查询代替遍历数十万级别的全集列表
                 file_epochs = self.file_epochs_map.get(seg.get('file_id'), [])
@@ -3877,6 +3879,7 @@ class MainWindow(QMainWindow):
         self.replay_filepath = None
         self.replay_snapshots.clear()
         self.replay_memory_cache = []
+        self.use_live_realtime_cache()
         self.txt_replay_file.clear()
         self.btn_replay_play.setEnabled(False)
         self.btn_replay_stop.setEnabled(False)
@@ -3914,6 +3917,16 @@ class MainWindow(QMainWindow):
             'latest_hdop': self.latest_hdop,
             'latest_pdop': self.latest_pdop
         }
+
+    def use_replay_realtime_cache(self):
+        self.is_replay_realtime_source = True
+        if isinstance(self.realtime_raw_epochs, deque):
+            self.realtime_raw_epochs = list(self.realtime_raw_epochs)
+
+    def use_live_realtime_cache(self):
+        self.is_replay_realtime_source = False
+        if not isinstance(self.realtime_raw_epochs, deque):
+            self.realtime_raw_epochs = deque(self.realtime_raw_epochs[-6000:], maxlen=6000)
 
     def restore_replay_snapshot(self, index):
         snapshot = self.replay_snapshots.get(index)
@@ -4022,6 +4035,7 @@ class MainWindow(QMainWindow):
         self.replay_blocks = []
         self.replay_filepath = filepath
         self.replay_snapshots.clear()
+        self.use_replay_realtime_cache()
         self.replay_index = 0
 
         progress = QProgressDialog("正在分析日志并切分时间块...", "取消", 0, 100, self)
@@ -4168,6 +4182,7 @@ class MainWindow(QMainWindow):
         self.sat_metadata.clear()
         self.has_received_gsa = False
         self.realtime_raw_epochs.clear()
+        self.use_replay_realtime_cache()
         self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
         self._last_cno_snapshot = None
         if hasattr(self, 'canvas_cno'):
@@ -4260,7 +4275,7 @@ class MainWindow(QMainWindow):
 
         # 批量解析结束后，单次执行截断和更新
         com_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
-        if len(com_epochs) > 2000:
+        if (not self.is_replay_realtime_source) and len(com_epochs) > 2000:
             self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"] + com_epochs[-2000:]
 
         realtime_seg = None
@@ -4270,9 +4285,10 @@ class MainWindow(QMainWindow):
                 break
         if realtime_seg:
             if realtime_seg['source_type'] == 'GGA':
-                realtime_seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']][-2000:]
+                epochs = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']]
             else:
-                realtime_seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] == realtime_seg['source_type']][-2000:]
+                epochs = [ep for ep in self.realtime_raw_epochs if ep['type'] == realtime_seg['source_type']]
+            realtime_seg['epochs'] = epochs if self.is_replay_realtime_source else epochs[-2000:]
             self.file_epochs_map["COM_REALTIME"] = realtime_seg['epochs']
 
         if self.parsed_epochs:
@@ -4422,7 +4438,7 @@ class MainWindow(QMainWindow):
 
                 if multiplier >= 5.0:
                     com_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
-                    if len(com_epochs) > 2000:
+                    if (not self.is_replay_realtime_source) and len(com_epochs) > 2000:
                         self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"] + com_epochs[-2000:]
                     if self.parsed_epochs:
                         self.update_live_dashboard(self.parsed_epochs[-1])
@@ -4577,6 +4593,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 self.stop_recording_with_error(str(e))
 
+        self.use_live_realtime_cache()
         has_new_epoch = self.parse_raw_chunk(data)
         if has_new_epoch:
             import time
@@ -4986,9 +5003,10 @@ class MainWindow(QMainWindow):
             # 为了与其他绘图/导出功能兼容，我们需要维护 realtime_seg['epochs']
             # 我们直接把当前过滤出来的 epoch 赋值刷新给 realtime_seg['epochs']，以便外部通过 realtime_seg['epochs'] 读取当前选定源的实时数据
             if realtime_seg['source_type'] == 'GGA':
-                realtime_seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']][-2000:]
+                epochs = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']]
             else:
-                realtime_seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] == realtime_seg['source_type']][-2000:]
+                epochs = [ep for ep in self.realtime_raw_epochs if ep['type'] == realtime_seg['source_type']]
+            realtime_seg['epochs'] = epochs if self.is_replay_realtime_source else epochs[-2000:]
 
             # 同时更新全局 parsed_epochs 中对应的 COM_REALTIME 帧（上限 2000 点），供全局索引
             # 先给当前帧打上 COM_REALTIME 标记
@@ -4997,7 +5015,7 @@ class MainWindow(QMainWindow):
 
             if not getattr(self, 'is_bulk_parsing', False):
                 com_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
-                if len(com_epochs) > 2000:
+                if (not self.is_replay_realtime_source) and len(com_epochs) > 2000:
                     self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"] + com_epochs[-2000:]
 
                 # 建立 file_epochs_map，确保二分查找等其他重计算正常获取
