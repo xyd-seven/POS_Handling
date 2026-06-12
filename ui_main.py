@@ -586,8 +586,24 @@ class SegmentListItemWidget(QWidget):
         from gnss_parser import time_str_to_seconds
         s_sec = time_str_to_seconds(valid_start)
         e_sec = time_str_to_seconds(valid_end)
-        # 跨越午夜通常导致 s_sec 极大而 e_sec 极小 (例如 85800 -> 600)。若只是普通反向，则拦截。
-        if s_sec > e_sec and (s_sec - e_sec) <= 43200:
+        fs_sec = time_str_to_seconds(self.file_start)
+        fe_sec = time_str_to_seconds(self.file_end)
+        
+        # 将输入时间转换为相对于文件开始时间的相对秒数，以支持跨越午夜的情况
+        def get_relative_sec(t, fs, fe):
+            if fs <= fe:
+                return t - fs
+            else:
+                # 跨越午夜：在 fs 之后的为第一天，在 fe 之前的为第二天
+                if t >= fs:
+                    return t - fs
+                else:
+                    return (86400 - fs) + t
+                    
+        s_rel = get_relative_sec(s_sec, fs_sec, fe_sec)
+        e_rel = get_relative_sec(e_sec, fs_sec, fe_sec)
+        
+        if s_rel > e_rel:
             self.txt_start.setProperty("invalid", True)
             self.txt_end.setProperty("invalid", True)
             self.txt_start.style().unpolish(self.txt_start)
