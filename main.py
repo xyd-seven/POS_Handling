@@ -14,9 +14,9 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout,
                              QTableWidgetItem, QTabWidget, QGroupBox, QSplitter,
                              QHeaderView, QFileDialog, QMessageBox, QMenuBar,
                              QComboBox, QCheckBox, QProgressDialog, QGridLayout,
-                             QTextEdit, QSlider)
+                             QTextEdit, QSlider, QToolTip)
 from PySide6.QtCore import Qt, Signal, QThread, QPointF, QRectF, QTimer
-from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QPen, QBrush, QTextCursor
+from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QPen, QBrush, QTextCursor, QCursor
 from PySide6.QtSerialPort import QSerialPort, QSerialPortInfo
 
 # 引入 Matplotlib 导航工具栏以支持缩放和拖拽
@@ -188,70 +188,82 @@ def get_sat_info(prefix_or_talker, prn):
         return 'IRNSS', prn, 'I'
     return 'GPS', prn, 'G'
 
-class CNoPlotCanvas(FigureCanvas):
+class CNoPlotCanvas(QWidget):
     def __init__(self, parent=None, width=5, height=3, dpi=100):
-        # 创建符合主界面 Dark 风格背景色（#172033）的 figure
-        self.fig = Figure(figsize=(width, height), dpi=dpi, facecolor='#172033')
-        self.ax = self.fig.add_subplot(111)
-        self.fig.tight_layout()
-        super().__init__(self.fig)
-        self.setParent(parent)
-        self._apply_base_style()
-        self._last_layout_channel_count = None
+        super().__init__(parent)
+        import pyqtgraph as pg
+        from PySide6.QtWidgets import QVBoxLayout, QGraphicsPixmapItem
+        from PySide6.QtGui import QPixmap
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 创建 PlotWidget，设置背景色匹配主面板样式 #0B1120，解决 PyQtGraph 网格线遮挡立柱的问题
+        self.plot_widget = pg.PlotWidget(background='#0B1120')
+        self.plot_widget.setMouseEnabled(x=False, y=False) # 锁定缩放与拖拽
+        self.plot_widget.setMenuEnabled(False)             # 禁用右键菜单
+        layout.addWidget(self.plot_widget)
+        
+        self.plot_item = self.plot_widget.getPlotItem()
+        self.plot_item.getViewBox().setBackgroundColor(None) # 绘图区背景透明，改由 PlotWidget 提供背景
+        
+        # 调整 Z 轴渲染层级：将 ViewBox（即立柱图）移到 Grid 网格线（AxisItem）的前面，使网格线自然隐入立柱后方
+        self.plot_item.getViewBox().setZValue(10)
+        self.plot_item.getAxis('left').setZValue(0)
+        self.plot_item.getAxis('bottom').setZValue(0)
+        
+        # 设置 Y 轴名称颜色和大小
+        self.plot_item.setLabel('left', "载噪比 C/No (dB-Hz)", color='#94A3B8')
+        self.plot_item.setYRange(0, 55, padding=0)
+        
+        # 配置网格与坐标轴样式
+        left_axis = self.plot_item.getAxis('left')
+        bottom_axis = self.plot_item.getAxis('bottom')
+        left_axis.setPen(pg.mkPen('#1E293B'))
+        left_axis.setTextPen('#94A3B8')
+        bottom_axis.setPen(pg.mkPen('#1E293B'))
+        bottom_axis.setTextPen('#94A3B8')
+        self.plot_item.showGrid(x=False, y=True, alpha=0.3)
+        
+        # 设置刻度字体和间隔以给国旗留出空间
+        font = QFont('Consolas', 8)
+        font.setBold(True)
+        bottom_axis.setTickFont(font)
+        bottom_axis.setStyle(tickTextOffset=18) # 留出 18px 给国旗
+        bottom_axis.setHeight(45) # 显式设置底部坐标轴高度为 45px，防止双行文本及国旗被截断
+        
+        # 增加 PlotItem 的底部布局边距，防止底部 X 轴标签被截断
+        self.plot_item.layout.setContentsMargins(0, 0, 0, 10)
+        
+        # 兼容旧代码的 resize 标志
         self._is_resizing = False
-        self._last_hover_time = 0
-
-        # 自动生成并加载国旗图片路径
+        
+        # 预加载国旗图标
         self.flag_paths = ensure_flag_icons()
-        self.flag_images = {}
-        try:
-            import matplotlib.image as mpimg
-            for prefix, path in self.flag_paths.items():
-                if os.path.exists(path):
-                    self.flag_images[prefix] = mpimg.imread(path)
-        except Exception as e:
-            print(f"Error pre-loading flag icons: {e}")
-
-        # 初始化渲染星体位置列表，并绑定鼠标移动事件以展示悬浮气泡
+        self.flag_pixmaps = {}
+        for prefix, path in self.flag_paths.items():
+            if os.path.exists(path):
+                self.flag_pixmaps[prefix] = QPixmap(path)
+                
         self.rendered_sats = []
-        self._motion_cid = self.fig.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
+        self.flag_items = []
+        
+        # 绑定鼠标移动事件以展示悬浮气泡
+        self.plot_widget.scene().sigMouseMoved.connect(self.on_mouse_moved)
 
-    def _apply_base_style(self):
-        # 预设图表坐标轴背景色为暗黑色 #0B1120
-        self.ax.set_facecolor('#0B1120')
-        self.ax.spines['bottom'].set_color('#1E293B')
-        self.ax.spines['top'].set_color('#1E293B')
-        self.ax.spines['right'].set_color('#1E293B')
-        self.ax.spines['left'].set_color('#1E293B')
-        self.ax.tick_params(colors='#94A3B8', labelsize=8)
-        self.ax.yaxis.grid(True, linestyle='--', color='#1E293B', alpha=0.5)
-        self.ax.set_axisbelow(True)
-
-        # 固定 Y 轴在 0~55 dB-Hz
-        self.ax.set_ylim(0, 55)
-        self.ax.set_ylabel("载噪比 C/No (dB-Hz)", color='#94A3B8', fontsize=9)
+    def reposition_flags(self):
+        # 动态根据当前排版调整国旗的位置
+        vb_rect = self.plot_item.vb.sceneBoundingRect()
+        py = vb_rect.bottom() + 4
+        
+        for item, first_x in self.flag_items:
+            scene_pos = self.plot_item.vb.mapViewToScene(QPointF(first_x, 0))
+            px = scene_pos.x() - item.pixmap().width() / 2
+            item.setPos(px, py)
 
     def resizeEvent(self, event):
-        from PySide6.QtWidgets import QWidget
-        from PySide6.QtCore import QTimer
-        QWidget.resizeEvent(self, event)
-        self._is_resizing = True
-        self._pending_width = event.size().width()
-        self._pending_height = event.size().height()
-        if not hasattr(self, '_resize_timer'):
-            self._resize_timer = QTimer(self)
-            self._resize_timer.setSingleShot(True)
-            self._resize_timer.timeout.connect(self._handle_delayed_resize)
-        self._resize_timer.start(250)
-
-    def _handle_delayed_resize(self):
-        if hasattr(self, '_pending_width') and hasattr(self, '_pending_height'):
-            dpival = self.figure.dpi
-            winch = self._pending_width / dpival
-            hinch = self._pending_height / dpival
-            self.figure.set_size_inches(winch, hinch, forward=False)
-            self._is_resizing = False
-            self.draw_idle()
+        super().resizeEvent(event)
+        self.reposition_flags()
 
     def get_signal_name(self, pref, sig_id):
         if pref == 'GPS':
@@ -304,27 +316,22 @@ class CNoPlotCanvas(FigureCanvas):
         return sig_id
 
     def render_cno(self, gsv_satellites, used_satellites=None, has_gsa=False, sat_metadata=None):
-        """
-        绘制可见卫星载噪比柱状图，区分在用和可见卫星。
-        gsv_satellites: 字典，格式为 (prefix, prn) -> {signal_id: snr}
-        used_satellites: 集合，包含当前在用卫星 (prefix, prn) 元组
-        has_gsa: 布尔值，当前会话是否已接收到过 GSA 语句
-        sat_metadata: 字典，包含卫星仰角方位角元数据 (prefix, prn) -> {'elevation': elev, 'azimuth': azim}
-        """
+        import pyqtgraph as pg
+        from PySide6.QtWidgets import QGraphicsPixmapItem
+        
+        self.plot_item.clear()
+        
+        # 清空原有的国旗小图标
+        for item, _ in self.flag_items:
+            self.plot_item.scene().removeItem(item)
+        self.flag_items = []
         self.rendered_sats = []
-        self.ax.clear()
 
-        # 恢复符合暗色调主题的画板细节
-        self._apply_base_style()
-
-        # 如果没有数据，直接重绘空图表
         if not gsv_satellites:
-            self.ax.set_xticks([])
-            self.ax.set_xticklabels([])
-            self.fig.canvas.draw_idle()
+            self.plot_item.getAxis('bottom').setTicks([])
             return
 
-        # 1. 过滤掉所有 snr 均为 0 的卫星
+        # 1. 过滤并提取活跃的信号通道
         active_sats = {}
         for (prefix, prn), sig_dict in gsv_satellites.items():
             valid_sig = {sid: snr for sid, snr in sig_dict.items() if snr > 0}
@@ -332,235 +339,34 @@ class CNoPlotCanvas(FigureCanvas):
                 active_sats[(prefix, prn)] = valid_sig
 
         if not active_sats:
-            self.ax.set_xticks([])
-            self.ax.set_xticklabels([])
-            self.fig.canvas.draw_idle()
+            self.plot_item.getAxis('bottom').setTicks([])
             return
 
-        # 2. 扁平化提取所有活跃的信号通道 [(prefix, prn, sid, val), ...]
-        system_order = {
-            'GPS': 0, 'QZSS': 1, 'BD': 2, 'GL': 3, 'GA': 4, 'IRNSS': 5, 'SBAS': 6
-        }
-        def channel_sort_key(item):
-            prefix, prn, sid, val = item
-            sys_idx = system_order.get(prefix, 99)
-            return (sys_idx, prn, sid)
-
+        # 2. 扁平化提取通道并排序
+        system_order = {'GPS': 0, 'QZSS': 1, 'BD': 2, 'GL': 3, 'GA': 4, 'IRNSS': 5, 'SBAS': 6}
         channels = []
         for (prefix, prn), sig_dict in active_sats.items():
             for sid, val in sig_dict.items():
                 channels.append((prefix, prn, sid, val))
-        channels.sort(key=channel_sort_key)
+        channels.sort(key=lambda item: (system_order.get(item[0], 99), item[1], item[2]))
 
         if not channels:
-            self.ax.set_xticks([])
-            self.ax.set_xticklabels([])
-            self.fig.canvas.draw_idle()
+            self.plot_item.getAxis('bottom').setTicks([])
             return
-
-        # 3. 计算横坐标
-        x_positions = []
-        x_labels = []
-
-        # 配色风格 (GPS=绿, 北斗=红, GLONASS=蓝, Galileo=青, QZSS/SBAS/IRNSS=绿/薄荷绿等类似配色)
-        colors_map = {
-            'GPS': {
-                '1': '#22C55E',  # L1 C/A (亮绿)
-                '2': '#16A34A',  # L1 P(Y) (中绿)
-                '3': '#15803D',  # L1 M (深绿)
-                '4': '#14532D',  # L2 P(Y) (极深绿)
-                '5': '#4ADE80',  # L2C M (明绿)
-                '6': '#86EFAC',  # L2C L (淡绿)
-                '7': '#A7F3D0',  # L5 I (薄荷绿)
-                '8': '#CCFBF1',  # L5 Q (青绿)
-                'default': '#22C55E'
-            },
-            'QZSS': {
-                '1': '#22C55E',  # L1 C/A
-                '7': '#A7F3D0',  # L5 I
-                '8': '#CCFBF1',  # L5 Q
-                'default': '#22C55E'
-            },
-            'SBAS': {
-                '1': '#22C55E',  # L1 C/A
-                '7': '#A7F3D0',  # L5 I
-                '8': '#CCFBF1',  # L5 Q
-                'default': '#22C55E'
-            },
-            'IRNSS': {
-                '1': '#A7F3D0',  # L5 I
-                'default': '#A7F3D0'
-            },
-            'BD': {
-                '1': '#EF4444',  # B1I (亮红)
-                '3': '#FB7185',  # B1C (玫瑰粉红)
-                '5': '#D946EF',  # B2a (极光洋红)
-                'B': '#DC2626',  # B2I (中红)
-                '6': '#F87171',  # B2b (粉红)
-                '7': '#FEE2E2',  # B2 A+B (极淡红)
-                '8': '#991B1B',  # B3I (深红)
-                'default': '#EF4444'
-            },
-            'GL': {
-                '1': '#FBBF24',  # G1 C/A (亮金黄)
-                '2': '#F59E0B',  # G1 P (琥珀黄)
-                '3': '#D97706',  # G2 C/A (金黄棕)
-                '4': '#92400E',  # G2 P (深古铜)
-                'default': '#F59E0B'
-            },
-            'GA': {
-                '1': '#22D3EE',  # E5a (浅青)
-                '2': '#0EA5E9',  # E5b (中青/蓝)
-                '3': '#06B6D4',  # E5 a+b (亮青)
-                '4': '#0891B2',  # E6 A (中深青)
-                '5': '#0E7490',  # E6 B (深青)
-                '6': '#155E75',  # L1 A (极深青)
-                '7': '#2563EB',  # E1 (深宝蓝)
-                'default': '#06B6D4'
-            }
-        }
-
-        from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-        import matplotlib.image as mpimg
 
         N = len(channels)
-        draw_all_flags = N <= 60
-        flagged_prefixes = set()
+        x_coords = []
+        heights = []
+        brushes = []
+        pens = []
+        ticks = []
 
-        for idx, (prefix, prn, sid, val) in enumerate(channels):
-            x_c = idx + 0.5
-            x_positions.append(x_c)
-
-            sig_name = self.get_signal_name(prefix, sid)
-            _, _, lbl_char = get_sat_info(prefix, prn)
-            if lbl_char == 'S':
-                prn_str = f"S{prn:03d}"
-            else:
-                prn_str = f"{lbl_char}{prn:02d}"
-
-            x_labels.append(f"{sig_name}\n{prn_str}")
-
-            c_dict = colors_map.get(prefix, {})
-            color = c_dict.get(sid, c_dict.get('default', '#64748B'))
-
-            # 默认若未收到过任何 GSA 语句，则全部视为在用以保持兼容；若已接收到 GSA，则以当前在用集合为准
-            is_used = True
-            if has_gsa and used_satellites is not None:
-                is_used = (prefix, prn) in used_satellites
-
-            bar_w = 0.98
-            if is_used:
-                self.ax.bar(x_c, val, width=bar_w, color=color, edgecolor='#0B1120', linewidth=0.5, align='center', alpha=1.0)
-                self.ax.text(x_c, val + 0.8, f"{int(val)}", ha='center', va='bottom', color='#FFFFFF', fontsize=9, fontweight='semibold')
-            else:
-                self.ax.bar(x_c, val, width=bar_w, facecolor=color, edgecolor=color, linewidth=1.2, align='center', alpha=0.25)
-                self.ax.text(x_c, val + 0.8, f"{int(val)}", ha='center', va='bottom', color='#94A3B8', fontsize=9, fontweight='semibold')
-
-            # 绘制国旗图标
-            should_draw_flag = draw_all_flags or prefix not in flagged_prefixes
-            img = self.flag_images.get(prefix) if should_draw_flag and hasattr(self, 'flag_images') else None
-            if img is not None:
-                try:
-                    imagebox = OffsetImage(img, zoom=1.0)
-                    ab = AnnotationBbox(imagebox, (x_c, 0),
-                                        xybox=(0, -10),
-                                        xycoords=('data', 'axes fraction'),
-                                        boxcoords="offset points",
-                                        frameon=False)
-                    self.ax.add_artist(ab)
-                    flagged_prefixes.add(prefix)
-                except Exception as e:
-                    print(f"Error drawing flag: {e}")
-
-            # 记录渲染星体用于鼠标悬停计算
-            elev = None
-            azim = None
-            if sat_metadata is not None:
-                meta = sat_metadata.get((prefix, prn), {})
-                elev = meta.get('elevation')
-                azim = meta.get('azimuth')
-            self.rendered_sats.append({
-                'center_x': x_c,
-                'prefix': prefix,
-                'prn': prn,
-                'sig_id': sid,
-                'snr': val,
-                'elevation': elev,
-                'azimuth': azim,
-                'sig_dict': active_sats.get((prefix, prn), {sid: val})
-            })
-
-        # 4. 绘制分界虚线网格
-        for x_grid in range(1, N):
-            self.ax.axvline(x_grid, color='#1E293B', linestyle='--', linewidth=0.8, alpha=0.5)
-
-        # 5. X轴属性与 Padding 调整以避让国旗图标
-        self.ax.set_xlim(0, N)
-        self.ax.set_xticks(x_positions)
-        self.ax.tick_params(axis='x', colors='#94A3B8', labelsize=8, pad=18)
-        self.ax.set_xticklabels(x_labels, ha='center', color='#F8FAFC', fontsize=8, fontweight='bold')
-
-        if self._last_layout_channel_count != N:
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=UserWarning)
-                self.fig.tight_layout()
-            self._last_layout_channel_count = N
-        self.fig.canvas.draw_idle()
-
-    def on_mouse_move(self, event):
-        from PySide6.QtGui import QCursor
-        from PySide6.QtWidgets import QToolTip
-        import time
-
-        now = time.monotonic()
-        if now - self._last_hover_time < 0.05:
-            return
-        self._last_hover_time = now
-
-        if event.inaxes != self.ax or not hasattr(self, 'rendered_sats') or not self.rendered_sats:
-            QToolTip.hideText()
-            return
-
-        x_mouse = event.xdata
-        y_mouse = event.ydata
-
-        if x_mouse is None or y_mouse is None:
-            QToolTip.hideText()
-            return
-
-        idx = int(x_mouse)
-        if idx < 0 or idx >= len(self.rendered_sats) or not (0 <= y_mouse <= 55):
-            QToolTip.hideText()
-            return
-
-        hovered_sat = self.rendered_sats[idx]
-
-        # 提取当前悬停卫星的数据
-        prefix = hovered_sat['prefix']
-        prn = hovered_sat['prn']
-        elev = hovered_sat['elevation']
-        azim = hovered_sat['azimuth']
-        sig_dict = hovered_sat.get('sig_dict', {hovered_sat['sig_id']: hovered_sat['snr']})
-
-        # 卫星标识前缀
-        _, _, lbl_char = get_sat_info(prefix, prn)
-        if lbl_char == 'S':
-            sat_id_str = f"S{prn:03d}"
-        else:
-            sat_id_str = f"{lbl_char}{prn:02d}"
-
-        # 仰角与方位角显示字符串
-        elev_str = f"{elev}°" if elev is not None else "--"
-        azim_str = f"{azim}°" if azim is not None else "--"
-
-        # u-center 颜色映射配置，使气泡内频段字体颜色和图表中一致
         colors_map = {
             'GPS': {
                 '1': '#22C55E', '2': '#16A34A', '3': '#15803D', '4': '#14532D', '5': '#4ADE80', '6': '#86EFAC', '7': '#A7F3D0', '8': '#CCFBF1', 'default': '#22C55E'
             },
             'QZSS': {
-                '1': '#22C55E', '7': '#A7F3D0', 'default': '#22C55E'
+                '1': '#22C55E', '7': '#A7F3D0', '8': '#CCFBF1', 'default': '#22C55E'
             },
             'SBAS': {
                 '1': '#22C55E', '7': '#A7F3D0', '8': '#CCFBF1', 'default': '#22C55E'
@@ -569,66 +375,159 @@ class CNoPlotCanvas(FigureCanvas):
                 '1': '#A7F3D0', 'default': '#A7F3D0'
             },
             'BD': {
-                '1': '#EF4444', '3': '#FCA5A5', '5': '#FECACA', 'B': '#DC2626', '6': '#F87171', '7': '#FEE2E2', '8': '#991B1B', 'default': '#EF4444'
+                '1': '#EF4444', '3': '#FB7185', '5': '#D946EF', 'B': '#DC2626', '6': '#F87171', '7': '#FEE2E2', '8': '#991B1B', 'default': '#EF4444'
             },
             'GL': {
-                '1': '#38BDF8', '2': '#0EA5E9', '3': '#1D4ED8', '4': '#1E3A8A', 'default': '#38BDF8'
+                '1': '#FBBF24', '2': '#F59E0B', '3': '#D97706', '4': '#92400E', 'default': '#F59E0B'
             },
             'GA': {
-                '1': '#22D3EE', '2': '#0EA5E9', '3': '#06B6D4', '4': '#0891B2', '5': '#0E7490', '6': '#155E75', '7': '#06B6D4', 'default': '#06B6D4'
+                '1': '#22D3EE', '2': '#0EA5E9', '3': '#06B6D4', '4': '#0891B2', '5': '#0E7490', '6': '#155E75', '7': '#2563EB', 'default': '#06B6D4'
             }
         }
 
-        def get_signal_name(pref, sig_id):
-            if pref == 'GPS':
-                if sig_id == '1': return 'L1 C/A'
-                elif sig_id == '2': return 'L1 P(Y)'
-                elif sig_id == '3': return 'L1 M'
-                elif sig_id == '4': return 'L2 P(Y)'
-                elif sig_id == '5': return 'L2C M'
-                elif sig_id == '6': return 'L2C L'
-                elif sig_id == '7': return 'L5 I'
-                elif sig_id == '8': return 'L5 Q'
-                return f"L{sig_id}"
-            elif pref == 'BD':
-                if sig_id == '1': return 'B1I'
-                elif sig_id == '3': return 'B1C'
-                elif sig_id == '5': return 'B2a'
-                elif sig_id == 'B': return 'B2I'
-                elif sig_id == '6': return 'B2b'
-                elif sig_id == '7': return 'B2 A+B'
-                elif sig_id == '8': return 'B3I'
-                return f"B{sig_id}"
-            elif pref == 'GL':
-                if sig_id == '1': return 'G1 C/A'
-                elif sig_id == '2': return 'G1 P'
-                elif sig_id == '3': return 'G2 C/A'
-                elif sig_id == '4': return 'G2 P'
-                return f"G{sig_id}"
-            elif pref == 'GA':
-                if sig_id == '1': return 'E5a'
-                elif sig_id == '2': return 'E5b'
-                elif sig_id == '3': return 'E5 a+b'
-                elif sig_id == '4': return 'E6 A'
-                elif sig_id == '5': return 'E6 B'
-                elif sig_id == '6': return 'L1 A'
-                elif sig_id == '7': return 'E1'
-                return f"E{sig_id}"
-            elif pref == 'QZSS':
-                if sig_id == '1': return 'L1 C/A'
-                elif sig_id == '7': return 'L5 I'
-                return f"Q{sig_id}"
-            elif pref == 'IRNSS':
-                if sig_id == '1': return 'L5 I'
-                return f"I{sig_id}"
-            elif pref == 'SBAS':
-                if sig_id == '1': return 'L1 C/A'
-                elif sig_id == '7': return 'L5 I'
-                elif sig_id == '8': return 'L5 Q'
-                return f"S{sig_id}"
-            return sig_id
+        for idx, (prefix, prn, sid, val) in enumerate(channels):
+            x_c = idx + 0.5
+            x_coords.append(x_c)
+            heights.append(val)
 
-        # 构造精美的 HTML 表格气泡，完全匹配模组厂商参考图设计
+            sig_name = self.get_signal_name(prefix, sid)
+            _, _, lbl_char = get_sat_info(prefix, prn)
+            prn_str = f"S{prn:03d}" if lbl_char == 'S' else f"{lbl_char}{prn:02d}"
+            ticks.append((x_c, f"{sig_name}\n{prn_str}"))
+
+            c_dict = colors_map.get(prefix, {})
+            color_hex = c_dict.get(sid, c_dict.get('default', '#64748B'))
+
+            is_used = True
+            if has_gsa and used_satellites is not None:
+                is_used = (prefix, prn) in used_satellites
+
+            color = QColor(color_hex)
+            if is_used:
+                brushes.append(pg.mkBrush(color))
+                pens.append(pg.mkPen('#0B1120', width=0.5))
+                # 绘制数值标注
+                text_item = pg.TextItem(text=f"{int(val)}", color='#FFFFFF', anchor=(0.5, 1.0))
+                text_item.setPos(x_c, val + 0.8)
+                self.plot_item.addItem(text_item)
+            else:
+                color.setAlpha(64) # 25% 不透明度
+                brushes.append(pg.mkBrush(color))
+                color.setAlpha(255)
+                pens.append(pg.mkPen(color, width=1.2))
+                # 未定位数值标注
+                text_item = pg.TextItem(text=f"{int(val)}", color='#94A3B8', anchor=(0.5, 1.0))
+                text_item.setPos(x_c, val + 0.8)
+                self.plot_item.addItem(text_item)
+
+            elev = None
+            azim = None
+            if sat_metadata is not None:
+                meta = sat_metadata.get((prefix, prn), {})
+                elev = meta.get('elevation')
+                azim = meta.get('azimuth')
+            self.rendered_sats.append({
+                'center_x': x_c, 'prefix': prefix, 'prn': prn, 'sig_id': sid, 'snr': val,
+                'elevation': elev, 'azimuth': azim, 'sig_dict': active_sats.get((prefix, prn), {sid: val})
+            })
+
+        # 3. 绘制分界虚线网格
+        for x_grid in range(1, N):
+            vline = pg.PlotCurveItem([x_grid, x_grid], [0, 55], pen=pg.mkPen('#1E293B', width=0.8, style=Qt.DashLine))
+            self.plot_item.addItem(vline)
+
+        # 4. 批量绘制柱体
+        bar_item = pg.BarGraphItem(x=x_coords, height=heights, width=0.95, brushes=brushes, pens=pens)
+        self.plot_item.addItem(bar_item)
+        
+        self.plot_item.getAxis('bottom').setTicks([ticks])
+        self.plot_item.setXRange(0, N, padding=0.02)
+
+        # 5. 计算星座首列国旗位置并绘制
+        prefix_positions = {}
+        for idx, (prefix, prn, sid, val) in enumerate(channels):
+            if prefix not in prefix_positions:
+                prefix_positions[prefix] = []
+            prefix_positions[prefix].append(idx + 0.5)
+
+        vb_rect = self.plot_item.vb.sceneBoundingRect()
+        py = vb_rect.bottom() + 4
+
+        for prefix, positions in prefix_positions.items():
+            pixmap = self.flag_pixmaps.get(prefix)
+            if pixmap is not None:
+                try:
+                    first_x = positions[0] # 首列位置
+                    pixmap_item = QGraphicsPixmapItem(pixmap)
+                    self.plot_widget.scene().addItem(pixmap_item)
+                    self.flag_items.append((pixmap_item, first_x))
+                    
+                    scene_pos = self.plot_item.vb.mapViewToScene(QPointF(first_x, 0))
+                    px = scene_pos.x() - pixmap.width() / 2
+                    pixmap_item.setPos(px, py)
+                except Exception as e:
+                    print(f"Error drawing flag for {prefix}: {e}")
+
+    def on_mouse_moved(self, pos):
+        if not self.rendered_sats:
+            QToolTip.hideText()
+            return
+            
+        mouse_point = self.plot_item.vb.mapSceneToView(pos)
+        x_mouse = mouse_point.x()
+        y_mouse = mouse_point.y()
+        
+        if x_mouse is None or y_mouse is None:
+            QToolTip.hideText()
+            return
+            
+        idx = int(x_mouse)
+        if idx < 0 or idx >= len(self.rendered_sats) or not (0 <= y_mouse <= 55):
+            QToolTip.hideText()
+            return
+            
+        hovered_sat = self.rendered_sats[idx]
+        if y_mouse > hovered_sat['snr']:
+            QToolTip.hideText()
+            return
+            
+        # 悬浮气泡框细节展示
+        prefix = hovered_sat['prefix']
+        prn = hovered_sat['prn']
+        elev = hovered_sat['elevation']
+        azim = hovered_sat['azimuth']
+        sig_dict = hovered_sat['sig_dict']
+        
+        _, _, lbl_char = get_sat_info(prefix, prn)
+        sat_id_str = f"S{prn:03d}" if lbl_char == 'S' else f"{lbl_char}{prn:02d}"
+        
+        elev_str = f"{elev}°" if elev is not None else "--"
+        azim_str = f"{azim}°" if azim is not None else "--"
+        
+        colors_map = {
+            'GPS': {
+                '1': '#22C55E', '2': '#16A34A', '3': '#15803D', '4': '#14532D', '5': '#4ADE80', '6': '#86EFAC', '7': '#A7F3D0', '8': '#CCFBF1', 'default': '#22C55E'
+            },
+            'QZSS': {
+                '1': '#22C55E', '7': '#A7F3D0', '8': '#CCFBF1', 'default': '#22C55E'
+            },
+            'SBAS': {
+                '1': '#22C55E', '7': '#A7F3D0', '8': '#CCFBF1', 'default': '#22C55E'
+            },
+            'IRNSS': {
+                '1': '#A7F3D0', 'default': '#A7F3D0'
+            },
+            'BD': {
+                '1': '#EF4444', '3': '#FB7185', '5': '#D946EF', 'B': '#DC2626', '6': '#F87171', '7': '#FEE2E2', '8': '#991B1B', 'default': '#EF4444'
+            },
+            'GL': {
+                '1': '#FBBF24', '2': '#F59E0B', '3': '#D97706', '4': '#92400E', 'default': '#F59E0B'
+            },
+            'GA': {
+                '1': '#22D3EE', '2': '#0EA5E9', '3': '#06B6D4', '4': '#0891B2', '5': '#0E7490', '6': '#155E75', '7': '#2563EB', 'default': '#06B6D4'
+            }
+        }
+
         html = f"""
         <div style="background-color: #172033; color: #F8FAFC; border: 1px solid #334155; border-radius: 6px; padding: 8px; font-family: 'Consolas', 'Segoe UI', 'Microsoft YaHei', sans-serif;">
             <div style="font-weight: bold; font-size: 13px; color: #38BDF8; margin-bottom: 6px; border-bottom: 1px solid #1E293B; padding-bottom: 4px;">
@@ -644,23 +543,19 @@ class CNoPlotCanvas(FigureCanvas):
         sids = sorted(list(sig_dict.keys()))
         for sid in sids:
             val = sig_dict[sid]
-            sig_name = get_signal_name(prefix, sid)
-
+            sig_name = self.get_signal_name(prefix, sid)
             c_dict = colors_map.get(prefix, {})
             color = c_dict.get(sid, c_dict.get('default', '#64748B'))
-
             html += f"""
                 <tr style="color: {color};">
                     <td style="text-align: left; padding: 2px 12px 2px 0; font-weight: bold;">{sig_name}</td>
                     <td style="text-align: right; padding: 2px 0 2px 12px; font-weight: bold;">{int(val)}</td>
                 </tr>
             """
-
         html += """
             </table>
         </div>
         """
-
         QToolTip.showText(QCursor.pos(), html, self)
 
 class LogParserThread(QThread):
@@ -1025,7 +920,9 @@ class MainWindow(QMainWindow):
         self.replay_index = 0
         self.replay_snapshot_interval = 500
         self.replay_snapshots = {}
+        self.replay_memory_cache = []
         self.is_replaying = False
+        self.is_bulk_parsing = False
         self.replay_timer = QTimer(self)
         self.replay_timer.timeout.connect(self.replay_tick)
         self.is_slider_dragging = False
@@ -3216,11 +3113,27 @@ class MainWindow(QMainWindow):
             else:
                 # 使用基于 file_id 的字典查询代替遍历数十万级别的全集列表
                 file_epochs = self.file_epochs_map.get(seg.get('file_id'), [])
+                
+                # 生成缓存验证键（包括起止时间、源类型、关联文件的历元数、真值配置、时区、异常过滤配置）
+                calc_key = (
+                    seg['start_time'],
+                    seg['end_time'],
+                    seg['source_type'],
+                    len(file_epochs),
+                    self.truth_mode,
+                    str(self.truth),
+                    self.time_zone,
+                    self.app_config.get('filter_outliers', False),
+                    self.app_config.get('outlier_threshold', 50.0)
+                )
+                if seg.get('_last_calc_key') == calc_key and seg.get('metrics') is not None:
+                    continue
 
                 # 使用二分查找 O(log N) 获取时间区间内的历元
                 time_range = self._resolve_segment_time_range(file_epochs, seg['start_time'], seg['end_time'])
                 range_epochs = self._find_epoch_range(file_epochs, *time_range) if time_range else []
                 seg['epochs'] = [ep for ep in range_epochs if ep['type'] == seg['source_type']]
+                seg['_last_calc_key'] = calc_key
 
             # 防御性过滤：确保所有参与精度统计和绘图的历元都包含必需的定位坐标及质量字段，防止 KeyError
             seg['epochs'] = [p for p in seg['epochs'] if isinstance(p, dict) and 'lat' in p and 'lon' in p and 'alt' in p and 'quality' in p]
@@ -3963,6 +3876,7 @@ class MainWindow(QMainWindow):
         self.replay_blocks = []
         self.replay_filepath = None
         self.replay_snapshots.clear()
+        self.replay_memory_cache = []
         self.txt_replay_file.clear()
         self.btn_replay_play.setEnabled(False)
         self.btn_replay_stop.setEnabled(False)
@@ -3986,14 +3900,15 @@ class MainWindow(QMainWindow):
     def capture_replay_snapshot(self, index):
         if index < 0:
             return
+        realtime_count = sum(1 for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME")
         self.replay_snapshots[index] = {
             'serial_buffer': copy.deepcopy(self.serial_buffer),
             'gsv_satellites': copy.deepcopy(self.gsv_satellites),
             'used_satellites': set(self.used_satellites),
             'sat_metadata': copy.deepcopy(self.sat_metadata),
             'has_received_gsa': self.has_received_gsa,
-            'realtime_raw_epochs': copy.deepcopy(list(self.realtime_raw_epochs)),
-            'parsed_realtime_epochs': copy.deepcopy([ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]),
+            'realtime_raw_epochs': list(self.realtime_raw_epochs),
+            'parsed_realtime_count': realtime_count,
             'latest_quality': self.latest_quality,
             'latest_num_sats': self.latest_num_sats,
             'latest_hdop': self.latest_hdop,
@@ -4012,8 +3927,16 @@ class MainWindow(QMainWindow):
         self.has_received_gsa = snapshot['has_received_gsa']
         self.realtime_raw_epochs.clear()
         self.realtime_raw_epochs.extend(snapshot['realtime_raw_epochs'])
-        self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
-        self.parsed_epochs.extend(copy.deepcopy(snapshot['parsed_realtime_epochs']))
+        
+        # 兼容新老版本快照结构
+        if 'parsed_realtime_count' in snapshot:
+            non_realtime = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
+            realtime = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
+            self.parsed_epochs = non_realtime + realtime[:snapshot['parsed_realtime_count']]
+        elif 'parsed_realtime_epochs' in snapshot:
+            self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
+            self.parsed_epochs.extend(copy.deepcopy(snapshot['parsed_realtime_epochs']))
+
         self.latest_quality = snapshot['latest_quality']
         self.latest_num_sats = snapshot['latest_num_sats']
         self.latest_hdop = snapshot['latest_hdop']
@@ -4025,8 +3948,21 @@ class MainWindow(QMainWindow):
         if not self.replay_filepath or index < 0 or index >= len(self.replay_blocks):
             return b''
 
-        with open(self.replay_filepath, 'rb') as f:
-            return self._read_replay_block_from_file(f, index)
+        # 优先从内存缓存获取
+        if self.replay_memory_cache and index < len(self.replay_memory_cache):
+            try:
+                data = self.replay_memory_cache[index]
+                if data is not None:
+                    return data
+            except Exception:
+                pass
+
+        # 降级到磁盘文件 seek 读取
+        try:
+            with open(self.replay_filepath, 'rb') as f:
+                return self._read_replay_block_from_file(f, index)
+        except Exception:
+            return b''
 
     def _read_replay_block_from_file(self, file_obj, index):
         _, offset, length = self.replay_blocks[index]
@@ -4164,6 +4100,7 @@ class MainWindow(QMainWindow):
                 self.replay_blocks = []
                 self.replay_filepath = None
                 self.replay_snapshots.clear()
+                self.replay_memory_cache = []
                 self.txt_replay_file.clear()
                 self.btn_replay_play.setEnabled(False)
                 self.btn_replay_stop.setEnabled(False)
@@ -4176,8 +4113,21 @@ class MainWindow(QMainWindow):
             if not self.replay_blocks:
                 self.replay_filepath = None
                 self.replay_snapshots.clear()
+                self.replay_memory_cache = []
                 QMessageBox.warning(self, "警告", "日志文件中未切分出可回放的数据块。")
                 return
+
+            # 载入内存缓存 (限50MB以内小文件)
+            self.replay_memory_cache = []
+            if file_size <= 50 * 1024 * 1024:
+                try:
+                    with open(filepath, 'rb') as f:
+                        for _, offset, length in self.replay_blocks:
+                            f.seek(offset)
+                            self.replay_memory_cache.append(f.read(length))
+                except Exception as e:
+                    self.replay_memory_cache = []
+                    print(f"Memory buffering failed, fallback to disk seek: {e}")
 
             self.txt_replay_file.setText(filepath)
             self.btn_replay_play.setEnabled(True)
@@ -4200,6 +4150,7 @@ class MainWindow(QMainWindow):
             self.replay_blocks = []
             self.replay_filepath = None
             self.replay_snapshots.clear()
+            self.replay_memory_cache = []
             QMessageBox.critical(self, "错误", f"日志预分包失败: {e}")
 
     def update_replay_time_display(self):
@@ -4250,13 +4201,26 @@ class MainWindow(QMainWindow):
         cancelled = False
         completed_index = snapshot_index if snapshot_index is not None else -1
         self._disable_console_append = True
+        self.is_bulk_parsing = True
         try:
-            with open(self.replay_filepath, 'rb') as f:
+            # 判断是否可以使用内存缓存
+            use_memory = (
+                self.replay_memory_cache and
+                len(self.replay_memory_cache) == len(self.replay_blocks)
+            )
+            if use_memory:
                 for step_idx, idx in enumerate(range(start_index, target_index + 1)):
                     if progress and progress.wasCanceled():
                         cancelled = True
                         break
-                    block_bytes = self._read_replay_block_from_file(f, idx)
+                    try:
+                        block_bytes = self.replay_memory_cache[idx]
+                    except Exception:
+                        try:
+                            with open(self.replay_filepath, 'rb') as f:
+                                block_bytes = self._read_replay_block_from_file(f, idx)
+                        except Exception:
+                            block_bytes = b''
                     if self.parse_raw_chunk(block_bytes):
                         has_new_epoch = True
                     completed_index = idx
@@ -4265,7 +4229,26 @@ class MainWindow(QMainWindow):
                     if progress and (step_idx % 100 == 0 or idx == target_index):
                         progress.setValue(step_idx + 1)
                         QApplication.processEvents()
+            else:
+                with open(self.replay_filepath, 'rb') as f:
+                    for step_idx, idx in enumerate(range(start_index, target_index + 1)):
+                        if progress and progress.wasCanceled():
+                            cancelled = True
+                            break
+                        try:
+                            block_bytes = self._read_replay_block_from_file(f, idx)
+                        except Exception:
+                            block_bytes = b''
+                        if self.parse_raw_chunk(block_bytes):
+                            has_new_epoch = True
+                        completed_index = idx
+                        if idx % self.replay_snapshot_interval == 0 or idx == target_index:
+                            self.capture_replay_snapshot(idx)
+                        if progress and (step_idx % 100 == 0 or idx == target_index):
+                            progress.setValue(step_idx + 1)
+                            QApplication.processEvents()
         finally:
+            self.is_bulk_parsing = False
             self._disable_console_append = False
             if progress:
                 progress.close()
@@ -4274,6 +4257,26 @@ class MainWindow(QMainWindow):
             self.slider_replay.blockSignals(True)
             self.slider_replay.setValue(self.replay_index)
             self.slider_replay.blockSignals(False)
+
+        # 批量解析结束后，单次执行截断和更新
+        com_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
+        if len(com_epochs) > 2000:
+            self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"] + com_epochs[-2000:]
+
+        realtime_seg = None
+        for s in self.segments:
+            if s.get('file_id') == "COM_REALTIME":
+                realtime_seg = s
+                break
+        if realtime_seg:
+            if realtime_seg['source_type'] == 'GGA':
+                realtime_seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']][-2000:]
+            else:
+                realtime_seg['epochs'] = [ep for ep in self.realtime_raw_epochs if ep['type'] == realtime_seg['source_type']][-2000:]
+            self.file_epochs_map["COM_REALTIME"] = realtime_seg['epochs']
+
+        if self.parsed_epochs:
+            self.update_live_dashboard(self.parsed_epochs[-1])
 
         return has_new_epoch
 
@@ -4373,23 +4376,60 @@ class MainWindow(QMainWindow):
             has_new_epoch = False
             if multiplier >= 5.0:
                 self._disable_console_append = True
+                self.is_bulk_parsing = True
             try:
-                with open(self.replay_filepath, 'rb') as f:
+                # 判断是否可以使用内存缓存
+                use_memory = (
+                    self.replay_memory_cache and
+                    len(self.replay_memory_cache) == len(self.replay_blocks)
+                )
+                if use_memory:
                     for i in range(blocks_to_process):
                         curr_idx = self.replay_index + 1
                         if curr_idx >= len(self.replay_blocks):
                             break
                         self.replay_index = curr_idx
-                        block_bytes = self._read_replay_block_from_file(f, self.replay_index)
-
+                        try:
+                            block_bytes = self.replay_memory_cache[self.replay_index]
+                        except Exception:
+                            try:
+                                with open(self.replay_filepath, 'rb') as f:
+                                    block_bytes = self._read_replay_block_from_file(f, self.replay_index)
+                            except Exception:
+                                block_bytes = b''
                         has_epoch = self.parse_raw_chunk(block_bytes)
                         if has_epoch:
                             has_new_epoch = True
                         if self.replay_index % self.replay_snapshot_interval == 0:
                             self.capture_replay_snapshot(self.replay_index)
+                else:
+                    with open(self.replay_filepath, 'rb') as f:
+                        for i in range(blocks_to_process):
+                            curr_idx = self.replay_index + 1
+                            if curr_idx >= len(self.replay_blocks):
+                                break
+                            self.replay_index = curr_idx
+                            try:
+                                block_bytes = self._read_replay_block_from_file(f, self.replay_index)
+                            except Exception:
+                                block_bytes = b''
+
+                            has_epoch = self.parse_raw_chunk(block_bytes)
+                            if has_epoch:
+                                has_new_epoch = True
+                            if self.replay_index % self.replay_snapshot_interval == 0:
+                                self.capture_replay_snapshot(self.replay_index)
+
+                if multiplier >= 5.0:
+                    com_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
+                    if len(com_epochs) > 2000:
+                        self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"] + com_epochs[-2000:]
+                    if self.parsed_epochs:
+                        self.update_live_dashboard(self.parsed_epochs[-1])
             finally:
                 if multiplier >= 5.0:
                     self._disable_console_append = False
+                    self.is_bulk_parsing = False
 
             self.slider_replay.blockSignals(True)
             self.slider_replay.setValue(self.replay_index)
@@ -4955,15 +4995,20 @@ class MainWindow(QMainWindow):
             epoch['file_id'] = "COM_REALTIME"
             self.parsed_epochs.append(epoch)
 
-            com_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
-            if len(com_epochs) > 2000:
-                self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"] + com_epochs[-2000:]
+            if not getattr(self, 'is_bulk_parsing', False):
+                com_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
+                if len(com_epochs) > 2000:
+                    self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"] + com_epochs[-2000:]
 
-            # 建立 file_epochs_map，确保二分查找等其他重计算正常获取
-            self.file_epochs_map["COM_REALTIME"] = realtime_seg['epochs']
+                # 建立 file_epochs_map，确保二分查找等其他重计算正常获取
+                self.file_epochs_map["COM_REALTIME"] = realtime_seg['epochs']
+            else:
+                # 批量解析模式下仅维护 map 结构引用，不进行高开销的列表过滤
+                self.file_epochs_map["COM_REALTIME"] = realtime_seg['epochs']
 
         # 4. 更新实时解析仪表盘
-        self.update_live_dashboard(epoch)
+        if not getattr(self, 'is_bulk_parsing', False):
+            self.update_live_dashboard(epoch)
 
     def update_live_dashboard(self, epoch):
         # 查找当前实时分段选择的数据源类型
