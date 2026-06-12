@@ -843,6 +843,209 @@ def is_system_dark_mode():
         pass
     return False
 
+class ReplaySnapshotWorker(QThread):
+    sig_progress = Signal(int, bool, object, object)
+
+    def __init__(self, generation, filepath, blocks, interval, leap_seconds):
+        super().__init__()
+        self.generation = generation
+        self.filepath = filepath
+        self.blocks = blocks
+        self.interval = interval
+        self.leap_seconds = leap_seconds
+        self.is_running = True
+
+    def stop(self):
+        self.is_running = False
+
+    def run(self):
+        import os
+        if not os.path.exists(self.filepath):
+            self.sig_progress.emit(self.generation, True, [], {})
+            return
+
+        from gnss_parser import BKStreamParser, parse_log_line, parse_bk_frame
+        import copy
+
+        parser = BKStreamParser()
+        gsv_satellites = {}
+        used_satellites = set()
+        sat_metadata = {}
+        has_received_gsa = False
+        latest_quality = 0
+        latest_num_sats = 0
+        latest_hdop = 1.0
+        latest_pdop = 1.0
+
+        raw_epochs = []
+        snapshots = {}
+        total_epochs_count = 0
+
+        try:
+            with open(self.filepath, 'rb') as f:
+                for idx, (_, offset, length) in enumerate(self.blocks):
+                    if not self.is_running:
+                        break
+
+                    f.seek(offset)
+                    block_bytes = f.read(length)
+
+                    parser.feed(block_bytes)
+                    
+                    while True:
+                        res = parser.next_frame()
+                        if res is None:
+                            break
+                        frame_type, frame_data = res
+
+                        epoch = None
+                        if frame_type == 'NMEA':
+                            line_str = frame_data.decode('gbk', errors='replace')
+                            epoch = parse_log_line(line_str, self.leap_seconds)
+                            if epoch:
+                                if epoch['type'] == 'GSV':
+                                    prefix = epoch['prefix']
+                                    total_msg = epoch['total_msg']
+                                    msg_num = epoch['msg_num']
+                                    signal_id = epoch['signal_id']
+
+                                    if msg_num == 1:
+                                        keys_to_remove = []
+                                        for k in list(gsv_satellites.keys()):
+                                            mapped_sys, _, _ = get_sat_info(prefix, k[1])
+                                            if k[0] == mapped_sys:
+                                                if signal_id in gsv_satellites[k]:
+                                                    del gsv_satellites[k][signal_id]
+                                                if not gsv_satellites[k]:
+                                                    keys_to_remove.append(k)
+                                        for k in keys_to_remove:
+                                            gsv_satellites.pop(k, None)
+
+                                    for sat in epoch['sats']:
+                                        prn = sat['prn']
+                                        snr = sat['snr']
+                                        sys_prefix, real_prn, _ = get_sat_info(prefix, prn)
+                                        key = (sys_prefix, real_prn)
+                                        if key not in gsv_satellites:
+                                            gsv_satellites[key] = {}
+                                        gsv_satellites[key][signal_id] = snr
+
+                                        elev = sat.get('elevation')
+                                        azim = sat.get('azimuth')
+                                        if key not in sat_metadata:
+                                            sat_metadata[key] = {}
+                                        if elev is not None:
+                                            sat_metadata[key]['elevation'] = elev
+                                        if azim is not None:
+                                            sat_metadata[key]['azimuth'] = azim
+                                else:
+                                    if epoch['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']:
+                                        used_satellites.clear()
+                                        latest_quality = epoch.get('quality', 0)
+                                        if 'num_sats' in epoch:
+                                            latest_num_sats = epoch['num_sats']
+                                        if 'hdop' in epoch:
+                                            latest_hdop = epoch['hdop']
+                                        if 'pdop' in epoch:
+                                            latest_pdop = epoch['pdop']
+                                        elif 'hdop' in epoch:
+                                            latest_pdop = epoch['hdop']
+                                    elif epoch['type'] == 'GSA':
+                                        has_received_gsa = True
+                                        sats_used = epoch.get('sats_used', [])
+                                        sentence_type = epoch.get('sentence_type', '')
+                                        talker = sentence_type[1:3] if len(sentence_type) >= 3 else ''
+
+                                        gsa_prefix = None
+                                        if talker == 'GP':
+                                            gsa_prefix = 'GPS'
+                                        elif talker in ['BD', 'GB']:
+                                            gsa_prefix = 'BD'
+                                        elif talker == 'GL':
+                                            gsa_prefix = 'GL'
+                                        elif talker == 'GA':
+                                            gsa_prefix = 'GA'
+
+                                        raw_line = epoch.get('raw_line', '')
+                                        parts = [p.strip() for p in raw_line.split(',')]
+                                        if talker == 'GN' and len(parts) > 18:
+                                            sys_id = parts[18].split('*')[0].strip()
+                                            if sys_id == '1':
+                                                gsa_prefix = 'GPS'
+                                            elif sys_id == '2':
+                                                gsa_prefix = 'GL'
+                                            elif sys_id == '3':
+                                                gsa_prefix = 'GA'
+                                            elif sys_id == '4':
+                                                gsa_prefix = 'BD'
+
+                                        for prn in sats_used:
+                                            prn_prefix = gsa_prefix
+                                            if prn_prefix is None:
+                                                if 1 <= prn <= 32 or 193 <= prn <= 202:
+                                                    prn_prefix = 'GPS'
+                                                elif 65 <= prn <= 99:
+                                                    prn_prefix = 'GL'
+                                                elif 141 <= prn <= 172 or 1 <= prn <= 63:
+                                                    prn_prefix = 'BD'
+                                                else:
+                                                    prn_prefix = 'GPS'
+
+                                            if prn_prefix:
+                                                sys_prefix, real_prn, _ = get_sat_info(prn_prefix, prn)
+                                                used_satellites.add((sys_prefix, real_prn))
+
+                                    elif epoch['type'] in ['POGOS', 'PODRS']:
+                                        epoch['quality'] = latest_quality
+                                        epoch['num_sats'] = latest_num_sats
+                                        epoch['hdop'] = latest_hdop
+                                        epoch['pdop'] = latest_pdop
+                                    
+                                    if epoch['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV', 'POGOS', 'PODRS']:
+                                        raw_epochs.append(epoch)
+                                        total_epochs_count += 1
+
+                        elif frame_type == 'BK':
+                            epoch = parse_bk_frame(frame_data)
+                            if epoch and epoch['type'] == 'BK_PNT_NAV':
+                                used_satellites.clear()
+                                latest_quality = epoch.get('quality', 0)
+                                latest_num_sats = epoch.get('num_sats', 0)
+                                latest_hdop = epoch.get('hdop', 1.0)
+                                latest_pdop = epoch.get('pdop', 1.0)
+                                raw_epochs.append(epoch)
+                                total_epochs_count += 1
+
+                    # 达到快照保存点
+                    if idx % self.interval == 0:
+                        snapshots[idx] = {
+                            'serial_buffer': copy.deepcopy(parser),
+                            'gsv_satellites': copy.deepcopy(gsv_satellites),
+                            'used_satellites': set(used_satellites),
+                            'sat_metadata': copy.deepcopy(sat_metadata),
+                            'has_received_gsa': has_received_gsa,
+                            'epochs_count': total_epochs_count,
+                            'latest_quality': latest_quality,
+                            'latest_num_sats': latest_num_sats,
+                            'latest_hdop': latest_hdop,
+                            'latest_pdop': latest_pdop
+                        }
+
+                    # 分批发送解析结果
+                    if (idx > 0 and idx % 100 == 0) or idx == len(self.blocks) - 1:
+                        self.sig_progress.emit(self.generation, False, raw_epochs, snapshots)
+                        raw_epochs = []
+                        snapshots = {}
+
+                    # 每 50 块释放一次 GIL
+                    if idx % 50 == 0:
+                        self.msleep(1)
+
+        except Exception as e:
+            print(f"Background snapshot worker error: {e}")
+        
+        self.sig_progress.emit(self.generation, True, raw_epochs, snapshots)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -918,8 +1121,14 @@ class MainWindow(QMainWindow):
         self.replay_blocks = []
         self.replay_filepath = None
         self.replay_index = 0
-        self.replay_snapshot_interval = 500
+        self.replay_snapshot_interval = 200
+        self.replay_snapshot_generation = 0
+        self.replay_snapshot_worker = None
+        from collections import OrderedDict
+        self.replay_seek_cache = OrderedDict()
+        self.replay_seek_cache_limit = 5
         self.replay_snapshots = {}
+        self.background_raw_epochs = []
         self.replay_memory_cache = []
         self.is_replay_realtime_source = False
         self.is_replaying = False
@@ -3874,6 +4083,10 @@ class MainWindow(QMainWindow):
             self.load_replay_file(filepath)
 
     def clear_replay_data(self):
+        self.stop_replay_snapshot_worker()
+        self.replay_snapshot_generation += 1
+        self.replay_seek_cache.clear()
+        self.background_raw_epochs = []
         self.stop_replay()
         self.replay_blocks = []
         self.replay_filepath = None
@@ -3903,15 +4116,13 @@ class MainWindow(QMainWindow):
     def capture_replay_snapshot(self, index):
         if index < 0:
             return
-        realtime_count = sum(1 for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME")
         self.replay_snapshots[index] = {
             'serial_buffer': copy.deepcopy(self.serial_buffer),
             'gsv_satellites': copy.deepcopy(self.gsv_satellites),
             'used_satellites': set(self.used_satellites),
             'sat_metadata': copy.deepcopy(self.sat_metadata),
             'has_received_gsa': self.has_received_gsa,
-            'realtime_raw_epochs': list(self.realtime_raw_epochs),
-            'parsed_realtime_count': realtime_count,
+            'epochs_count': len(self.realtime_raw_epochs),
             'latest_quality': self.latest_quality,
             'latest_num_sats': self.latest_num_sats,
             'latest_hdop': self.latest_hdop,
@@ -3938,17 +4149,19 @@ class MainWindow(QMainWindow):
         self.used_satellites = set(snapshot['used_satellites'])
         self.sat_metadata = copy.deepcopy(snapshot['sat_metadata'])
         self.has_received_gsa = snapshot['has_received_gsa']
-        self.realtime_raw_epochs.clear()
-        self.realtime_raw_epochs.extend(snapshot['realtime_raw_epochs'])
-        
-        # 兼容新老版本快照结构
-        if 'parsed_realtime_count' in snapshot:
-            non_realtime = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
-            realtime = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
-            self.parsed_epochs = non_realtime + realtime[:snapshot['parsed_realtime_count']]
-        elif 'parsed_realtime_epochs' in snapshot:
-            self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
-            self.parsed_epochs.extend(copy.deepcopy(snapshot['parsed_realtime_epochs']))
+
+        if 'epochs_count' in snapshot:
+            count = snapshot['epochs_count']
+            if count <= len(self.background_raw_epochs):
+                self.realtime_raw_epochs = list(self.background_raw_epochs[:count])
+            else:
+                del self.realtime_raw_epochs[count:]
+        elif 'realtime_raw_epochs' in snapshot:
+            self.realtime_raw_epochs.clear()
+            self.realtime_raw_epochs.extend(snapshot['realtime_raw_epochs'])
+
+        self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
+        self.parsed_epochs.extend(self.realtime_raw_epochs)
 
         self.latest_quality = snapshot['latest_quality']
         self.latest_num_sats = snapshot['latest_num_sats']
@@ -4131,6 +4344,23 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "警告", "日志文件中未切分出可回放的数据块。")
                 return
 
+            # 根据块数自适应调整快照间隔
+            block_count = len(self.replay_blocks)
+            if block_count <= 5000:
+                self.replay_snapshot_interval = 200
+            elif block_count <= 20000:
+                self.replay_snapshot_interval = 100
+            else:
+                self.replay_snapshot_interval = 50
+
+            # 停止并清理先前的后台预建线程
+            self.stop_replay_snapshot_worker()
+            self.replay_snapshot_generation += 1
+
+            # 清空缓存
+            self.replay_seek_cache.clear()
+            self.background_raw_epochs = []
+
             # 载入内存缓存 (限50MB以内小文件)
             self.replay_memory_cache = []
             if file_size <= 50 * 1024 * 1024:
@@ -4160,6 +4390,9 @@ class MainWindow(QMainWindow):
 
             self.update_replay_time_display()
 
+            # 启动后台线程解析和快照预热
+            self.start_replay_snapshot_worker()
+
         except Exception as e:
             self.replay_blocks = []
             self.replay_filepath = None
@@ -4175,6 +4408,47 @@ class MainWindow(QMainWindow):
         total_time = self.replay_blocks[-1][0]
         self.lbl_replay_time.setText(f"{curr_time} / {total_time}")
 
+    def start_replay_snapshot_worker(self):
+        if not self.replay_filepath or not self.replay_blocks:
+            return
+        self.replay_snapshot_worker = ReplaySnapshotWorker(
+            self.replay_snapshot_generation,
+            self.replay_filepath,
+            self.replay_blocks,
+            self.replay_snapshot_interval,
+            self.get_leap_seconds()
+        )
+        self.replay_snapshot_worker.sig_progress.connect(self.on_replay_snapshot_ready)
+        self.replay_snapshot_worker.start(QThread.LowPriority)
+
+    def stop_replay_snapshot_worker(self):
+        if self.replay_snapshot_worker:
+            self.replay_snapshot_worker.stop()
+            self.replay_snapshot_worker.wait(1000)
+            if self.replay_snapshot_worker.isRunning():
+                self.replay_snapshot_worker.terminate()
+                self.replay_snapshot_worker.wait(500)
+            self.replay_snapshot_worker = None
+
+    def on_replay_snapshot_ready(self, generation, finished, new_epochs, new_snapshots):
+        # 丢弃已经废弃的代数回调
+        if generation != self.replay_snapshot_generation:
+            return
+
+        # 增量追加后台生成的历元数据到独立的后台缓存，不干扰当前 active 的前台列表
+        if new_epochs:
+            self.background_raw_epochs.extend(new_epochs)
+            # 标记 COM_REALTIME
+            for ep in new_epochs:
+                ep['file_id'] = "COM_REALTIME"
+
+        # 保存后台生成的快照
+        if new_snapshots:
+            self.replay_snapshots.update(new_snapshots)
+            
+        if finished:
+            self.replay_snapshot_worker = None
+
     def reset_replay_live_state(self):
         self.serial_buffer = BKStreamParser()
         self.gsv_satellites.clear()
@@ -4188,13 +4462,41 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'canvas_cno'):
             self.canvas_cno.render_cno(self.gsv_satellites, self.used_satellites, self.has_received_gsa, self.sat_metadata)
 
+    def get_best_replay_snapshot_index(self, target_index):
+        candidates = []
+        
+        def can_restore(snapshot):
+            if 'epochs_count' not in snapshot:
+                return True
+            count = snapshot['epochs_count']
+            return count <= len(self.background_raw_epochs) or count <= len(self.realtime_raw_epochs)
+
+        for idx, snap in list(self.replay_seek_cache.items()):
+            if idx <= target_index and can_restore(snap):
+                candidates.append(idx)
+        for idx, snap in list(self.replay_snapshots.items()):
+            if idx <= target_index and can_restore(snap):
+                candidates.append(idx)
+                
+        if not candidates:
+            return None
+        return max(candidates)
+
+    def cache_seek_snapshot(self, index):
+        if index not in self.replay_snapshots:
+            self.capture_replay_snapshot(index)
+        if index in self.replay_snapshots:
+            self.replay_seek_cache.pop(index, None)
+            self.replay_seek_cache[index] = self.replay_snapshots[index]
+            if len(self.replay_seek_cache) > self.replay_seek_cache_limit:
+                self.replay_seek_cache.popitem(last=False)
+
     def parse_replay_blocks_until(self, target_index):
         if not self.replay_blocks or not self.replay_filepath:
             return False
 
         target_index = max(0, min(target_index, len(self.replay_blocks) - 1))
-        snapshot_candidates = [idx for idx in self.replay_snapshots if idx <= target_index]
-        snapshot_index = max(snapshot_candidates) if snapshot_candidates else None
+        snapshot_index = self.get_best_replay_snapshot_index(target_index)
         restored_snapshot = snapshot_index is not None and self.restore_replay_snapshot(snapshot_index)
         if restored_snapshot:
             start_index = snapshot_index + 1
@@ -4203,8 +4505,9 @@ class MainWindow(QMainWindow):
             start_index = 0
 
         has_new_epoch = restored_snapshot
-        progress = None
         blocks_to_parse = target_index - start_index + 1
+        
+        progress = None
         if blocks_to_parse >= 200:
             from PySide6.QtWidgets import QProgressDialog, QApplication
             progress = QProgressDialog("正在定位回放进度...", "取消", 0, max(1, blocks_to_parse), self)
@@ -4217,8 +4520,8 @@ class MainWindow(QMainWindow):
         completed_index = snapshot_index if snapshot_index is not None else -1
         self._disable_console_append = True
         self.is_bulk_parsing = True
+        
         try:
-            # 判断是否可以使用内存缓存
             use_memory = (
                 self.replay_memory_cache and
                 len(self.replay_memory_cache) == len(self.replay_blocks)
@@ -4267,11 +4570,14 @@ class MainWindow(QMainWindow):
             self._disable_console_append = False
             if progress:
                 progress.close()
+
         if cancelled:
             self.replay_index = max(0, completed_index)
             self.slider_replay.blockSignals(True)
             self.slider_replay.setValue(self.replay_index)
             self.slider_replay.blockSignals(False)
+
+        self.cache_seek_snapshot(completed_index)
 
         # 批量解析结束后，单次执行截断和更新
         com_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') == "COM_REALTIME"]
@@ -5118,6 +5424,7 @@ class MainWindow(QMainWindow):
             self.lbl_ins_tow.setText(f"{epoch.get('gps_tow', 0.0):.3f}")
 
     def closeEvent(self, event):
+        self.stop_replay_snapshot_worker()
         if hasattr(self, 'serial_port') and self.serial_port.isOpen():
             self.serial_port.close()
         if hasattr(self, 'record_file') and self.record_file:
