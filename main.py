@@ -892,7 +892,7 @@ class ReplaySnapshotWorker(QThread):
 
                     parser.feed(block_bytes)
                     
-                    while True:
+                    while self.is_running:
                         res = parser.next_frame()
                         if res is None:
                             break
@@ -1129,6 +1129,7 @@ class MainWindow(QMainWindow):
         self.replay_seek_cache_limit = 5
         self.replay_snapshots = {}
         self.background_raw_epochs = []
+        self.finishing_workers = []
         self.replay_memory_cache = []
         self.is_replay_realtime_source = False
         self.is_replaying = False
@@ -4423,12 +4424,18 @@ class MainWindow(QMainWindow):
 
     def stop_replay_snapshot_worker(self):
         if self.replay_snapshot_worker:
-            self.replay_snapshot_worker.stop()
-            self.replay_snapshot_worker.wait(1000)
-            if self.replay_snapshot_worker.isRunning():
-                self.replay_snapshot_worker.terminate()
-                self.replay_snapshot_worker.wait(500)
+            worker = self.replay_snapshot_worker
             self.replay_snapshot_worker = None
+            worker.stop()
+            self.finishing_workers.append(worker)
+            worker.finished.connect(lambda: self.clean_up_finished_worker(worker))
+
+    def clean_up_finished_worker(self, worker):
+        try:
+            if worker in self.finishing_workers:
+                self.finishing_workers.remove(worker)
+        except Exception:
+            pass
 
     def on_replay_snapshot_ready(self, generation, finished, new_epochs, new_snapshots):
         # 丢弃已经废弃的代数回调
@@ -5425,6 +5432,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.stop_replay_snapshot_worker()
+        for worker in self.finishing_workers:
+            try:
+                worker.wait(1000)
+            except Exception:
+                pass
         if hasattr(self, 'serial_port') and self.serial_port.isOpen():
             self.serial_port.close()
         if hasattr(self, 'record_file') and self.record_file:
