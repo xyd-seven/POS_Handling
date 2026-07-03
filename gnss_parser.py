@@ -785,19 +785,31 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
     }
     return metrics, points
 
-def crc16_ccitt(data: bytes) -> int:
-    """
-    计算 CCITT CRC-16 校验值 (多项式 0x1021, 初始值 0x0000)
-    """
-    crc = 0
-    for b in data:
-        crc ^= (b << 8)
+def _init_crc16_table():
+    table = []
+    for i in range(256):
+        crc = 0
+        c = i << 8
         for _ in range(8):
-            if crc & 0x8000:
+            if (crc ^ c) & 0x8000:
                 crc = (crc << 1) ^ 0x1021
             else:
                 crc <<= 1
+            c <<= 1
             crc &= 0xFFFF
+        table.append(crc)
+    return table
+
+CRC16_CCITT_TABLE = _init_crc16_table()
+
+def crc16_ccitt(data: bytes) -> int:
+    """
+    计算 CCITT CRC-16 校验值 (多项式 0x1021, 初始值 0x0000) - 查表加速版
+    """
+    crc = 0
+    for b in data:
+        crc = (crc << 8) ^ CRC16_CCITT_TABLE[((crc >> 8) ^ b) & 0xFF]
+        crc &= 0xFFFF
     return crc
 
 def parse_bk_frame(frame: bytes) -> dict:
@@ -908,6 +920,34 @@ def parse_bk_frame(frame: bytes) -> dict:
         'payload': payload.hex()
     }
 
+def check_nmea_header(buffer: bytearray, start_idx: int) -> bool:
+    """
+    检查缓冲区中 start_idx 开始的字符是否像是一个合法的 NMEA 语句开头。
+    合法特征：$ 后面跟着 2 到 10 个字母或数字组成的 talker/sentence 标识符，并紧邻 ,、*、\r 或 \n 结束。
+    """
+    if len(buffer) < start_idx + 4:
+        return True
+    idx = start_idx + 1
+    length = len(buffer)
+    header_len = 0
+    
+    first_char = buffer[idx]
+    if not ((65 <= first_char <= 90) or (97 <= first_char <= 122)):
+        return False
+        
+    while idx < length:
+        char = buffer[idx]
+        if char == 44 or char == 42 or char == 13 or char == 10:  # ',' 或 '*' 或 '\r' 或 '\n'
+            return 2 <= header_len <= 10
+        is_alphanumeric = (65 <= char <= 90) or (97 <= char <= 122) or (48 <= char <= 57)
+        if not is_alphanumeric:
+            return False
+        header_len += 1
+        idx += 1
+        if header_len > 10:
+            return False
+    return True
+
 class BKStreamParser:
     """
     流式协议分包器，从输入流中切分出 NMEA 明文行与 BK 二进制协议帧
@@ -956,6 +996,11 @@ class BKStreamParser:
                 
             # 执行分包
             if mode == 'NMEA':
+                # 在分包前，先校验 NMEA 句头是否合法以防假同步
+                if not check_nmea_header(self.buffer, 0):
+                    del self.buffer[:1]
+                    continue
+                    
                 # 寻找换行符 \n
                 idx_nl = self.buffer.find(b'\n')
                 if idx_nl == -1:

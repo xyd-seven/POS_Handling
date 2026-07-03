@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout,
                              QTableWidgetItem, QTabWidget, QGroupBox, QSplitter,
                              QHeaderView, QFileDialog, QMessageBox, QMenuBar,
                              QComboBox, QCheckBox, QProgressDialog, QGridLayout,
-                             QTextEdit, QSlider, QToolTip)
+                             QPlainTextEdit, QSlider, QToolTip)
 from PySide6.QtCore import Qt, Signal, QThread, QPointF, QRectF, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QPen, QBrush, QTextCursor, QCursor
 from PySide6.QtSerialPort import QSerialPort, QSerialPortInfo
@@ -585,51 +585,64 @@ class LogParserThread(QThread):
             last_time_sec_for_gsa = None
             last_emit_progress = -1
 
-            with open(self.filepath, 'r', encoding='utf-8', errors='replace') as f:
-                for line in f:
-                    if self.is_cancelled:
+            from gnss_parser import BKStreamParser, parse_bk_frame
+            parser = BKStreamParser()
+
+            with open(self.filepath, 'rb') as f:
+                while not self.is_cancelled:
+                    chunk = f.read(65536)
+                    if not chunk:
                         break
 
-                    line_len = len(line.encode('utf-8', errors='replace'))
-                    processed_size += line_len
+                    processed_size += len(chunk)
+                    parser.feed(chunk)
 
-                    if not line.startswith('$'):
-                        continue
+                    while not self.is_cancelled:
+                        res = parser.next_frame()
+                        if res is None:
+                            break
 
-                    comma_idx = line.find(',')
-                    if comma_idx != -1:
-                        stype = line[:comma_idx]
-                        sentence_types[stype] = sentence_types.get(stype, 0) + 1
+                        frame_type, frame_data = res
+                        epoch = None
 
-                    epoch = parse_log_line(line, self.leap_secs, self.strict_checksum)
-                    if epoch:
-                        if epoch['type'] in ['GGA', 'POGOS', 'PODRS', 'RMC']:
-                            epoch['file_id'] = self.filepath
-                            file_epochs.append(epoch)
-                            last_time_sec_for_gsa = epoch['utc_time_sec']
-                            if first_time_sec is None:
-                                first_time_sec = epoch['utc_time_sec']
-                                first_time_str = epoch['time_str']
-                            last_time_sec = epoch['utc_time_sec']
-                            last_time_str = epoch['time_str']
+                        if frame_type == 'NMEA':
+                            line = frame_data.decode('gbk', errors='replace')
+                            comma_idx = line.find(',')
+                            if comma_idx != -1:
+                                stype = line[:comma_idx]
+                                sentence_types[stype] = sentence_types.get(stype, 0) + 1
+                            epoch = parse_log_line(line, self.leap_secs, self.strict_checksum)
 
-                            if epoch['type'] == 'GGA':
-                                gga_status_events.append((epoch['utc_time_sec'], {
-                                    'quality': epoch['quality'],
-                                    'num_sats': epoch['num_sats'],
-                                    'hdop': epoch['hdop']
+                        elif frame_type == 'BK':
+                            epoch = parse_bk_frame(frame_data)
+
+                        if epoch:
+                            if epoch['type'] in ['GGA', 'POGOS', 'PODRS', 'RMC', 'POSOL', 'BK_PNT_NAV']:
+                                epoch['file_id'] = self.filepath
+                                file_epochs.append(epoch)
+                                last_time_sec_for_gsa = epoch['utc_time_sec']
+                                if first_time_sec is None:
+                                    first_time_sec = epoch['utc_time_sec']
+                                    first_time_str = epoch['time_str']
+                                last_time_sec = epoch['utc_time_sec']
+                                last_time_str = epoch['time_str']
+
+                                if epoch['type'] == 'GGA':
+                                    gga_status_events.append((epoch['utc_time_sec'], {
+                                        'quality': epoch['quality'],
+                                        'num_sats': epoch['num_sats'],
+                                        'hdop': epoch['hdop']
+                                    }))
+                            elif epoch['type'] == 'GSA' and last_time_sec_for_gsa is not None:
+                                gsa_status_events.append((last_time_sec_for_gsa, {
+                                    'vdop': epoch['vdop'],
+                                    'pdop': epoch['pdop']
                                 }))
-                        elif epoch['type'] == 'GSA' and last_time_sec_for_gsa is not None:
-                            gsa_status_events.append((last_time_sec_for_gsa, {
-                                'vdop': epoch['vdop'],
-                                'pdop': epoch['pdop']
-                            }))
 
-                    if processed_size % (1024 * 100) < line_len:  # Update roughly every 100KB
-                        progress = int((processed_size / file_size) * 100) if file_size > 0 else 0
-                        if progress > last_emit_progress:
-                            self.progress_updated.emit(progress)
-                            last_emit_progress = progress
+                    progress = int((processed_size / file_size) * 100) if file_size > 0 else 0
+                    if progress > last_emit_progress:
+                        self.progress_updated.emit(progress)
+                        last_emit_progress = progress
 
             if file_epochs:
                 from gnss_parser import unwrap_times
@@ -648,37 +661,46 @@ class LogParserThread(QThread):
                 gga_status_events = unwrap_status_events(gga_status_events)
                 gsa_status_events = unwrap_status_events(gsa_status_events)
 
-                import bisect
                 gga_status_events.sort(key=lambda item: item[0])
                 gsa_status_events.sort(key=lambda item: item[0])
-                gga_status_times = [item[0] for item in gga_status_events]
-                gsa_status_times = [item[0] for item in gsa_status_events]
 
-                def nearest_status(events, event_times, target_time, max_delta=1.0):
-                    if not events:
-                        return None
-                    best_fields = None
-                    best_delta = None
-                    pos = bisect.bisect_left(event_times, target_time)
-                    for candidate in (pos - 1, pos):
-                        if candidate < 0 or candidate >= len(events):
-                            continue
-                        event_time, fields = events[candidate]
-                        delta = abs(event_time - target_time)
-                        if delta <= max_delta and (best_delta is None or delta < best_delta):
-                            best_delta = delta
-                            best_fields = fields
-                    return best_fields
+                gga_idx = 0
+                gsa_idx = 0
+                n_gga = len(gga_status_events)
+                n_gsa = len(gsa_status_events)
 
                 for ep in file_epochs:
-                    if ep['type'] in ['POGOS', 'PODRS']:
-                        gga_fields = nearest_status(gga_status_events, gga_status_times, ep['utc_time_sec'])
-                        if gga_fields:
-                            ep.update(gga_fields)
+                    t = ep['utc_time_sec']
 
-                    gsa_fields = nearest_status(gsa_status_events, gsa_status_times, ep['utc_time_sec'])
-                    if gsa_fields:
-                        ep.update(gsa_fields)
+                    if ep['type'] in ['POGOS', 'PODRS'] and n_gga > 0:
+                        while gga_idx < n_gga - 1 and gga_status_events[gga_idx][0] < t:
+                            gga_idx += 1
+                        best_fields = None
+                        best_delta = 999.0
+                        for idx in (gga_idx - 1, gga_idx):
+                            if 0 <= idx < n_gga:
+                                ev_t, fields = gga_status_events[idx]
+                                delta = abs(ev_t - t)
+                                if delta <= 1.0 and delta < best_delta:
+                                    best_delta = delta
+                                    best_fields = fields
+                        if best_fields:
+                            ep.update(best_fields)
+
+                    if n_gsa > 0:
+                        while gsa_idx < n_gsa - 1 and gsa_status_events[gsa_idx][0] < t:
+                            gsa_idx += 1
+                        best_fields = None
+                        best_delta = 999.0
+                        for idx in (gsa_idx - 1, gsa_idx):
+                            if 0 <= idx < n_gsa:
+                                ev_t, fields = gsa_status_events[idx]
+                                delta = abs(ev_t - t)
+                                if delta <= 1.0 and delta < best_delta:
+                                    best_delta = delta
+                                    best_fields = fields
+                        if best_fields:
+                            ep.update(best_fields)
 
             self.progress_updated.emit(100)
             result = {
@@ -1838,9 +1860,9 @@ class MainWindow(QMainWindow):
         self.dashboard_tab.addTab(self.pane_cmd, "快捷指令")
 
         # 将控制台和解析卡片加入上层水平分割条 (控制台在右侧)
-        self.txt_console = QTextEdit()
+        self.txt_console = QPlainTextEdit()
         self.txt_console.setReadOnly(True)
-        self.txt_console.document().setMaximumBlockCount(500)
+        self.txt_console.document().setMaximumBlockCount(1000)
         self.txt_console.setStyleSheet("""
             background-color: #0B1120;
             color: #10B981;
@@ -3316,12 +3338,24 @@ class MainWindow(QMainWindow):
 
         for seg in self.segments:
             if seg.get('file_id') == "COM_REALTIME":
-                # 根据当前选定的数据源类型进行动态过滤，保留最近 2000 个
+                calc_key = (
+                    seg['source_type'],
+                    len(self.realtime_raw_epochs),
+                    self.truth_mode,
+                    str(self.truth),
+                    self.time_zone,
+                    self.app_config.get('filter_outliers', False),
+                    self.app_config.get('outlier_threshold', 50.0)
+                )
+                if seg.get('_last_calc_key') == calc_key and seg.get('metrics') is not None:
+                    continue
+
                 if seg['source_type'] == 'GGA':
                     epochs = [ep for ep in self.realtime_raw_epochs if ep['type'] in ['GGA', 'POSOL', 'BK_PNT_NAV']]
                 else:
                     epochs = [ep for ep in self.realtime_raw_epochs if ep['type'] == seg['source_type']]
                 seg['epochs'] = epochs if self.is_replay_realtime_source else epochs[-2000:]
+                seg['_last_calc_key'] = calc_key
             else:
                 # 使用基于 file_id 的字典查询代替遍历数十万级别的全集列表
                 file_epochs = self.file_epochs_map.get(seg.get('file_id'), [])
@@ -4016,7 +4050,7 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "录制失败", f"写入原始数据日志失败，录制已停止。\n\n{err_msg}")
 
     def safe_append_console(self, text, scroll=True):
-        self.txt_console.append(text)
+        self.txt_console.appendPlainText(text.rstrip('\r\n'))
 
     def safe_clear_console(self):
         self.txt_console.clear()
@@ -5431,8 +5465,20 @@ class MainWindow(QMainWindow):
             self.lbl_ins_tow.setText(f"{epoch.get('gps_tow', 0.0):.3f}")
 
     def closeEvent(self, event):
+        # 1. 安全标记并停止正向日志文件解析线程
+        if hasattr(self, 'parser_thread') and self.parser_thread:
+            self.parser_thread.is_cancelled = True
+            self.finishing_workers.append(self.parser_thread)
+            self.parser_thread.finished.connect(lambda p=self.parser_thread: self.clean_up_finished_worker(p))
+
+        # 2. 安全标记并停止真值文件解析线程
+        if hasattr(self, 'dynamic_parser_thread') and self.dynamic_parser_thread:
+            self.dynamic_parser_thread.is_cancelled = True
+            self.finishing_workers.append(self.dynamic_parser_thread)
+            self.dynamic_parser_thread.finished.connect(lambda p=self.dynamic_parser_thread: self.clean_up_finished_worker(p))
+
         self.stop_replay_snapshot_worker()
-        for worker in self.finishing_workers:
+        for worker in list(self.finishing_workers):
             try:
                 worker.wait(1000)
             except Exception:

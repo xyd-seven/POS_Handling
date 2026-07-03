@@ -239,9 +239,11 @@ class PlotWidget(FigureCanvas):
             return
             
         self.ax.grid(True, axis='both', color='#CBD5E1', linestyle='--', linewidth=0.5)
-        self.ax.set_title("绝对二维轨迹投影图 (经纬度)", fontsize=11, fontweight='bold', pad=10)
-        self.ax.set_xlabel("经度 (Longitude)", fontsize=9, color='#475569')
-        self.ax.set_ylabel("纬度 (Latitude)", fontsize=9, color='#475569')
+        self.ax.set_title("绝对二维轨迹投影图 (经纬度)", fontsize=14, fontweight='bold', pad=10)
+        self.ax.set_xlabel("经度 (Longitude)", fontsize=11, color='#475569')
+        self.ax.set_ylabel("纬度 (Latitude)", fontsize=11, color='#475569')
+        
+        self.ax.tick_params(axis='both', labelsize=10)
         
         # 禁用科学计数法，防止经纬度被压缩为 offset
         self.ax.ticklabel_format(useOffset=False, style='plain')
@@ -252,7 +254,7 @@ class PlotWidget(FigureCanvas):
         aspect_ratio = 1.0 / math.cos(math.radians(mean_lat))
         self.ax.set_aspect(aspect_ratio)
         
-        self.ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=5, fontsize=8, frameon=True, facecolor='#FFFFFF', edgecolor='#CBD5E1')
+        self.ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=5, fontsize=10, frameon=True, facecolor='#FFFFFF', edgecolor='#CBD5E1')
 
     def draw_scatter(self, segments, truth):
         """
@@ -317,7 +319,7 @@ class PlotWidget(FigureCanvas):
             # 圆格标尺文字显示 (放置于下方偏右 45 度位置)
             anno_x = r * 0.707
             anno_y = -r * 0.707
-            self.ax.text(anno_x, anno_y, f"{r:.3f}m", color='#475569', fontsize=8, ha='center', va='center')
+            self.ax.text(anno_x, anno_y, f"{r:.3f}m", color='#475569', fontsize=10, ha='center', va='center')
             
         # 调深轴线颜色：从 #94A3B8 改为 #475569
         self.ax.axhline(0, color='#475569', linewidth=1.0, linestyle='-', zorder=1)
@@ -330,15 +332,15 @@ class PlotWidget(FigureCanvas):
         self.ax.set_yticks([])
         
         # 在圆环四周边缘添加指南针方向标签 N, S, E, W
-        self.ax.text(0, limit * 0.98, "N", ha='center', va='top', fontsize=10, fontweight='bold', color='#0F172A')
-        self.ax.text(0, -limit * 0.98, "S", ha='center', va='bottom', fontsize=10, fontweight='bold', color='#0F172A')
-        self.ax.text(limit * 0.98, 0, "E", ha='right', va='center', fontsize=10, fontweight='bold', color='#0F172A')
-        self.ax.text(-limit * 0.98, 0, "W", ha='left', va='center', fontsize=10, fontweight='bold', color='#0F172A')
+        self.ax.text(0, limit * 0.98, "N", ha='center', va='top', fontsize=12, fontweight='bold', color='#0F172A')
+        self.ax.text(0, -limit * 0.98, "S", ha='center', va='bottom', fontsize=12, fontweight='bold', color='#0F172A')
+        self.ax.text(limit * 0.98, 0, "E", ha='right', va='center', fontsize=12, fontweight='bold', color='#0F172A')
+        self.ax.text(-limit * 0.98, 0, "W", ha='left', va='center', fontsize=12, fontweight='bold', color='#0F172A')
         
-        self.ax.set_title("定位偏差分布图 (靶心图)", fontsize=11, fontweight='bold', pad=10)
+        self.ax.set_title("定位偏差分布图 (靶心图)", fontsize=14, fontweight='bold', pad=10)
         self.ax.grid(False)
         if active_segments:
-            self.ax.legend(loc='upper right', framealpha=0.9, fontsize=8)
+            self.ax.legend(loc='upper right', framealpha=0.9, fontsize=10)
         self.ax.set_aspect('equal')
 
     def draw_status(self, segments):
@@ -391,17 +393,18 @@ class PlotWidget(FigureCanvas):
                 for idx, (bar, val) in enumerate(zip(bars, p_vals)):
                     if val > 6:
                         tx = left[idx] + val / 2.0
-                        self.ax.text(tx, y_pos[idx], f"{val:.1f}%", ha='center', va='center', color='white', fontsize=8, fontweight='bold')
+                        self.ax.text(tx, y_pos[idx], f"{val:.1f}%", ha='center', va='center', color='white', fontsize=10, fontweight='bold')
                 left += p_vals
                 
         self.ax.set_yticks(y_pos)
-        self.ax.set_yticklabels(y_labels, fontsize=9, fontweight='bold', color='#0F172A')
-        self.ax.set_xlabel("比例 (%)", fontsize=9)
+        self.ax.set_yticklabels(y_labels, fontsize=11, fontweight='bold', color='#0F172A')
+        self.ax.tick_params(axis='x', labelsize=10)
+        self.ax.set_xlabel("比例 (%)", fontsize=11)
         self.ax.set_xlim(0, 100)
         self.ax.grid(True, axis='x', color='#CBD5E1', linestyle='--', linewidth=0.5)
         
-        self.ax.set_title("定位解状态比例分布对比图", fontsize=11, fontweight='bold', pad=10)
-        self.ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=5, fontsize=8, frameon=True, facecolor='#FFFFFF', edgecolor='#CBD5E1')
+        self.ax.set_title("定位解状态比例分布对比图", fontsize=14, fontweight='bold', pad=10)
+        self.ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=5, fontsize=10, frameon=True, facecolor='#FFFFFF', edgecolor='#CBD5E1')
 
     def draw_epoch_horizontal(self, segments, time_zone='UTC', show_extrema=True, x_axis_mode='历元数', show_sats=False):
         """
@@ -453,7 +456,7 @@ class PlotWidget(FigureCanvas):
                 y_max = h_errors[max_idx]
                 self.ax.plot(x_max, y_max, marker='o', markersize=6, color='#EF4444', markeredgecolor='black', zorder=5)
                 self.ax.annotate(f"[{get_x_label(x_max)}, {y_max:.4f}]", (x_max, y_max), textcoords="offset points", 
-                                 xytext=(5, 5), ha='left', fontsize=8, color='#0F172A', fontweight='bold',
+                                 xytext=(5, 5), ha='left', fontsize=10, color='#0F172A', fontweight='bold',
                                  bbox=dict(boxstyle="round,pad=0.2", fc='#FFEBEB', ec='#EF4444', lw=0.5, alpha=0.85))
                 
                 # 最小值 (绿点高亮)
@@ -461,7 +464,7 @@ class PlotWidget(FigureCanvas):
                 y_min = h_errors[min_idx]
                 self.ax.plot(x_min, y_min, marker='o', markersize=6, color='#10B981', markeredgecolor='black', zorder=5)
                 self.ax.annotate(f"[{get_x_label(x_min)}, {y_min:.4f}]", (x_min, y_min), textcoords="offset points", 
-                                 xytext=(5, -12), ha='left', fontsize=8, color='#0F172A', fontweight='bold',
+                                 xytext=(5, -12), ha='left', fontsize=10, color='#0F172A', fontweight='bold',
                                  bbox=dict(boxstyle="round,pad=0.2", fc='#EBFDF5', ec='#10B981', lw=0.5, alpha=0.85))
         
         # 格式化 X 轴刻度及标签
@@ -476,18 +479,19 @@ class PlotWidget(FigureCanvas):
                     return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
                 return formatter
             self.ax.xaxis.set_major_formatter(FuncFormatter(make_time_formatter(time_zone)))
-            self.ax.tick_params(axis='x', rotation=15, labelsize=8, colors='#0F172A')
-            self.ax.set_xlabel("时间", fontsize=9)
+            self.ax.tick_params(axis='x', rotation=15, labelsize=10, colors='#0F172A')
+            self.ax.set_xlabel("时间", fontsize=11)
         else:
             import matplotlib.ticker as ticker
             self.ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
-            self.ax.tick_params(axis='x', rotation=0, labelsize=8, colors='#0F172A')
-            self.ax.set_xlabel("历元数 (Epoch)", fontsize=9)
+            self.ax.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
+            self.ax.set_xlabel("历元数 (Epoch)", fontsize=11)
             
-        self.ax.set_title("水平位置误差历元分布图", fontsize=11, fontweight='bold', pad=10)
-        self.ax.set_ylabel("水平偏差 (m)", fontsize=9)
+        self.ax.tick_params(axis='y', labelsize=10, colors='#0F172A')
+        self.ax.set_title("水平位置误差历元分布图", fontsize=14, fontweight='bold', pad=10)
+        self.ax.set_ylabel("水平偏差 (m)", fontsize=11)
         self.ax.grid(True, which='both', color='#94A3B8', linestyle='--', linewidth=0.7)
-        self.ax.legend(loc='upper right', fontsize=8)
+        self.ax.legend(loc='upper right', fontsize=10)
         
         if show_sats and hasattr(self, 'ax_sats') and self.ax_sats:
             self._draw_sats_subplot(active_segments, x_axis_mode, time_zone, dop_type='HDOP')
@@ -547,7 +551,7 @@ class PlotWidget(FigureCanvas):
                 y_max = u_errors[max_idx]
                 self.ax.plot(x_max, y_max, marker='o', markersize=6, color='#EF4444', markeredgecolor='black', zorder=5)
                 self.ax.annotate(f"[{get_x_label(x_max)}, {y_max:.4f}]", (x_max, y_max), textcoords="offset points", 
-                                 xytext=(5, 5), ha='left', fontsize=8, color='#0F172A', fontweight='bold',
+                                 xytext=(5, 5), ha='left', fontsize=10, color='#0F172A', fontweight='bold',
                                  bbox=dict(boxstyle="round,pad=0.2", fc='#FFEBEB', ec='#EF4444', lw=0.5, alpha=0.85))
                 
                 # 最小值 (绿点高亮)
@@ -555,7 +559,7 @@ class PlotWidget(FigureCanvas):
                 y_min = u_errors[min_idx]
                 self.ax.plot(x_min, y_min, marker='o', markersize=6, color='#10B981', markeredgecolor='black', zorder=5)
                 self.ax.annotate(f"[{get_x_label(x_min)}, {y_min:.4f}]", (x_min, y_min), textcoords="offset points", 
-                                 xytext=(5, -12), ha='left', fontsize=8, color='#0F172A', fontweight='bold',
+                                 xytext=(5, -12), ha='left', fontsize=10, color='#0F172A', fontweight='bold',
                                  bbox=dict(boxstyle="round,pad=0.2", fc='#EBFDF5', ec='#10B981', lw=0.5, alpha=0.85))
         
         if not show_absolute_alt:
@@ -573,13 +577,13 @@ class PlotWidget(FigureCanvas):
                     return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
                 return formatter
             self.ax.xaxis.set_major_formatter(FuncFormatter(make_time_formatter(time_zone)))
-            self.ax.tick_params(axis='x', rotation=15, labelsize=8, colors='#0F172A')
-            self.ax.set_xlabel("时间", fontsize=9)
+            self.ax.tick_params(axis='x', rotation=15, labelsize=10, colors='#0F172A')
+            self.ax.set_xlabel("时间", fontsize=11)
         else:
             import matplotlib.ticker as ticker
             self.ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
-            self.ax.tick_params(axis='x', rotation=0, labelsize=8, colors='#0F172A')
-            self.ax.set_xlabel("历元数 (Epoch)", fontsize=9)
+            self.ax.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
+            self.ax.set_xlabel("历元数 (Epoch)", fontsize=11)
             
         if show_raw_alt:
             title_str = "高程值分布图"
@@ -587,11 +591,13 @@ class PlotWidget(FigureCanvas):
         else:
             title_str = "高程误差绝对值分布图" if show_absolute_alt else "高程误差历元分布图"
             y_label_str = "高程绝对误差 (m)" if show_absolute_alt else "高程偏差 (m)"
-        self.ax.set_title(title_str, fontsize=11, fontweight='bold', pad=10)
-        self.ax.set_ylabel(y_label_str, fontsize=9)
+            
+        self.ax.tick_params(axis='y', labelsize=10, colors='#0F172A')
+        self.ax.set_title(title_str, fontsize=14, fontweight='bold', pad=10)
+        self.ax.set_ylabel(y_label_str, fontsize=11)
         
         self.ax.grid(True, which='both', color='#94A3B8', linestyle='--', linewidth=0.7)
-        self.ax.legend(loc='upper right', fontsize=8)
+        self.ax.legend(loc='upper right', fontsize=10)
         
         if show_sats and hasattr(self, 'ax_sats') and self.ax_sats:
             self._draw_sats_subplot(active_segments, x_axis_mode, time_zone, dop_type='VDOP')
@@ -671,10 +677,10 @@ class PlotWidget(FigureCanvas):
             ax1.set_yticks([])
             ax2.set_yticks([])
         else:
-            ax1.set_ylabel("在用卫星数 (颗)", fontsize=10, fontweight='bold', color='#047857')
-            ax2.set_ylabel(actual_dop_type, fontsize=10, fontweight='bold', color='#1D4ED8')
-            ax1.tick_params(axis='y', labelcolor='#047857', labelsize=9)
-            ax2.tick_params(axis='y', labelcolor='#1D4ED8', labelsize=9)
+            ax1.set_ylabel("在用卫星数 (颗)", fontsize=11, fontweight='bold', color='#047857')
+            ax2.set_ylabel(actual_dop_type, fontsize=11, fontweight='bold', color='#1D4ED8')
+            ax1.tick_params(axis='y', labelcolor='#047857', labelsize=10)
+            ax2.tick_params(axis='y', labelcolor='#1D4ED8', labelsize=10)
             ax1.grid(True, axis='y', color='#E2E8F0', linestyle='--', linewidth=0.5)
             
         if x_axis_mode == '时间轴':
@@ -688,8 +694,8 @@ class PlotWidget(FigureCanvas):
                     return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
                 return formatter
             ax1.xaxis.set_major_formatter(FuncFormatter(make_time_formatter(time_zone)))
-            ax1.tick_params(axis='x', rotation=15, labelsize=8, colors='#0F172A')
+            ax1.tick_params(axis='x', rotation=15, labelsize=10, colors='#0F172A')
         else:
             import matplotlib.ticker as ticker
             ax1.xaxis.set_major_formatter(ticker.ScalarFormatter())
-            ax1.tick_params(axis='x', rotation=0, labelsize=8, colors='#0F172A')
+            ax1.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
