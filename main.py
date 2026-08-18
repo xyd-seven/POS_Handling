@@ -702,6 +702,9 @@ class LogParserThread(QThread):
                         if best_fields:
                             ep.update(best_fields)
 
+                from gnss_parser import attach_rmc_speed_to_epochs
+                file_epochs = attach_rmc_speed_to_epochs(file_epochs)
+
             self.progress_updated.emit(100)
             result = {
                 'file_epochs': file_epochs,
@@ -1103,6 +1106,7 @@ class MainWindow(QMainWindow):
         self.show_raw_alt = False  # 是否显示高程绝对物理值 (而不是误差绝对值)
         self.show_extrema = True  # 是否显示最值标注
         self.x_axis_mode = '历元数'  # 是否使用时间轴对齐 X 轴
+        self.speed_unit = 'm/s'  # 速度对比图单位 ('m/s' 或 'km/h')
 
         # 初始化串口组件与录制状态
         self.serial_port = QSerialPort(self)
@@ -1116,6 +1120,7 @@ class MainWindow(QMainWindow):
         self.latest_num_sats = 0
         self.latest_hdop = 1.0
         self.latest_pdop = 1.0
+        self.latest_ground_speed = None
 
         # 版本查询状态
         self.version_lines = []
@@ -1333,6 +1338,58 @@ class MainWindow(QMainWindow):
         card_layout_epoch_v.addWidget(self.toolbar_epoch_v)
         card_layout_epoch_v.addWidget(self.canvas_epoch_v)
         layout_epoch_v.addWidget(self.card_epoch_v)
+
+        # D.2 ENU三向误差历元图容器页
+        self.tab_epoch_enu = QWidget()
+        layout_epoch_enu = QVBoxLayout(self.tab_epoch_enu)
+        layout_epoch_enu.setContentsMargins(12, 12, 12, 12)
+        layout_epoch_enu.setSpacing(0)
+
+        self.card_epoch_enu = QWidget()
+        self.card_epoch_enu.setStyleSheet("background-color: #FFFFFF; border: 1px solid #334155; border-radius: 8px;")
+        card_layout_epoch_enu = QVBoxLayout(self.card_epoch_enu)
+        card_layout_epoch_enu.setContentsMargins(0, 0, 0, 0)
+        card_layout_epoch_enu.setSpacing(0)
+
+        self.canvas_epoch_enu = PlotWidget(self.card_epoch_enu)
+        self.canvas_epoch_enu.setStyleSheet("background-color: #FFFFFF; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;")
+        self.toolbar_epoch_enu = NavigationToolbar(self.canvas_epoch_enu, self.card_epoch_enu)
+        self.toolbar_epoch_enu.setStyleSheet(TOOLBAR_STYLE)
+
+        card_layout_epoch_enu.addWidget(self.toolbar_epoch_enu)
+        card_layout_epoch_enu.addWidget(self.canvas_epoch_enu)
+        layout_epoch_enu.addWidget(self.card_epoch_enu)
+
+        # D.3 速度对比与误差分布页
+        self.tab_speed = QWidget()
+        layout_speed = QVBoxLayout(self.tab_speed)
+        layout_speed.setContentsMargins(12, 12, 12, 12)
+        layout_speed.setSpacing(0)
+
+        self.card_speed = QWidget()
+        self.card_speed.setStyleSheet("background-color: #FFFFFF; border: 1px solid #334155; border-radius: 8px;")
+        card_layout_speed = QVBoxLayout(self.card_speed)
+        card_layout_speed.setContentsMargins(0, 0, 0, 0)
+        card_layout_speed.setSpacing(0)
+
+        self.canvas_speed = PlotWidget(self.card_speed)
+        self.canvas_speed.setStyleSheet("background-color: #FFFFFF; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;")
+        self.toolbar_speed = NavigationToolbar(self.canvas_speed, self.card_speed)
+        self.toolbar_speed.setStyleSheet(TOOLBAR_STYLE)
+
+        # 在工具栏末尾添加速度单位切换下拉框
+        self.cmb_speed_unit = QComboBox()
+        self.cmb_speed_unit.addItems(["单位: m/s", "单位: km/h"])
+        self.cmb_speed_unit.setFixedWidth(100)
+        self.cmb_speed_unit.setFixedHeight(24)
+        self.cmb_speed_unit.setStyleSheet("background-color: #0F172A; color: #F8FAFC; border: 1px solid #334155; border-radius: 4px; font-size: 11px; padding: 2px 4px;")
+        self.cmb_speed_unit.currentTextChanged.connect(self.on_speed_unit_changed)
+        self.toolbar_speed.addSeparator()
+        self.toolbar_speed.addWidget(self.cmb_speed_unit)
+
+        card_layout_speed.addWidget(self.toolbar_speed)
+        card_layout_speed.addWidget(self.canvas_speed)
+        layout_speed.addWidget(self.card_speed)
 
         # E. 绝对轨迹投影页
         self.tab_trajectory = QWidget()
@@ -1959,6 +2016,8 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.tab_scatter, "靶心图")
         self.tab_widget.addTab(self.tab_epoch_h, "水平位置误差历元分布图")
         self.tab_widget.addTab(self.tab_epoch_v, "高程误差历元分布图")
+        self.tab_widget.addTab(self.tab_epoch_enu, "ENU三向误差图")
+        self.tab_widget.addTab(self.tab_speed, "速度对比图")
         self.tab_widget.addTab(self.tab_status, "定位质量图")
         self.tab_widget.addTab(self.tab_trajectory, "绝对轨迹图")
         self.tab_widget.addTab(self.tab_serial, "实时串口")
@@ -2403,7 +2462,7 @@ class MainWindow(QMainWindow):
             }
             """
 
-        for attr in ['toolbar_scatter', 'toolbar_status', 'toolbar_epoch_h', 'toolbar_epoch_v', 'toolbar_trajectory']:
+        for attr in ['toolbar_scatter', 'toolbar_status', 'toolbar_epoch_h', 'toolbar_epoch_v', 'toolbar_epoch_enu', 'toolbar_speed', 'toolbar_trajectory']:
             if hasattr(self, attr):
                 getattr(self, attr).setStyleSheet(style)
 
@@ -2908,6 +2967,13 @@ class MainWindow(QMainWindow):
             return
         self.refresh_chart()
 
+    def on_speed_unit_changed(self, text):
+        if "km/h" in text:
+            self.speed_unit = 'km/h'
+        else:
+            self.speed_unit = 'm/s'
+        self.refresh_chart()
+
     def on_xaxis_changed(self, text):
         self.x_axis_mode = text
 
@@ -2961,6 +3027,8 @@ class MainWindow(QMainWindow):
         self.canvas_status.downsample_threshold = thresh
         self.canvas_epoch_h.downsample_threshold = thresh
         self.canvas_epoch_v.downsample_threshold = thresh
+        self.canvas_epoch_enu.downsample_threshold = thresh
+        self.canvas_speed.downsample_threshold = thresh
         self.canvas_trajectory.downsample_threshold = thresh
 
         dpi = self.app_config.get('export_dpi', 150)
@@ -2968,6 +3036,8 @@ class MainWindow(QMainWindow):
         self.canvas_status.export_dpi = dpi
         self.canvas_epoch_h.export_dpi = dpi
         self.canvas_epoch_v.export_dpi = dpi
+        self.canvas_epoch_enu.export_dpi = dpi
+        self.canvas_speed.export_dpi = dpi
         self.canvas_trajectory.export_dpi = dpi
 
         self.recompute_all()
@@ -3461,8 +3531,12 @@ class MainWindow(QMainWindow):
         elif index == 2:
             self.canvas_epoch_v.render_data('epoch_v', self.segments, self.truth, self.time_zone, self.show_absolute_alt, show_extrema=self.show_extrema, x_axis_mode=self.x_axis_mode, show_sats=self.cb_show_sats.isChecked(), show_raw_alt=self.show_raw_alt)
         elif index == 3:
-            self.canvas_status.render_data('status', self.segments, self.truth, self.time_zone)
+            self.canvas_epoch_enu.render_data('epoch_enu', self.segments, self.truth, self.time_zone, x_axis_mode=self.x_axis_mode, show_stats=True)
         elif index == 4:
+            self.canvas_speed.render_data('speed', self.segments, self.truth, self.time_zone, x_axis_mode=self.x_axis_mode, show_stats=True, speed_unit=getattr(self, 'speed_unit', 'm/s'))
+        elif index == 5:
+            self.canvas_status.render_data('status', self.segments, self.truth, self.time_zone)
+        elif index == 6:
             self.canvas_trajectory.render_data('trajectory', self.segments, self.truth)
 
     # 8. 导出数据逻辑
@@ -3831,6 +3905,8 @@ class MainWindow(QMainWindow):
             self.canvas_status.render_data('status', self.segments, self.truth, self.time_zone)
             self.canvas_epoch_h.render_data('epoch_h', self.segments, self.truth, self.time_zone, show_extrema=self.show_extrema, x_axis_mode=self.x_axis_mode, show_sats=self.cb_show_sats.isChecked())
             self.canvas_epoch_v.render_data('epoch_v', self.segments, self.truth, self.time_zone, self.show_absolute_alt, show_extrema=self.show_extrema, x_axis_mode=self.x_axis_mode, show_sats=self.cb_show_sats.isChecked(), show_raw_alt=self.show_raw_alt)
+            self.canvas_epoch_enu.render_data('epoch_enu', self.segments, self.truth, self.time_zone, x_axis_mode=self.x_axis_mode, show_stats=True)
+            self.canvas_speed.render_data('speed', self.segments, self.truth, self.time_zone, x_axis_mode=self.x_axis_mode, show_stats=True, speed_unit=getattr(self, 'speed_unit', 'm/s'))
             progress.setValue(3)
             QApplication.processEvents()
             if progress.wasCanceled():
@@ -3850,6 +3926,12 @@ class MainWindow(QMainWindow):
             if progress.wasCanceled():
                 return
             add_plot_to_doc(self.canvas_epoch_v, '3.5 高程位置误差分布', 8)
+            if progress.wasCanceled():
+                return
+            add_plot_to_doc(self.canvas_epoch_enu, '3.6 ENU三向误差时域分布', 9)
+            if progress.wasCanceled():
+                return
+            add_plot_to_doc(self.canvas_speed, '3.7 动态速度跟踪与误差分布', 10)
             if progress.wasCanceled():
                 return
 
@@ -5286,6 +5368,11 @@ class MainWindow(QMainWindow):
                 self.latest_pdop = epoch['pdop']
             elif 'hdop' in epoch:
                 self.latest_pdop = epoch['hdop']
+            if epoch.get('ground_speed') is None and getattr(self, 'latest_ground_speed', None) is not None:
+                epoch['ground_speed'] = self.latest_ground_speed
+        elif epoch['type'] == 'RMC':
+            if epoch.get('ground_speed') is not None:
+                self.latest_ground_speed = epoch['ground_speed']
 
         # 1.5. 如果是 GSA 语句，收集当前在用卫星 PRN
         elif epoch['type'] == 'GSA':

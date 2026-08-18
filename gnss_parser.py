@@ -166,30 +166,76 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
     parts = content.split(',')
     sentence_type = parts[0]
     
+    def _clean_str(s):
+        if not s:
+            return ""
+        # 移除非法控制字符，保留基本数字、点、负号和字母
+        return ''.join(c for c in s.strip() if c.isalnum() or c in '.-+')
+
+    def _extract_float(s, default=None):
+        if not s:
+            return default
+        import re
+        m = re.search(r'[-+]?\d*\.?\d+', s)
+        if m:
+            try:
+                return float(m.group(0))
+            except ValueError:
+                return default
+        return default
+
+    def _extract_int(s, default=0):
+        if not s:
+            return default
+        import re
+        m = re.search(r'\d+', s)
+        if m:
+            try:
+                return int(m.group(0))
+            except ValueError:
+                return default
+        return default
+
     # 1. GGA 语句
     if sentence_type.endswith('GGA'):
         if len(parts) < 10:
             return None
         utc_time = parts[1]
+        
+        raw_lat = parts[2].strip()
+        raw_lat_hemi = parts[3].strip().upper()
+        raw_lon = parts[4].strip()
+        raw_lon_hemi = parts[5].strip().upper()
+        
+        # 半球自愈提取（若出现 E?4 或 E4 粘连）
+        lat_hemi = raw_lat_hemi[0] if raw_lat_hemi and raw_lat_hemi[0] in ['N', 'S'] else raw_lat_hemi
+        lon_hemi = raw_lon_hemi[0] if raw_lon_hemi and raw_lon_hemi[0] in ['E', 'W'] else raw_lon_hemi
+        
+        quality_str = parts[6].strip() if len(parts) > 6 else ""
+        # 若 raw_lon_hemi 包含后续数字（如 'E?4' 或 'E4'），且 quality_str 无效，回填 quality
+        if len(raw_lon_hemi) > 1 and not quality_str.isdigit():
+            digits = ''.join([c for c in raw_lon_hemi[1:] if c.isdigit()])
+            if digits:
+                quality_str = digits[0]
+
         try:
-            lat_deg = nmea_to_deg(parts[2], parts[3], True)
-            lon_deg = nmea_to_deg(parts[4], parts[5], False)
+            lat_deg = nmea_to_deg(raw_lat, lat_hemi, True)
+            lon_deg = nmea_to_deg(raw_lon, lon_hemi, False)
         except (ValueError, IndexError):
             return None
             
         try:
-            quality = int(parts[6]) if parts[6].strip() else 0
-            num_sats = int(parts[7]) if len(parts) > 7 and parts[7].strip() else 0
-            hdop = float(parts[8]) if len(parts) > 8 and parts[8].strip() else 99.9
-            alt = float(parts[9]) if len(parts) > 9 and parts[9].strip() else 0.0
+            quality = _extract_int(quality_str, 1)
+            num_sats = _extract_int(parts[7], 0) if len(parts) > 7 else 0
+            hdop = _extract_float(parts[8], 99.9) if len(parts) > 8 else 99.9
+            alt = _extract_float(parts[9], None) if len(parts) > 9 else None
             
-            # 若存在大地水准面差距（Geoidal Separation，第 11 索引），则将其与海拔相加，换算为与 GOS/DRS 统一的 WGS84 椭球高 (HAE)
-            if len(parts) > 11 and parts[11].strip():
-                try:
-                    alt += float(parts[11])
-                except ValueError:
-                    pass
-        except ValueError:
+            # 若存在大地水准面差距（Geoidal Separation，第 11 索引），则将其与海拔相加，换算为 WGS84 椭球高 (HAE)
+            if alt is not None and len(parts) > 11 and parts[11].strip():
+                geoid_sep = _extract_float(parts[11], 0.0)
+                if geoid_sep is not None:
+                    alt += geoid_sep
+        except Exception:
             return None
             
         if lat_deg is None or lon_deg is None or lat_deg == 0.0 or lon_deg == 0.0:
@@ -225,9 +271,16 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
             return None
             
         quality = 1 # RMC 没有详细 RTK 状态，假设为单点有效
-        alt = 0.0
+        alt = None # RMC 规范无高程字段，显式置为 None
         num_sats = 0
         hdop = 1.0
+        
+        # 提取速度: RMC 第7字段为节 (Knots), 1 knot = 0.5144444 m/s
+        ground_speed = 0.0
+        if len(parts) > 7 and parts[7].strip():
+            sp_val = _extract_float(parts[7], 0.0)
+            if sp_val is not None:
+                ground_speed = sp_val * 0.5144444
         
         if lat_deg is None or lon_deg is None or lat_deg == 0.0 or lon_deg == 0.0:
             return None
@@ -240,6 +293,7 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
             'lat': lat_deg,
             'lon': lon_deg,
             'alt': alt,
+            'ground_speed': ground_speed,
             'quality': quality,
             'num_sats': num_sats,
             'hdop': hdop,
@@ -470,6 +524,8 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
         if lat_deg is None or lon_deg is None or lat_deg == 0.0 or lon_deg == 0.0:
             return None
             
+        ground_speed = (vel_e**2 + vel_n**2)**0.5
+
         return {
             'type': 'POSOL',
             'sentence_type': '$POSOL',
@@ -487,6 +543,7 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
             'vel_e': vel_e,
             'vel_n': vel_n,
             'vel_u': vel_u,
+            'ground_speed': ground_speed,
             'course': course,
             'quality': quality,
             'num_sats': num_sats,
@@ -609,10 +666,192 @@ def unwrap_times(times):
     times_arr[1:] += np.cumsum(wraps)
     return times_arr
 
+def attach_rmc_speed_to_epochs(file_epochs):
+    """
+    智能跨语句融合：提取数据流中 RMC/POSOL/POINS 的高精度原生测速 (ground_speed)，
+    自动按时间对齐融合挂载到同秒的 GGA 历元字典中 (ep['ground_speed'] = ...)。
+    """
+    if not file_epochs:
+        return file_epochs
+        
+    speed_events = []
+    for ep in file_epochs:
+        sp = ep.get('ground_speed')
+        if sp is not None and isinstance(sp, (int, float)):
+            speed_events.append((ep['utc_time_sec'], float(sp)))
+        elif ep.get('type') == 'POSOL' and 'vel_e' in ep and 'vel_n' in ep:
+            speed_events.append((ep['utc_time_sec'], float((ep['vel_e']**2 + ep['vel_n']**2)**0.5)))
+        elif ep.get('type') == 'POINS' and 'velocity_forward' in ep and 'velocity_rightward' in ep:
+            speed_events.append((ep['utc_time_sec'], float((ep['velocity_forward']**2 + ep['velocity_rightward']**2)**0.5)))
+            
+    if not speed_events:
+        return file_epochs
+        
+    speed_events.sort(key=lambda x: x[0])
+    sp_times = np.array([item[0] for item in speed_events])
+    sp_vals = np.array([item[1] for item in speed_events])
+    
+    # 遍历 GGA 或未带速度的历元，进行最近邻/插值挂载
+    for ep in file_epochs:
+        if ep.get('ground_speed') is None:
+            t = ep.get('utc_time_sec')
+            if t is not None:
+                idx = np.searchsorted(sp_times, t)
+                idx = np.clip(idx, 0, len(sp_times) - 1)
+                best_sp = None
+                best_dt = 999.0
+                for c_idx in (idx - 1, idx, idx + 1):
+                    if 0 <= c_idx < len(sp_times):
+                        dt = abs(sp_times[c_idx] - t)
+                        if dt <= 1.0 and dt < best_dt:
+                            best_dt = dt
+                            best_sp = sp_vals[c_idx]
+                if best_sp is not None:
+                    ep['ground_speed'] = float(best_sp)
+                    
+    return file_epochs
+
+def extract_or_compute_speed(epochs):
+    """
+    安全提取历元序列的地面速度 (m/s)。
+    1. 优先提取每个历元中的原生速度 ground_speed (来自 RMC/POSOL/POINS/BK)；
+    2. 若部分历元有原生速度 (>50%)，对个别缺失历元进行时间线性插补；
+    3. 仅当完全没有原生速度时，利用相邻经纬度距离微分推导。
+    """
+    if not epochs:
+        return np.array([])
+        
+    n = len(epochs)
+    speeds = []
+    valid_times = []
+    valid_speeds = []
+    times = unwrap_times([ep.get('utc_time_sec', 0.0) for ep in epochs])
+    
+    for i, ep in enumerate(epochs):
+        if not isinstance(ep, dict):
+            break
+        sp = ep.get('ground_speed')
+        if sp is not None and isinstance(sp, (int, float)):
+            valid_times.append(times[i])
+            valid_speeds.append(float(sp))
+            speeds.append(float(sp))
+        elif ep.get('type') == 'POSOL' and 'vel_e' in ep and 'vel_n' in ep:
+            val = float((ep['vel_e']**2 + ep['vel_n']**2)**0.5)
+            valid_times.append(times[i])
+            valid_speeds.append(val)
+            speeds.append(val)
+        elif ep.get('type') == 'POINS' and 'velocity_forward' in ep and 'velocity_rightward' in ep:
+            val = float((ep['velocity_forward']**2 + ep['velocity_rightward']**2)**0.5)
+            valid_times.append(times[i])
+            valid_speeds.append(val)
+            speeds.append(val)
+        else:
+            speeds.append(np.nan)
+            
+    # 若大部分或全部点拥有原生速度，进行缺失点平滑插补后返回
+    if len(valid_speeds) > 0 and len(valid_speeds) >= n * 0.5:
+        if len(valid_speeds) == n and not np.any(np.isnan(speeds)):
+            return np.array(speeds, dtype=float)
+            
+        valid_times = np.array(valid_times)
+        valid_speeds = np.array(valid_speeds)
+        sort_idx = np.argsort(valid_times)
+        valid_times = valid_times[sort_idx]
+        valid_speeds = valid_speeds[sort_idx]
+        
+        diffs = np.diff(valid_times)
+        umask = np.insert(diffs != 0, 0, True)
+        valid_times = valid_times[umask]
+        valid_speeds = valid_speeds[umask]
+        
+        if len(valid_times) == 1:
+            clean_speeds = np.full(n, valid_speeds[0], dtype=float)
+        else:
+            clean_speeds = np.interp(times, valid_times, valid_speeds, left=valid_speeds[0], right=valid_speeds[-1])
+        return clean_speeds
+        
+    # 微分推导速度
+    speeds_arr = np.zeros(n, dtype=float)
+    if n < 2:
+        return speeds_arr
+        
+    lats = np.array([ep['lat'] for ep in epochs])
+    lons = np.array([ep['lon'] for ep in epochs])
+    
+    # 转换为局域 ENU 计算相邻两点欧式距离
+    de, dn, _ = lat_lon_to_enu(lats[1:], lons[1:], 0, lats[:-1], lons[:-1], 0)
+    dist = np.sqrt(de**2 + dn**2)
+    dt = np.diff(times)
+    
+    dt_safe = np.where((dt > 0.001) & (dt < 10.0), dt, 1.0)
+    inst_speed = np.where((dt > 0.001) & (dt < 10.0), dist / dt_safe, 0.0)
+    
+    speeds_arr[0] = float(inst_speed[0]) if len(inst_speed) > 0 else 0.0
+    speeds_arr[1:] = inst_speed
+    return speeds_arr
+
+def clean_and_interpolate_altitudes(epochs):
+    """
+    通用高程提纯与平滑插补函数（适用于待测数据与真值数据）。
+    1. 剔除 None、NaN 及绝对值 <= 1e-4 的伪 0 高程；
+    2. 基于有效测高点沿时间轴进行 1D 线性平滑插补；
+    3. 彻底防止 0 高程引发的深坑或伪尖峰。
+    """
+    if not epochs:
+        return np.array([])
+        
+    n = len(epochs)
+    raw_alts = []
+    valid_times = []
+    valid_alts = []
+    
+    times = unwrap_times([ep.get('utc_time_sec', 0.0) for ep in epochs])
+    
+    for i, ep in enumerate(epochs):
+        a = ep.get('alt')
+        if a is not None and isinstance(a, (int, float)) and not np.isnan(a) and abs(a) > 1e-4 and ep.get('type') != 'RMC':
+            valid_times.append(times[i])
+            valid_alts.append(float(a))
+            raw_alts.append(float(a))
+        else:
+            raw_alts.append(np.nan)
+            
+    if not valid_alts:
+        return np.zeros(n, dtype=float)
+        
+    if len(valid_alts) == n and not np.any(np.isnan(raw_alts)):
+        return np.array(raw_alts, dtype=float)
+        
+    # 对缺失高程的历元进行时间线性插补
+    valid_times = np.array(valid_times)
+    valid_alts = np.array(valid_alts)
+    
+    # 保证单调递增
+    sort_idx = np.argsort(valid_times)
+    valid_times = valid_times[sort_idx]
+    valid_alts = valid_alts[sort_idx]
+    
+    # 去重
+    diffs = np.diff(valid_times)
+    umask = np.insert(diffs != 0, 0, True)
+    valid_times = valid_times[umask]
+    valid_alts = valid_alts[umask]
+    
+    if len(valid_times) == 1:
+        clean_alts = np.full(n, valid_alts[0], dtype=float)
+    else:
+        clean_alts = np.interp(times, valid_times, valid_alts, left=valid_alts[0], right=valid_alts[-1])
+        
+    # 回填到 epochs
+    for i, ep in enumerate(epochs):
+        ep['alt'] = float(clean_alts[i])
+        
+    return clean_alts
+
 def interpolate_dynamic_truth(test_epochs, truth_epochs, max_time_diff=1.0):
     """
     针对待测轨迹中的时间戳，在真值轨迹中进行线性插值。
-    返回插值后一一对应的动态真值序列。超时的返回 None。
+    经纬度、高程、速度分别独立提纯插值。超时的返回 None。
     """
     if not test_epochs or not truth_epochs:
         return None
@@ -620,7 +859,8 @@ def interpolate_dynamic_truth(test_epochs, truth_epochs, max_time_diff=1.0):
     truth_times = unwrap_times([ep['utc_time_sec'] for ep in truth_epochs])
     truth_lats = np.array([ep['lat'] for ep in truth_epochs])
     truth_lons = np.array([ep['lon'] for ep in truth_epochs])
-    truth_alts = np.array([ep['alt'] for ep in truth_epochs])
+    truth_alts = clean_and_interpolate_altitudes(truth_epochs)
+    truth_speeds = extract_or_compute_speed(truth_epochs)
     
     test_times = unwrap_times([ep['utc_time_sec'] for ep in test_epochs])
     
@@ -637,6 +877,8 @@ def interpolate_dynamic_truth(test_epochs, truth_epochs, max_time_diff=1.0):
     truth_lats = truth_lats[sort_idx]
     truth_lons = truth_lons[sort_idx]
     truth_alts = truth_alts[sort_idx]
+    if len(truth_speeds) == len(truth_epochs):
+        truth_speeds = truth_speeds[sort_idx]
     
     # 简单的剔除完全重复时间戳
     diffs = np.diff(truth_times)
@@ -645,6 +887,8 @@ def interpolate_dynamic_truth(test_epochs, truth_epochs, max_time_diff=1.0):
     truth_lats = truth_lats[unique_mask]
     truth_lons = truth_lons[unique_mask]
     truth_alts = truth_alts[unique_mask]
+    if len(truth_speeds) == len(truth_times):
+        truth_speeds = truth_speeds[unique_mask]
     
     if len(truth_times) < 2:
         return None
@@ -653,9 +897,12 @@ def interpolate_dynamic_truth(test_epochs, truth_epochs, max_time_diff=1.0):
     interp_lats = np.interp(test_times, truth_times, truth_lats, left=np.nan, right=np.nan)
     interp_lons = np.interp(test_times, truth_times, truth_lons, left=np.nan, right=np.nan)
     interp_alts = np.interp(test_times, truth_times, truth_alts, left=np.nan, right=np.nan)
+    if len(truth_speeds) == len(truth_times):
+        interp_speeds = np.interp(test_times, truth_times, truth_speeds, left=np.nan, right=np.nan)
+    else:
+        interp_speeds = np.zeros(len(test_times), dtype=float)
     
     # 寻找最近点来判断是否超时
-    # np.searchsorted
     idx = np.searchsorted(truth_times, test_times)
     idx = np.clip(idx, 1, len(truth_times) - 1)
     
@@ -663,15 +910,16 @@ def interpolate_dynamic_truth(test_epochs, truth_epochs, max_time_diff=1.0):
     right_diff = np.abs(test_times - truth_times[idx])
     min_diff = np.minimum(left_diff, right_diff)
     
-    valid_mask = (min_diff <= max_time_diff) & (~np.isnan(interp_lats))
+    valid_mask = (min_diff <= max_time_diff) & (~np.isnan(interp_lats)) & (~np.isnan(interp_alts))
     
     dynamic_truth = []
     for i in range(len(test_epochs)):
         if valid_mask[i]:
             dynamic_truth.append({
-                'lat': interp_lats[i],
-                'lon': interp_lons[i],
-                'alt': interp_alts[i]
+                'lat': float(interp_lats[i]),
+                'lon': float(interp_lons[i]),
+                'alt': float(interp_alts[i]),
+                'speed': float(interp_speeds[i]) if not np.isnan(interp_speeds[i]) else 0.0
             })
         else:
             dynamic_truth.append(None)
@@ -712,22 +960,34 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
             'max_h': 0.0,
             'max_v': 0.0,
             'de': [],
-            'dn': []
+            'dn': [],
+            'speed_test': [],
+            'speed_truth': [],
+            'speed_errors': [],
+            'speed_ave': 0.0,
+            'speed_std': 0.0,
+            'speed_rms': 0.0,
+            'speed_max': 0.0
         }, points
         
-    # 提取数组进行批量运算
+    # 待测点集高程提纯与平滑插补
+    alts = clean_and_interpolate_altitudes(points)
     lats = np.array([p['lat'] for p in points])
     lons = np.array([p['lon'] for p in points])
-    alts = np.array([p['alt'] for p in points])
-    qualities = np.array([p['quality'] for p in points])
+    qualities = np.array([p.get('quality', 1) for p in points])
+    
+    # 提取速度
+    speed_test = extract_or_compute_speed(points)
     
     if dynamic_truth_array is not None:
         t_lats = np.array([t['lat'] for t in dynamic_truth_array])
         t_lons = np.array([t['lon'] for t in dynamic_truth_array])
         t_alts = np.array([t['alt'] for t in dynamic_truth_array])
+        speed_truth = np.array([t.get('speed', 0.0) for t in dynamic_truth_array])
         de, dn, du = lat_lon_to_enu(lats, lons, alts, t_lats, t_lons, t_alts)
     else:
         de, dn, du = lat_lon_to_enu(lats, lons, alts, truth['lat'], truth['lon'], truth['alt'])
+        speed_truth = np.zeros(n_total, dtype=float)
     
     h_err = np.sqrt(de*de + dn*dn)
     
@@ -741,6 +1001,8 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
             du = du[valid_mask]
             h_err = h_err[valid_mask]
             qualities = qualities[valid_mask]
+            speed_test = speed_test[valid_mask]
+            speed_truth = speed_truth[valid_mask]
             n_total = len(points)
             if n_total == 0:
                 return None, points
@@ -765,6 +1027,13 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
     rms_h = float(np.sqrt((sum_e2 + sum_n2) / n_total)) if n_total > 0 else 0.0
     rms_v = float(np.sqrt(sum_u2 / n_total)) if n_total > 0 else 0.0
     
+    # 计算速度误差统计
+    speed_errors = speed_test - speed_truth
+    speed_ave = float(np.mean(speed_errors)) if n_total > 0 else 0.0
+    speed_std = float(np.std(speed_errors)) if n_total > 0 else 0.0
+    speed_rms = float(np.sqrt(np.mean(speed_errors**2))) if n_total > 0 else 0.0
+    speed_max = float(np.max(np.abs(speed_errors))) if n_total > 0 else 0.0
+    
     metrics = {
         'count': n_total,
         'original_count': original_count,
@@ -781,7 +1050,14 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
         'h_errors': h_err.tolist() if isinstance(h_err, np.ndarray) else h_err,
         'v_errors': du.tolist() if isinstance(du, np.ndarray) else du,
         'de': de.tolist() if isinstance(de, np.ndarray) else de,
-        'dn': dn.tolist() if isinstance(dn, np.ndarray) else dn
+        'dn': dn.tolist() if isinstance(dn, np.ndarray) else dn,
+        'speed_test': speed_test.tolist() if isinstance(speed_test, np.ndarray) else speed_test,
+        'speed_truth': speed_truth.tolist() if isinstance(speed_truth, np.ndarray) else speed_truth,
+        'speed_errors': speed_errors.tolist() if isinstance(speed_errors, np.ndarray) else speed_errors,
+        'speed_ave': speed_ave,
+        'speed_std': speed_std,
+        'speed_rms': speed_rms,
+        'speed_max': speed_max
     }
     return metrics, points
 

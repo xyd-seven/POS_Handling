@@ -143,9 +143,32 @@ class PlotWidget(FigureCanvas):
         # Draw idle is needed for relayout 
         self.fig.canvas.draw_idle()
         
-    def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False):
+    def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s'):
         self.clear_canvas()
         
+        if tab == 'epoch_enu':
+            axs = self.fig.subplots(3, 1, sharex=True)
+            self.ax_e = axs[0]
+            self.ax_n = axs[1]
+            self.ax_u = axs[2]
+            for a in axs:
+                a.set_facecolor('#FFFFFF')
+            self.draw_epoch_enu(segments, truth, time_zone, x_axis_mode, show_stats)
+            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.96, bottom=0.08, hspace=0.15)
+            self.draw()
+            return
+
+        if tab == 'speed':
+            axs = self.fig.subplots(2, 1, sharex=True)
+            self.ax_speed = axs[0]
+            self.ax_speed_err = axs[1]
+            for a in axs:
+                a.set_facecolor('#FFFFFF')
+            self.draw_speed_comparison(segments, truth, time_zone, x_axis_mode, speed_unit, show_stats)
+            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.95, bottom=0.09, hspace=0.18)
+            self.draw()
+            return
+            
         if tab in ['epoch_h', 'epoch_v'] and show_sats:
             self.ax = self.fig.add_subplot(self.gs_split[0, 0])
             self.ax_sats = self.fig.add_subplot(self.gs_split[1, 0], sharex=self.ax)
@@ -699,3 +722,268 @@ class PlotWidget(FigureCanvas):
             import matplotlib.ticker as ticker
             ax1.xaxis.set_major_formatter(ticker.ScalarFormatter())
             ax1.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
+
+    def draw_epoch_enu(self, segments, truth=None, time_zone='UTC', x_axis_mode='历元数', show_stats=True):
+        """
+        绘制 ENU 三向误差历元分布图 (E-W, N-S, U-D)
+        """
+        active_segments = [s for s in segments if s.get('active', True) and s.get('metrics') and s.get('epochs')]
+        
+        if not active_segments:
+            self.ax_n.text(0.5, 0.5, "暂无 ENU 三向误差数据 (请确保已导入轨迹并选择对比参考真值)", 
+                           ha='center', va='center', fontsize=12, color='#64748B')
+            for ax in [self.ax_e, self.ax_n, self.ax_u]:
+                for spine in ax.spines.values():
+                    spine.set_visible(False)
+                ax.set_xticks([])
+                ax.set_yticks([])
+            return
+
+        has_valid_data = False
+        all_e_errors = []
+        all_n_errors = []
+        all_u_errors = []
+
+        for seg in active_segments:
+            epochs = seg['epochs']
+            m = seg['metrics']
+            de_list = m.get('de', [])
+            dn_list = m.get('dn', [])
+            du_list = m.get('v_errors', [])
+            
+            if not de_list or not dn_list or not du_list:
+                continue
+                
+            n_pts = min(len(epochs), len(de_list), len(dn_list), len(du_list))
+            if n_pts == 0:
+                continue
+                
+            has_valid_data = True
+            de = np.array(de_list[:n_pts])
+            dn = np.array(dn_list[:n_pts])
+            du = np.array(du_list[:n_pts])
+            
+            if x_axis_mode == '时间轴':
+                x = np.array([ep['utc_time_sec'] for ep in epochs[:n_pts]])
+            else:
+                x = np.arange(1, n_pts + 1)
+                
+            all_e_errors.extend(de)
+            all_n_errors.extend(dn)
+            all_u_errors.extend(du)
+            
+            # 降采样
+            plot_x_e, plot_y_e = self._downsample_minmax(x, de)
+            plot_x_n, plot_y_n = self._downsample_minmax(x, dn)
+            plot_x_u, plot_y_u = self._downsample_minmax(x, du)
+            
+            marker_style = 'o' if len(plot_x_e) <= 5000 else 'none'
+            seg_color = seg.get('color', '#EF4444')
+            
+            self.ax_e.plot(plot_x_e, plot_y_e, color=seg_color, marker=marker_style, markersize=3, 
+                           markeredgecolor='none', linewidth=1.2, alpha=0.9, label=seg['name'])
+            self.ax_n.plot(plot_x_n, plot_y_n, color=seg_color, marker=marker_style, markersize=3, 
+                           markeredgecolor='none', linewidth=1.2, alpha=0.9, label=seg['name'])
+            self.ax_u.plot(plot_x_u, plot_y_u, color=seg_color, marker=marker_style, markersize=3, 
+                           markeredgecolor='none', linewidth=1.2, alpha=0.9, label=seg['name'])
+
+        if not has_valid_data:
+            self.ax_n.text(0.5, 0.5, "暂无有效的 ENU 误差数据", ha='center', va='center', fontsize=12, color='#64748B')
+            for ax in [self.ax_e, self.ax_n, self.ax_u]:
+                for spine in ax.spines.values():
+                    spine.set_visible(False)
+                ax.set_xticks([])
+                ax.set_yticks([])
+            return
+
+        def calc_stats(errs):
+            arr = np.array(errs)
+            valid = arr[np.isfinite(arr)]
+            if len(valid) == 0:
+                return 0.0, 0.0, 0.0
+            ave = float(np.mean(valid))
+            std = float(np.std(valid))
+            rms = float(np.sqrt(np.mean(valid**2)))
+            return ave, std, rms
+
+        ave_e, std_e, rms_e = calc_stats(all_e_errors)
+        ave_n, std_n, rms_n = calc_stats(all_n_errors)
+        ave_u, std_u, rms_u = calc_stats(all_u_errors)
+
+        for ax, ylabel in zip([self.ax_e, self.ax_n, self.ax_u], ['E-W (m)', 'N-S (m)', 'U-D (m)']):
+            ax.axhline(0, color='#475569', linewidth=0.8, linestyle='-', zorder=1)
+            ax.grid(True, which='both', color='#CBD5E1', linestyle='--', linewidth=0.6)
+            ax.set_ylabel(ylabel, fontsize=11, fontweight='bold', color='#0F172A')
+            ax.tick_params(axis='y', labelsize=10, colors='#0F172A')
+            # 隐藏上方子图的 X 轴刻度标签，保持整洁
+            if ax != self.ax_u:
+                ax.tick_params(axis='x', labelbottom=False)
+
+        if show_stats:
+            stats_box_props = dict(boxstyle="square,pad=0.25", fc='#F8FAFC', ec='#94A3B8', lw=0.5, alpha=0.85)
+            
+            ori_str = ""
+            if truth and isinstance(truth, dict) and 'lat' in truth and 'lon' in truth:
+                lat_deg = truth.get('lat', 0.0)
+                lon_deg = truth.get('lon', 0.0)
+                alt_m = truth.get('alt', 0.0)
+                # 仅当参考位置为有效的静态非零坐标时才展示 ORI，动态轨迹对比时省略以保持三图排版一致
+                if abs(lat_deg) > 1e-4 or abs(lon_deg) > 1e-4:
+                    lat_hemi = 'N' if lat_deg >= 0 else 'S'
+                    lon_hemi = 'E' if lon_deg >= 0 else 'W'
+                    ori_str = f"ORI={abs(lat_deg):.8f}°{lat_hemi} {abs(lon_deg):.8f}°{lon_hemi} {alt_m:.4f}m\n"
+            
+            text_e = f"{ori_str}AVE={ave_e:+.4f}m STD={std_e:.4f}m RMS={rms_e:.4f}m"
+            text_n = f"AVE={ave_n:+.4f}m STD={std_n:.4f}m RMS={rms_n:.4f}m"
+            text_u = f"AVE={ave_u:+.4f}m STD={std_u:.4f}m RMS={rms_u:.4f}m"
+            
+            self.ax_e.text(0.985, 0.92, text_e, transform=self.ax_e.transAxes, ha='right', va='top', 
+                           fontsize=9, fontfamily='monospace', color='#0F172A', bbox=stats_box_props, zorder=10)
+            self.ax_n.text(0.985, 0.92, text_n, transform=self.ax_n.transAxes, ha='right', va='top', 
+                           fontsize=9, fontfamily='monospace', color='#0F172A', bbox=stats_box_props, zorder=10)
+            self.ax_u.text(0.985, 0.92, text_u, transform=self.ax_u.transAxes, ha='right', va='top', 
+                           fontsize=9, fontfamily='monospace', color='#0F172A', bbox=stats_box_props, zorder=10)
+
+        if x_axis_mode == '时间轴':
+            from matplotlib.ticker import FuncFormatter
+            def make_time_formatter(tz):
+                def formatter(x_val, pos):
+                    val = x_val
+                    if tz == 'Beijing':
+                        val += 8 * 3600
+                    secs = int(val) % 86400
+                    return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
+                return formatter
+            self.ax_u.xaxis.set_major_formatter(FuncFormatter(make_time_formatter(time_zone)))
+            self.ax_u.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
+            self.ax_u.set_xlabel("时间", fontsize=11, fontweight='bold', color='#0F172A')
+        else:
+            import matplotlib.ticker as ticker
+            self.ax_u.xaxis.set_major_formatter(ticker.ScalarFormatter())
+            self.ax_u.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
+            self.ax_u.set_xlabel("历元数 (Epoch)", fontsize=11, fontweight='bold', color='#0F172A')
+
+    def draw_speed_comparison(self, segments, truth=None, time_zone='UTC', x_axis_mode='历元数', speed_unit='m/s', show_stats=True):
+        """
+        绘制速度与动态真值对比图 (双子图: 上子图速度跟踪对比, 下子图速度误差分布)
+        """
+        active_segments = [s for s in segments if s.get('active', True) and s.get('metrics') and s.get('epochs')]
+        
+        scale = 3.6 if speed_unit == 'km/h' else 1.0
+        unit_str = 'km/h' if speed_unit == 'km/h' else 'm/s'
+        
+        if not active_segments:
+            self.ax_speed.text(0.5, 0.5, "暂无速度对比数据 (请导入轨迹并加载参考真值)", 
+                               ha='center', va='center', fontsize=12, color='#64748B')
+            for ax in [self.ax_speed, self.ax_speed_err]:
+                for spine in ax.spines.values():
+                    spine.set_visible(False)
+                ax.set_xticks([])
+                ax.set_yticks([])
+            return
+
+        has_valid_data = False
+        all_speed_errors = []
+        has_truth_speed = False
+
+        for seg in active_segments:
+            epochs = seg['epochs']
+            m = seg['metrics']
+            v_test = m.get('speed_test', [])
+            v_truth = m.get('speed_truth', [])
+            v_err = m.get('speed_errors', [])
+            
+            if not v_test:
+                continue
+                
+            n_pts = min(len(epochs), len(v_test))
+            if n_pts == 0:
+                continue
+                
+            has_valid_data = True
+            v_test_arr = np.array(v_test[:n_pts]) * scale
+            
+            if x_axis_mode == '时间轴':
+                x = np.array([ep['utc_time_sec'] for ep in epochs[:n_pts]])
+            else:
+                x = np.arange(1, n_pts + 1)
+                
+            plot_x, plot_y_test = self._downsample_minmax(x, v_test_arr)
+            marker_style = 'o' if len(plot_x) <= 5000 else 'none'
+            seg_color = seg.get('color', '#EF4444')
+            
+            self.ax_speed.plot(plot_x, plot_y_test, color=seg_color, marker=marker_style, markersize=3, 
+                               markeredgecolor='none', linewidth=1.3, alpha=0.9, label=f"{seg['name']} 待测速度")
+            
+            if v_truth and len(v_truth) >= n_pts and np.any(np.array(v_truth[:n_pts]) > 0.001):
+                has_truth_speed = True
+                v_truth_arr = np.array(v_truth[:n_pts]) * scale
+                plot_x_t, plot_y_truth = self._downsample_minmax(x, v_truth_arr)
+                self.ax_speed.plot(plot_x_t, plot_y_truth, color='#64748B', linestyle='--', linewidth=1.2, 
+                                   alpha=0.85, label='动态真值速度')
+            
+            if v_err and len(v_err) >= n_pts:
+                v_err_arr = np.array(v_err[:n_pts]) * scale
+                all_speed_errors.extend(v_err_arr)
+                plot_x_e, plot_y_err = self._downsample_minmax(x, v_err_arr)
+                self.ax_speed_err.plot(plot_x_e, plot_y_err, color=seg_color, marker=marker_style, markersize=3, 
+                                       markeredgecolor='none', linewidth=1.2, alpha=0.9, label=seg['name'])
+
+        if not has_valid_data:
+            self.ax_speed.text(0.5, 0.5, "暂无可用的速度数据", ha='center', va='center', fontsize=12, color='#64748B')
+            for ax in [self.ax_speed, self.ax_speed_err]:
+                for spine in ax.spines.values():
+                    spine.set_visible(False)
+                ax.set_xticks([])
+                ax.set_yticks([])
+            return
+
+        # 格式化上子图
+        self.ax_speed.grid(True, which='both', color='#CBD5E1', linestyle='--', linewidth=0.6)
+        self.ax_speed.set_ylabel(f"速度 ({unit_str})", fontsize=11, fontweight='bold', color='#0F172A')
+        self.ax_speed.tick_params(axis='y', labelsize=10, colors='#0F172A')
+        self.ax_speed.tick_params(axis='x', labelbottom=False)
+        self.ax_speed.legend(loc='upper left', fontsize=9, framealpha=0.9)
+
+        # 格式化下子图
+        self.ax_speed_err.axhline(0, color='#475569', linewidth=0.8, linestyle='-', zorder=1)
+        self.ax_speed_err.grid(True, which='both', color='#CBD5E1', linestyle='--', linewidth=0.6)
+        self.ax_speed_err.set_ylabel(f"速度误差 ΔV ({unit_str})", fontsize=11, fontweight='bold', color='#0F172A')
+        self.ax_speed_err.tick_params(axis='y', labelsize=10, colors='#0F172A')
+
+        if not has_truth_speed:
+            self.ax_speed_err.text(0.5, 0.5, "未加载动态真值速度，仅展示待测设备速度波形", 
+                                   transform=self.ax_speed_err.transAxes, ha='center', va='center', 
+                                   fontsize=10, color='#64748B')
+
+        if show_stats and all_speed_errors:
+            valid_err = np.array(all_speed_errors)[np.isfinite(all_speed_errors)]
+            if len(valid_err) > 0:
+                ave_v = float(np.mean(valid_err))
+                std_v = float(np.std(valid_err))
+                rms_v = float(np.sqrt(np.mean(valid_err**2)))
+                max_v = float(np.max(np.abs(valid_err)))
+                
+                stats_box_props = dict(boxstyle="square,pad=0.25", fc='#F8FAFC', ec='#94A3B8', lw=0.5, alpha=0.85)
+                text_stats = f"AVE={ave_v:+.3f}{unit_str}  STD={std_v:.3f}{unit_str}  RMS={rms_v:.3f}{unit_str}  MAX={max_v:.3f}{unit_str}"
+                self.ax_speed_err.text(0.985, 0.90, text_stats, transform=self.ax_speed_err.transAxes, ha='right', va='top', 
+                                       fontsize=9, fontfamily='monospace', color='#0F172A', bbox=stats_box_props, zorder=10)
+
+        if x_axis_mode == '时间轴':
+            from matplotlib.ticker import FuncFormatter
+            def make_time_formatter(tz):
+                def formatter(x_val, pos):
+                    val = x_val
+                    if tz == 'Beijing':
+                        val += 8 * 3600
+                    secs = int(val) % 86400
+                    return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
+                return formatter
+            self.ax_speed_err.xaxis.set_major_formatter(FuncFormatter(make_time_formatter(time_zone)))
+            self.ax_speed_err.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
+            self.ax_speed_err.set_xlabel("时间", fontsize=11, fontweight='bold', color='#0F172A')
+        else:
+            import matplotlib.ticker as ticker
+            self.ax_speed_err.xaxis.set_major_formatter(ticker.ScalarFormatter())
+            self.ax_speed_err.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
+            self.ax_speed_err.set_xlabel("历元数 (Epoch)", fontsize=11, fontweight='bold', color='#0F172A')
