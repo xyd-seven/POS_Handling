@@ -1022,27 +1022,28 @@ class PlotWidget(FigureCanvas):
             'speed': f"速度绝对误差 ({speed_unit})"
         }[cdf_mode]
 
-        self.ax.set_title(mode_titles.get(cdf_mode, "误差累积分布函数 (CDF)"), fontsize=13, fontweight='bold', color='#0F172A', pad=12)
-        self.ax.grid(True, which='both', color='#CBD5E1', linestyle='--', linewidth=0.6)
-        self.ax.set_xlabel(x_label_str, fontsize=11, fontweight='bold', color='#0F172A')
-        self.ax.set_ylabel("累积概率百分比 (Cumulative Probability, %)", fontsize=11, fontweight='bold', color='#0F172A')
+        self.ax.set_title(mode_titles.get(cdf_mode, "误差累积分布函数 (CDF)"), fontsize=14, fontweight='bold', color='#0F172A', pad=14)
+        self.ax.grid(True, which='both', color='#CBD5E1', linestyle='--', linewidth=0.7)
+        self.ax.set_xlabel(x_label_str, fontsize=12, fontweight='bold', color='#0F172A')
+        self.ax.set_ylabel("累积概率百分比 (Cumulative Probability, %)", fontsize=12, fontweight='bold', color='#0F172A')
 
         global_max_err = 0.1
         summary_lines = []
 
-        # 关键分位数定义
+        # 关键分位数定义 (采用高对比度、清晰深色系)
         quantiles = [
-            (50.0, '50% (CEP50)', '#64748B'),
-            (68.3, '68.3% (1σ)', '#64748B'),
-            (95.0, '95% (2σ)', '#EA580C'),
-            (99.0, '99%', '#DC2626')
+            (50.0, '50% (CEP50)', '#1E293B'),
+            (68.3, '68.3% (1σ)', '#1E293B'),
+            (95.0, '95% (2σ)', '#C2410C'),
+            (99.0, '99%', '#B91C1C')
         ]
 
         if show_quantiles:
             for q_val, q_name, q_color in quantiles:
-                self.ax.axhline(y=q_val, color=q_color, linestyle=':', linewidth=1.0, alpha=0.6, zorder=2)
-                self.ax.text(0.01, q_val + 0.6, q_name, color=q_color, fontsize=8, fontweight='bold',
-                             transform=self.ax.get_yaxis_transform(), va='bottom', zorder=3)
+                self.ax.axhline(y=q_val, color=q_color, linestyle='--', linewidth=1.1, alpha=0.75, zorder=2)
+                self.ax.text(0.012, q_val + 0.7, q_name, color=q_color, fontsize=10, fontweight='bold',
+                             transform=self.ax.get_yaxis_transform(), va='bottom', zorder=3,
+                             bbox=dict(boxstyle="round,pad=0.15", fc='#FFFFFF', ec=q_color, lw=0.6, alpha=0.85))
 
         for seg in active_segs:
             metrics = seg.get('metrics')
@@ -1093,8 +1094,8 @@ class PlotWidget(FigureCanvas):
                 plot_err = err_sorted
                 plot_prob = prob
 
-            # 绘制连续 CDF 曲线
-            self.ax.plot(plot_err, plot_prob, label=seg['name'], color=seg['color'], linewidth=2.0, alpha=0.9, zorder=4)
+            # 绘制加粗清晰的 CDF 曲线
+            self.ax.plot(plot_err, plot_prob, label=seg['name'], color=seg['color'], linewidth=2.4, alpha=0.92, zorder=4)
             global_max_err = max(global_max_err, float(err_sorted[-1]))
 
             # 计算分位数
@@ -1104,41 +1105,41 @@ class PlotWidget(FigureCanvas):
             p99 = float(np.percentile(err_sorted, 99.0))
             p_max = float(err_sorted[-1])
 
-            # 在 50%, 68.3%, 95%, 99% 上打点并标注详细数值
+            # 在 50%, 68.3%, 95%, 99% 上打点并标注清晰大字号数值
             if show_quantiles:
                 offsets = {
-                    50.0: (6, -10),
-                    68.3: (6, -6),
-                    95.0: (6, -10),
-                    99.0: (6, 6)
+                    50.0: (8, -12),
+                    68.3: (8, -8),
+                    95.0: (8, -12),
+                    99.0: (8, 6)
                 }
                 for q_val, _, _ in quantiles:
                     val_at_q = float(np.percentile(err_sorted, q_val))
-                    self.ax.plot(val_at_q, q_val, marker='o', markersize=5.0, color=seg['color'], 
-                                 markeredgecolor='#FFFFFF', markeredgewidth=1.0, zorder=5)
+                    self.ax.plot(val_at_q, q_val, marker='o', markersize=6.5, color=seg['color'], 
+                                 markeredgecolor='#FFFFFF', markeredgewidth=1.4, zorder=5)
                     
-                    xy_off = offsets.get(q_val, (6, -6))
+                    xy_off = offsets.get(q_val, (8, -8))
                     q_tag = "68%" if q_val == 68.3 else f"{int(q_val)}%"
                     self.ax.annotate(f"{q_tag}: {val_at_q:.2f}{unit_str}", (val_at_q, q_val),
                                      textcoords="offset points", xytext=xy_off,
-                                     fontsize=8, fontweight='bold', color=seg['color'],
-                                     bbox=dict(boxstyle="round,pad=0.2", fc='#FFFFFF', ec=seg['color'], lw=0.6, alpha=0.9),
+                                     fontsize=10.5, fontweight='bold', color='#0F172A',
+                                     bbox=dict(boxstyle="round,pad=0.35", fc='#FFFFFF', ec=seg['color'], lw=1.3, alpha=0.95),
                                      zorder=6)
 
-            summary_lines.append(f"[{seg['name']}] 50%:{p50:.2f}{unit_str} | 68%:{p68:.2f}{unit_str} | 95%:{p95:.2f}{unit_str} | 99%:{p99:.2f}{unit_str} | Max:{p_max:.2f}{unit_str}")
+            summary_lines.append(f"[{seg['name']}]  50%:{p50:.2f}{unit_str} | 68%:{p68:.2f}{unit_str} | 95%:{p95:.2f}{unit_str} | 99%:{p99:.2f}{unit_str} | Max:{p_max:.2f}{unit_str}")
 
         # 坐标轴范围与刻度
         self.ax.set_xlim(left=0, right=max(global_max_err * 1.08, 0.5))
-        self.ax.set_ylim(bottom=0, top=103.0)
+        self.ax.set_ylim(bottom=0, top=103.5)
         self.ax.set_yticks([0, 20, 40, 50, 60, 68.3, 80, 95, 99, 100])
-        self.ax.tick_params(axis='both', labelsize=10, colors='#0F172A')
+        self.ax.tick_params(axis='both', labelsize=11, colors='#0F172A')
 
         if len(active_segs) > 1:
-            self.ax.legend(loc='lower right', framealpha=0.9, facecolor='#FFFFFF', edgecolor='#CBD5E1', fontsize=9)
+            self.ax.legend(loc='lower right', framealpha=0.92, facecolor='#FFFFFF', edgecolor='#64748B', fontsize=10.5)
 
-        # 右上角统计卡片 (支持中文文件名无乱码显示)
+        # 右上角统计卡片 (大字号、高对比度深色文字)
         if summary_lines:
-            stats_box_props = dict(boxstyle="square,pad=0.3", fc='#F8FAFC', ec='#94A3B8', lw=0.6, alpha=0.9)
+            stats_box_props = dict(boxstyle="square,pad=0.4", fc='#F8FAFC', ec='#475569', lw=0.8, alpha=0.92)
             text_stats = "\n".join(summary_lines[:5])
             self.ax.text(0.985, 0.98, text_stats, transform=self.ax.transAxes, ha='right', va='top', 
-                         fontsize=8.5, color='#0F172A', bbox=stats_box_props, zorder=10)
+                         fontsize=10.5, fontweight='bold', color='#0F172A', bbox=stats_box_props, zorder=10)
