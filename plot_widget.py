@@ -1104,24 +1104,31 @@ class PlotWidget(FigureCanvas):
             p99 = float(np.percentile(err_sorted, 99.0))
             p_max = float(err_sorted[-1])
 
-            # 在 50%, 68.3%, 95%, 99% 上打点与标注
+            # 在 50%, 68.3%, 95%, 99% 上打点并标注详细数值
             if show_quantiles:
+                offsets = {
+                    50.0: (6, -10),
+                    68.3: (6, -6),
+                    95.0: (6, -10),
+                    99.0: (6, 6)
+                }
                 for q_val, _, _ in quantiles:
                     val_at_q = float(np.percentile(err_sorted, q_val))
                     self.ax.plot(val_at_q, q_val, marker='o', markersize=5.0, color=seg['color'], 
                                  markeredgecolor='#FFFFFF', markeredgewidth=1.0, zorder=5)
-                    # 在 95% 处打上详细标签
-                    if q_val == 95.0:
-                        self.ax.annotate(f"{val_at_q:.2f}{unit_str}", (val_at_q, q_val),
-                                         textcoords="offset points", xytext=(5, -10),
-                                         fontsize=8, fontweight='bold', color=seg['color'],
-                                         bbox=dict(boxstyle="round,pad=0.2", fc='#FFFFFF', ec=seg['color'], lw=0.6, alpha=0.9),
-                                         zorder=6)
+                    
+                    xy_off = offsets.get(q_val, (6, -6))
+                    q_tag = "68%" if q_val == 68.3 else f"{int(q_val)}%"
+                    self.ax.annotate(f"{q_tag}: {val_at_q:.2f}{unit_str}", (val_at_q, q_val),
+                                     textcoords="offset points", xytext=xy_off,
+                                     fontsize=8, fontweight='bold', color=seg['color'],
+                                     bbox=dict(boxstyle="round,pad=0.2", fc='#FFFFFF', ec=seg['color'], lw=0.6, alpha=0.9),
+                                     zorder=6)
 
             summary_lines.append(f"[{seg['name']}] 50%:{p50:.2f}{unit_str} | 68%:{p68:.2f}{unit_str} | 95%:{p95:.2f}{unit_str} | 99%:{p99:.2f}{unit_str} | Max:{p_max:.2f}{unit_str}")
 
         # 坐标轴范围与刻度
-        self.ax.set_xlim(left=0, right=max(global_max_err * 1.05, 0.5))
+        self.ax.set_xlim(left=0, right=max(global_max_err * 1.08, 0.5))
         self.ax.set_ylim(bottom=0, top=103.0)
         self.ax.set_yticks([0, 20, 40, 50, 60, 68.3, 80, 95, 99, 100])
         self.ax.tick_params(axis='both', labelsize=10, colors='#0F172A')
@@ -1129,9 +1136,9 @@ class PlotWidget(FigureCanvas):
         if len(active_segs) > 1:
             self.ax.legend(loc='lower right', framealpha=0.9, facecolor='#FFFFFF', edgecolor='#CBD5E1', fontsize=9)
 
-        # 右上角统计卡片
+        # 右上角统计卡片 (支持中文文件名无乱码显示)
         if summary_lines:
             stats_box_props = dict(boxstyle="square,pad=0.3", fc='#F8FAFC', ec='#94A3B8', lw=0.6, alpha=0.9)
             text_stats = "\n".join(summary_lines[:5])
             self.ax.text(0.985, 0.98, text_stats, transform=self.ax.transAxes, ha='right', va='top', 
-                         fontsize=8.5, fontfamily='monospace', color='#0F172A', bbox=stats_box_props, zorder=10)
+                         fontsize=8.5, color='#0F172A', bbox=stats_box_props, zorder=10)
