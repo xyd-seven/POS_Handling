@@ -1107,6 +1107,8 @@ class MainWindow(QMainWindow):
         self.show_extrema = True  # 是否显示最值标注
         self.x_axis_mode = '历元数'  # 是否使用时间轴对齐 X 轴
         self.speed_unit = 'm/s'  # 速度对比图单位 ('m/s' 或 'km/h')
+        self.cdf_mode = 'horizontal'  # CDF 误差维度 ('horizontal', 'vertical', '3d', 'speed')
+        self.show_cdf_quantiles = True  # 是否在 CDF 图中显示关键分位数辅助线与标注
 
         # 初始化串口组件与录制状态
         self.serial_port = QSerialPort(self)
@@ -1390,6 +1392,44 @@ class MainWindow(QMainWindow):
         card_layout_speed.addWidget(self.toolbar_speed)
         card_layout_speed.addWidget(self.canvas_speed)
         layout_speed.addWidget(self.card_speed)
+
+        # D.4 误差累积分布页 (CDF)
+        self.tab_cdf = QWidget()
+        layout_cdf = QVBoxLayout(self.tab_cdf)
+        layout_cdf.setContentsMargins(12, 12, 12, 12)
+        layout_cdf.setSpacing(0)
+
+        self.card_cdf = QWidget()
+        self.card_cdf.setStyleSheet("background-color: #FFFFFF; border: 1px solid #334155; border-radius: 8px;")
+        card_layout_cdf = QVBoxLayout(self.card_cdf)
+        card_layout_cdf.setContentsMargins(0, 0, 0, 0)
+        card_layout_cdf.setSpacing(0)
+
+        self.canvas_cdf = PlotWidget(self.card_cdf)
+        self.canvas_cdf.setStyleSheet("background-color: #FFFFFF; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;")
+        self.toolbar_cdf = NavigationToolbar(self.canvas_cdf, self.card_cdf)
+        self.toolbar_cdf.setStyleSheet(TOOLBAR_STYLE)
+
+        # 在工具栏末尾添加 CDF 维度切换下拉框与分位数复选框
+        self.cmb_cdf_mode = QComboBox()
+        self.cmb_cdf_mode.addItems(["水平位置误差", "高程绝对误差", "三维空间误差", "地面速度误差"])
+        self.cmb_cdf_mode.setFixedWidth(120)
+        self.cmb_cdf_mode.setFixedHeight(24)
+        self.cmb_cdf_mode.setStyleSheet("background-color: #0F172A; color: #F8FAFC; border: 1px solid #334155; border-radius: 4px; font-size: 11px; padding: 2px 4px;")
+        self.cmb_cdf_mode.currentTextChanged.connect(self.on_cdf_mode_changed)
+
+        self.cb_cdf_quantiles = QCheckBox("显示 50%/68%/95%/99% 门限")
+        self.cb_cdf_quantiles.setChecked(True)
+        self.cb_cdf_quantiles.setStyleSheet("color: #0F172A; font-size: 11px; margin-left: 8px;")
+        self.cb_cdf_quantiles.stateChanged.connect(self.on_cdf_quantiles_changed)
+
+        self.toolbar_cdf.addSeparator()
+        self.toolbar_cdf.addWidget(self.cmb_cdf_mode)
+        self.toolbar_cdf.addWidget(self.cb_cdf_quantiles)
+
+        card_layout_cdf.addWidget(self.toolbar_cdf)
+        card_layout_cdf.addWidget(self.canvas_cdf)
+        layout_cdf.addWidget(self.card_cdf)
 
         # E. 绝对轨迹投影页
         self.tab_trajectory = QWidget()
@@ -2018,6 +2058,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.tab_epoch_v, "高程误差历元分布图")
         self.tab_widget.addTab(self.tab_epoch_enu, "ENU三向误差图")
         self.tab_widget.addTab(self.tab_speed, "速度对比图")
+        self.tab_widget.addTab(self.tab_cdf, "误差累积分布图 (CDF)")
         self.tab_widget.addTab(self.tab_status, "定位质量图")
         self.tab_widget.addTab(self.tab_trajectory, "绝对轨迹图")
         self.tab_widget.addTab(self.tab_serial, "实时串口")
@@ -2462,7 +2503,7 @@ class MainWindow(QMainWindow):
             }
             """
 
-        for attr in ['toolbar_scatter', 'toolbar_status', 'toolbar_epoch_h', 'toolbar_epoch_v', 'toolbar_epoch_enu', 'toolbar_speed', 'toolbar_trajectory']:
+        for attr in ['toolbar_scatter', 'toolbar_status', 'toolbar_epoch_h', 'toolbar_epoch_v', 'toolbar_epoch_enu', 'toolbar_speed', 'toolbar_cdf', 'toolbar_trajectory']:
             if hasattr(self, attr):
                 getattr(self, attr).setStyleSheet(style)
 
@@ -2974,6 +3015,20 @@ class MainWindow(QMainWindow):
             self.speed_unit = 'm/s'
         self.refresh_chart()
 
+    def on_cdf_mode_changed(self, text):
+        mode_map = {
+            "水平位置误差": "horizontal",
+            "高程绝对误差": "vertical",
+            "三维空间误差": "3d",
+            "地面速度误差": "speed"
+        }
+        self.cdf_mode = mode_map.get(text, "horizontal")
+        self.refresh_chart()
+
+    def on_cdf_quantiles_changed(self, state):
+        self.show_cdf_quantiles = self.cb_cdf_quantiles.isChecked()
+        self.refresh_chart()
+
     def on_xaxis_changed(self, text):
         self.x_axis_mode = text
 
@@ -3029,6 +3084,7 @@ class MainWindow(QMainWindow):
         self.canvas_epoch_v.downsample_threshold = thresh
         self.canvas_epoch_enu.downsample_threshold = thresh
         self.canvas_speed.downsample_threshold = thresh
+        self.canvas_cdf.downsample_threshold = thresh
         self.canvas_trajectory.downsample_threshold = thresh
 
         dpi = self.app_config.get('export_dpi', 150)
@@ -3038,6 +3094,7 @@ class MainWindow(QMainWindow):
         self.canvas_epoch_v.export_dpi = dpi
         self.canvas_epoch_enu.export_dpi = dpi
         self.canvas_speed.export_dpi = dpi
+        self.canvas_cdf.export_dpi = dpi
         self.canvas_trajectory.export_dpi = dpi
 
         self.recompute_all()
@@ -3535,8 +3592,10 @@ class MainWindow(QMainWindow):
         elif index == 4:
             self.canvas_speed.render_data('speed', self.segments, self.truth, self.time_zone, x_axis_mode=self.x_axis_mode, show_stats=True, speed_unit=getattr(self, 'speed_unit', 'm/s'))
         elif index == 5:
-            self.canvas_status.render_data('status', self.segments, self.truth, self.time_zone)
+            self.canvas_cdf.render_data('cdf', self.segments, self.truth, cdf_mode=getattr(self, 'cdf_mode', 'horizontal'), speed_unit=getattr(self, 'speed_unit', 'm/s'), show_quantiles=getattr(self, 'show_cdf_quantiles', True))
         elif index == 6:
+            self.canvas_status.render_data('status', self.segments, self.truth, self.time_zone)
+        elif index == 7:
             self.canvas_trajectory.render_data('trajectory', self.segments, self.truth)
 
     # 8. 导出数据逻辑
@@ -3907,6 +3966,7 @@ class MainWindow(QMainWindow):
             self.canvas_epoch_v.render_data('epoch_v', self.segments, self.truth, self.time_zone, self.show_absolute_alt, show_extrema=self.show_extrema, x_axis_mode=self.x_axis_mode, show_sats=self.cb_show_sats.isChecked(), show_raw_alt=self.show_raw_alt)
             self.canvas_epoch_enu.render_data('epoch_enu', self.segments, self.truth, self.time_zone, x_axis_mode=self.x_axis_mode, show_stats=True)
             self.canvas_speed.render_data('speed', self.segments, self.truth, self.time_zone, x_axis_mode=self.x_axis_mode, show_stats=True, speed_unit=getattr(self, 'speed_unit', 'm/s'))
+            self.canvas_cdf.render_data('cdf', self.segments, self.truth, cdf_mode=getattr(self, 'cdf_mode', 'horizontal'), speed_unit=getattr(self, 'speed_unit', 'm/s'), show_quantiles=getattr(self, 'show_cdf_quantiles', True))
             progress.setValue(3)
             QApplication.processEvents()
             if progress.wasCanceled():
@@ -3932,6 +3992,9 @@ class MainWindow(QMainWindow):
             if progress.wasCanceled():
                 return
             add_plot_to_doc(self.canvas_speed, '3.7 动态速度跟踪与误差分布', 10)
+            if progress.wasCanceled():
+                return
+            add_plot_to_doc(self.canvas_cdf, '3.8 定位误差累积分布曲线 (CDF)', 11)
             if progress.wasCanceled():
                 return
 

@@ -143,7 +143,7 @@ class PlotWidget(FigureCanvas):
         # Draw idle is needed for relayout 
         self.fig.canvas.draw_idle()
         
-    def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s'):
+    def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s', cdf_mode='horizontal', show_quantiles=True):
         self.clear_canvas()
         
         if tab == 'epoch_enu':
@@ -166,6 +166,14 @@ class PlotWidget(FigureCanvas):
                 a.set_facecolor('#FFFFFF')
             self.draw_speed_comparison(segments, truth, time_zone, x_axis_mode, speed_unit, show_stats)
             self.fig.subplots_adjust(left=0.08, right=0.98, top=0.95, bottom=0.09, hspace=0.18)
+            self.draw()
+            return
+
+        if tab == 'cdf':
+            self.ax = self.fig.add_subplot(1, 1, 1)
+            self.ax.set_facecolor('#FFFFFF')
+            self.draw_cdf(segments, truth, cdf_mode, speed_unit, show_quantiles)
+            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.10)
             self.draw()
             return
             
@@ -987,3 +995,143 @@ class PlotWidget(FigureCanvas):
             self.ax_speed_err.xaxis.set_major_formatter(ticker.ScalarFormatter())
             self.ax_speed_err.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
             self.ax_speed_err.set_xlabel("历元数 (Epoch)", fontsize=11, fontweight='bold', color='#0F172A')
+
+    def draw_cdf(self, segments, truth=None, cdf_mode='horizontal', speed_unit='m/s', show_quantiles=True):
+        """
+        绘制定位误差累积分布曲线 (CDF, Cumulative Distribution Function)
+        支持水平、高程、3D、速度 4 种维度，多模组曲线叠加，标准分位数参考线及交点标注。
+        """
+        active_segs = [s for s in segments if s.get('active')]
+        if not active_segs:
+            self.ax.text(0.5, 0.5, "请选择或导入有效的数据分段以绘制累积分布曲线 (CDF)", 
+                         transform=self.ax.transAxes, ha='center', va='center', fontsize=12, color='#64748B')
+            self.ax.set_axis_off()
+            return
+
+        mode_titles = {
+            'horizontal': "水平位置误差累积分布函数 (Horizontal Error CDF)",
+            'vertical': "高程绝对误差累积分布函数 (Vertical Error CDF)",
+            '3d': "三维空间误差累积分布函数 (3D Position Error CDF)",
+            'speed': f"地面速度误差累积分布函数 (Speed Error CDF - {speed_unit})"
+        }
+        unit_str = speed_unit if cdf_mode == 'speed' else "m"
+        x_label_str = {
+            'horizontal': "水平位置误差 (m)",
+            'vertical': "高程绝对误差 (m)",
+            '3d': "三维空间误差 (m)",
+            'speed': f"速度绝对误差 ({speed_unit})"
+        }[cdf_mode]
+
+        self.ax.set_title(mode_titles.get(cdf_mode, "误差累积分布函数 (CDF)"), fontsize=13, fontweight='bold', color='#0F172A', pad=12)
+        self.ax.grid(True, which='both', color='#CBD5E1', linestyle='--', linewidth=0.6)
+        self.ax.set_xlabel(x_label_str, fontsize=11, fontweight='bold', color='#0F172A')
+        self.ax.set_ylabel("累积概率百分比 (Cumulative Probability, %)", fontsize=11, fontweight='bold', color='#0F172A')
+
+        global_max_err = 0.1
+        summary_lines = []
+
+        # 关键分位数定义
+        quantiles = [
+            (50.0, '50% (CEP50)', '#64748B'),
+            (68.3, '68.3% (1σ)', '#64748B'),
+            (95.0, '95% (2σ)', '#EA580C'),
+            (99.0, '99%', '#DC2626')
+        ]
+
+        if show_quantiles:
+            for q_val, q_name, q_color in quantiles:
+                self.ax.axhline(y=q_val, color=q_color, linestyle=':', linewidth=1.0, alpha=0.6, zorder=2)
+                self.ax.text(0.01, q_val + 0.6, q_name, color=q_color, fontsize=8, fontweight='bold',
+                             transform=self.ax.get_yaxis_transform(), va='bottom', zorder=3)
+
+        for seg in active_segs:
+            metrics = seg.get('metrics')
+            if not metrics:
+                continue
+
+            # 提取误差数据
+            if cdf_mode == 'horizontal':
+                raw_err = metrics.get('h_errors')
+            elif cdf_mode == 'vertical':
+                v_arr = metrics.get('v_errors')
+                raw_err = np.abs(v_arr) if v_arr is not None else None
+            elif cdf_mode == '3d':
+                raw_err = metrics.get('errors_3d')
+                if raw_err is None:
+                    h_arr = metrics.get('h_errors')
+                    v_arr = metrics.get('v_errors')
+                    if h_arr is not None and v_arr is not None:
+                        raw_err = np.sqrt(np.array(h_arr)**2 + np.array(v_arr)**2)
+            elif cdf_mode == 'speed':
+                sp_arr = metrics.get('speed_errors')
+                if sp_arr is not None:
+                    scale = 3.6 if speed_unit == 'km/h' else 1.0
+                    raw_err = np.abs(np.array(sp_arr)) * scale
+                else:
+                    raw_err = None
+            else:
+                raw_err = None
+
+            if raw_err is None or len(raw_err) == 0:
+                continue
+
+            err_arr = np.array(raw_err, dtype=float)
+            err_arr = err_arr[np.isfinite(err_arr)]
+            if len(err_arr) == 0:
+                continue
+
+            err_sorted = np.sort(err_arr)
+            n_pts = len(err_sorted)
+            prob = (np.arange(1, n_pts + 1) / n_pts) * 100.0
+
+            # 动态降采样，防止极大数据卡顿
+            if n_pts > self.downsample_threshold:
+                step = n_pts // self.downsample_threshold
+                plot_err = err_sorted[::step]
+                plot_prob = prob[::step]
+            else:
+                plot_err = err_sorted
+                plot_prob = prob
+
+            # 绘制连续 CDF 曲线
+            self.ax.plot(plot_err, plot_prob, label=seg['name'], color=seg['color'], linewidth=2.0, alpha=0.9, zorder=4)
+            global_max_err = max(global_max_err, float(err_sorted[-1]))
+
+            # 计算分位数
+            p50 = float(np.percentile(err_sorted, 50.0))
+            p68 = float(np.percentile(err_sorted, 68.3))
+            p95 = float(np.percentile(err_sorted, 95.0))
+            p99 = float(np.percentile(err_sorted, 99.0))
+            p_max = float(err_sorted[-1])
+
+            # 在 50%, 68.3%, 95%, 99% 上打点与标注
+            if show_quantiles:
+                for q_val, _, _ in quantiles:
+                    val_at_q = float(np.percentile(err_sorted, q_val))
+                    self.ax.plot(val_at_q, q_val, marker='o', markersize=5.0, color=seg['color'], 
+                                 markeredgecolor='#FFFFFF', markeredgewidth=1.0, zorder=5)
+                    # 在 95% 处打上详细标签
+                    if q_val == 95.0:
+                        self.ax.annotate(f"{val_at_q:.2f}{unit_str}", (val_at_q, q_val),
+                                         textcoords="offset points", xytext=(5, -10),
+                                         fontsize=8, fontweight='bold', color=seg['color'],
+                                         bbox=dict(boxstyle="round,pad=0.2", fc='#FFFFFF', ec=seg['color'], lw=0.6, alpha=0.9),
+                                         zorder=6)
+
+            summary_lines.append(f"[{seg['name']}] 50%:{p50:.2f}{unit_str} | 68%:{p68:.2f}{unit_str} | 95%:{p95:.2f}{unit_str} | 99%:{p99:.2f}{unit_str} | Max:{p_max:.2f}{unit_str}")
+
+        # 坐标轴范围与刻度
+        self.ax.set_xlim(left=0, right=max(global_max_err * 1.05, 0.5))
+        self.ax.set_ylim(bottom=0, top=103.0)
+        self.ax.set_yticks([0, 20, 40, 50, 60, 68.3, 80, 95, 99, 100])
+        self.ax.tick_params(axis='both', labelsize=10, colors='#0F172A')
+
+        if len(active_segs) > 1:
+            self.ax.legend(loc='lower right', framealpha=0.9, facecolor='#FFFFFF', edgecolor='#CBD5E1', fontsize=9)
+
+        # 右上角统计卡片
+        if summary_lines:
+            stats_box_props = dict(boxstyle="square,pad=0.3", fc='#F8FAFC', ec='#94A3B8', lw=0.6, alpha=0.9)
+            text_stats = "\n".join(summary_lines[:5])
+            self.ax.text(0.985, 0.98, text_stats, transform=self.ax.transAxes, ha='right', va='top', 
+                         fontsize=8.5, fontfamily='monospace', color='#0F172A', bbox=stats_box_props, zorder=10)

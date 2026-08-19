@@ -1011,8 +1011,13 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
     sum_n2 = np.sum(dn*dn)
     sum_u2 = np.sum(du*du)
     
+    # 3D 空间位置误差
+    err_3d = np.sqrt(de*de + dn*dn + du*du)
+    abs_v_err = np.abs(du)
+    
     max_h_dev = float(np.max(h_err))
-    max_v_dev = float(np.max(np.abs(du)))
+    max_v_dev = float(np.max(abs_v_err))
+    max_3d_dev = float(np.max(err_3d))
     
     rtk_fix_count = np.sum(qualities == 4)
     
@@ -1021,18 +1026,38 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
     
     # 使用 NumPy 官方的百分位数插值算法计算，比简单的索引取值更科学精确
     cep50 = float(np.percentile(h_err, 50.0)) if n_total > 0 else 0.0
-    cep68 = float(np.percentile(h_err, 68.0)) if n_total > 0 else 0.0
+    cep68 = float(np.percentile(h_err, 68.3)) if n_total > 0 else 0.0
     cep95 = float(np.percentile(h_err, 95.0)) if n_total > 0 else 0.0
+    cep99 = float(np.percentile(h_err, 99.0)) if n_total > 0 else 0.0
+    
+    # 高程绝对误差百分位数
+    cep50_v = float(np.percentile(abs_v_err, 50.0)) if n_total > 0 else 0.0
+    cep68_v = float(np.percentile(abs_v_err, 68.3)) if n_total > 0 else 0.0
+    cep95_v = float(np.percentile(abs_v_err, 95.0)) if n_total > 0 else 0.0
+    cep99_v = float(np.percentile(abs_v_err, 99.0)) if n_total > 0 else 0.0
+    
+    # 3D 空间误差百分位数与 RMS
+    cep50_3d = float(np.percentile(err_3d, 50.0)) if n_total > 0 else 0.0
+    cep68_3d = float(np.percentile(err_3d, 68.3)) if n_total > 0 else 0.0
+    cep95_3d = float(np.percentile(err_3d, 95.0)) if n_total > 0 else 0.0
+    cep99_3d = float(np.percentile(err_3d, 99.0)) if n_total > 0 else 0.0
+    rms_3d = float(np.sqrt(np.mean(err_3d**2))) if n_total > 0 else 0.0
     
     rms_h = float(np.sqrt((sum_e2 + sum_n2) / n_total)) if n_total > 0 else 0.0
     rms_v = float(np.sqrt(sum_u2 / n_total)) if n_total > 0 else 0.0
     
     # 计算速度误差统计
     speed_errors = speed_test - speed_truth
+    abs_speed_errors = np.abs(speed_errors)
     speed_ave = float(np.mean(speed_errors)) if n_total > 0 else 0.0
     speed_std = float(np.std(speed_errors)) if n_total > 0 else 0.0
     speed_rms = float(np.sqrt(np.mean(speed_errors**2))) if n_total > 0 else 0.0
-    speed_max = float(np.max(np.abs(speed_errors))) if n_total > 0 else 0.0
+    speed_max = float(np.max(abs_speed_errors)) if n_total > 0 else 0.0
+    
+    speed_p50 = float(np.percentile(abs_speed_errors, 50.0)) if n_total > 0 else 0.0
+    speed_p68 = float(np.percentile(abs_speed_errors, 68.3)) if n_total > 0 else 0.0
+    speed_p95 = float(np.percentile(abs_speed_errors, 95.0)) if n_total > 0 else 0.0
+    speed_p99 = float(np.percentile(abs_speed_errors, 99.0)) if n_total > 0 else 0.0
     
     metrics = {
         'count': n_total,
@@ -1042,13 +1067,25 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
         'cep50': cep50,
         'cep68': cep68,
         'cep95': cep95,
+        'cep99': cep99,
+        'cep50_v': cep50_v,
+        'cep68_v': cep68_v,
+        'cep95_v': cep95_v,
+        'cep99_v': cep99_v,
+        'cep50_3d': cep50_3d,
+        'cep68_3d': cep68_3d,
+        'cep95_3d': cep95_3d,
+        'cep99_3d': cep99_3d,
         'rms_h': rms_h,
         'rms_v': rms_v,
+        'rms_3d': rms_3d,
         'max_h': max_h_dev,
         'max_v': max_v_dev,
+        'max_3d': max_3d_dev,
         'enu_points': enu_points,
         'h_errors': h_err.tolist() if isinstance(h_err, np.ndarray) else h_err,
         'v_errors': du.tolist() if isinstance(du, np.ndarray) else du,
+        'errors_3d': err_3d.tolist() if isinstance(err_3d, np.ndarray) else err_3d,
         'de': de.tolist() if isinstance(de, np.ndarray) else de,
         'dn': dn.tolist() if isinstance(dn, np.ndarray) else dn,
         'speed_test': speed_test.tolist() if isinstance(speed_test, np.ndarray) else speed_test,
@@ -1057,7 +1094,11 @@ def calculate_metrics(points, truth, filter_outliers=False, outlier_thresh=1000.
         'speed_ave': speed_ave,
         'speed_std': speed_std,
         'speed_rms': speed_rms,
-        'speed_max': speed_max
+        'speed_max': speed_max,
+        'speed_p50': speed_p50,
+        'speed_p68': speed_p68,
+        'speed_p95': speed_p95,
+        'speed_p99': speed_p99
     }
     return metrics, points
 
