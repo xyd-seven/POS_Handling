@@ -32,6 +32,8 @@ class LogParserThread(QThread):
             last_time_str = ''
             gga_status_events = []
             gsa_status_events = []
+            gsv_events = []
+            current_time_sec = None
             last_time_sec_for_gsa = None
             last_emit_progress = -1
 
@@ -69,6 +71,7 @@ class LogParserThread(QThread):
                             if epoch['type'] in ['GGA', 'POGOS', 'PODRS', 'RMC', 'POSOL', 'BK_PNT_NAV']:
                                 epoch['file_id'] = self.filepath
                                 file_epochs.append(epoch)
+                                current_time_sec = epoch['utc_time_sec']
                                 last_time_sec_for_gsa = epoch['utc_time_sec']
                                 if first_time_sec is None:
                                     first_time_sec = epoch['utc_time_sec']
@@ -84,9 +87,16 @@ class LogParserThread(QThread):
                                     }))
                             elif epoch['type'] == 'GSA' and last_time_sec_for_gsa is not None:
                                 gsa_status_events.append((last_time_sec_for_gsa, {
-                                    'vdop': epoch['vdop'],
-                                    'pdop': epoch['pdop']
+                                    'vdop': epoch.get('vdop', 1.0),
+                                    'pdop': epoch.get('pdop', 1.0),
+                                    'sats_used': epoch.get('sats_used', []),
+                                    'sentence_type': epoch.get('sentence_type', ''),
+                                    'raw_line': epoch.get('raw_line', '')
                                 }))
+                            elif epoch['type'] == 'GSV':
+                                # 记录 GSV 帧，绑定当前的时间戳
+                                epoch['utc_time_sec'] = current_time_sec
+                                gsv_events.append(epoch)
 
                     progress = int((processed_size / file_size) * 100) if file_size > 0 else 0
                     if progress > last_emit_progress:
@@ -140,7 +150,7 @@ class LogParserThread(QThread):
                             gsa_idx += 1
                         best_fields = None
                         best_delta = 999.0
-                        for idx in (gsa_idx - 1, gga_idx):
+                        for idx in (gsa_idx - 1, gsa_idx):
                             if 0 <= idx < n_gsa:
                                 ev_t, fields = gsa_status_events[idx]
                                 delta = abs(ev_t - t)
@@ -159,7 +169,9 @@ class LogParserThread(QThread):
                 'last_time_sec': last_time_sec,
                 'first_time_str': first_time_str,
                 'last_time_str': last_time_str,
-                'sentence_types': sentence_types
+                'sentence_types': sentence_types,
+                'gsv_events': gsv_events,
+                'gsa_events': gsa_status_events
             }
             self.finished_parsing.emit(result)
         except Exception as e:

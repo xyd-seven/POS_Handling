@@ -12,7 +12,6 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QSizePolicy
 from PySide6.QtCore import Qt
 
 class SkyPlotCanvas(QWidget):
-    # 星座专属配色
     CONSTELLATION_COLORS = {
         'BD': '#EF4444',     # 北斗 BDS (鲜艳红)
         'GPS': '#3B82F6',    # GPS (亮蓝)
@@ -67,19 +66,16 @@ class SkyPlotCanvas(QWidget):
         """
         self.init_polar_axes()
 
+        # 绘制 10° 截止角保护环 (淡红辅助线)
+        theta_ring = np.linspace(0, 2*np.pi, 200)
+        self.ax.plot(theta_ring, [80]*len(theta_ring), color='#EF4444', linestyle=':', linewidth=1.2, alpha=0.6, label='Mask 10°')
+
         if not sats_dict:
             self.ax.text(0, 45, "未检测到可见卫星 (GSV) 数据", color='#94A3B8', fontsize=12, 
                          fontweight='bold', ha='center', va='center',
                          bbox=dict(boxstyle='round,pad=0.6', facecolor='#1E293B', edgecolor='#475569', alpha=0.9))
             self.canvas.draw_idle()
             return
-
-        # 绘制 10° 截止角保护环 (淡红辅助线)
-        theta_ring = np.linspace(0, 2*np.pi, 200)
-        self.ax.plot(theta_ring, [80]*len(theta_ring), color='#EF4444', linestyle=':', linewidth=1.2, alpha=0.6, label='Mask 10°')
-
-        # 分类统计绘制卫星
-        counts = {'BD': 0, 'GPS': 0, 'GL': 0, 'GA': 0, 'used': 0}
 
         for sat_key, sat_info in sats_dict.items():
             sys_prefix = sat_info.get('sys_prefix', 'GPS')
@@ -88,14 +84,7 @@ class SkyPlotCanvas(QWidget):
             elev = sat_info.get('elevation', 0.0)
             azim = sat_info.get('azimuth', 0.0)
             is_used = sat_info.get('is_used', False)
-            snr = sat_info.get('snr', 0.0)
 
-            if sys_prefix in counts:
-                counts[sys_prefix] += 1
-            if is_used:
-                counts['used'] += 1
-
-            # 极坐标转换: r = 90 - elev, theta = deg2rad(azim)
             r = max(0.0, min(90.0, 90.0 - elev))
             theta = np.deg2rad(azim)
 
@@ -104,19 +93,18 @@ class SkyPlotCanvas(QWidget):
 
             if is_used:
                 # 在用卫星: 实心高亮圆点 + 白色加粗字
-                self.ax.scatter(theta, r, s=260, color=color, edgecolors='#FFFFFF', linewidths=1.8, zorder=5)
-                self.ax.text(theta, r, sat_name, color='#FFFFFF', fontsize=8.5, fontweight='bold',
+                self.ax.scatter(theta, r, s=280, color=color, edgecolors='#FFFFFF', linewidths=1.8, zorder=5)
+                self.ax.text(theta, r, sat_name, color='#FFFFFF', fontsize=9.0, fontweight='bold',
                              ha='center', va='center', zorder=6)
             else:
                 # 跟踪未在用: 半透明空心圆点 + 浅色字
-                self.ax.scatter(theta, r, s=200, facecolors='none', edgecolors=color, linewidths=1.5, linestyle='--', alpha=0.85, zorder=4)
-                self.ax.text(theta, r, sat_name, color='#CBD5E1', fontsize=8.0, fontweight='bold',
+                self.ax.scatter(theta, r, s=220, facecolors='none', edgecolors=color, linewidths=1.5, linestyle='--', alpha=0.85, zorder=4)
+                self.ax.text(theta, r, sat_name, color='#CBD5E1', fontsize=8.5, fontweight='bold',
                              ha='center', va='center', zorder=6)
 
-        # 构造标题与统计信息
         pdop_str = f"PDOP: {dop_dict.get('pdop', 1.0):.1f}" if dop_dict else ""
         hdop_str = f"HDOP: {dop_dict.get('hdop', 1.0):.1f}" if dop_dict else ""
-        title_str = f"{title_prefix} 极坐标天空图 (SkyPlot)"
+        title_str = f"{title_prefix} 极坐标天空图 (SkyPlot)" if title_prefix else "极坐标天空图 (SkyPlot)"
         if pdop_str and hdop_str:
             title_str += f"  [{pdop_str} | {hdop_str}]"
 
@@ -129,13 +117,20 @@ class SkyPlotCanvas(QWidget):
         """
         self.init_polar_axes()
 
+        # 绘制 10° 截止角保护环
+        theta_ring = np.linspace(0, 2*np.pi, 200)
+        self.ax.plot(theta_ring, [80]*len(theta_ring), color='#EF4444', linestyle=':', linewidth=1.2, alpha=0.6)
+
         if not sat_tracks_dict:
             self.ax.text(0, 45, "无星轨轨迹数据", color='#94A3B8', fontsize=12, 
-                         fontweight='bold', ha='center', va='center')
+                         fontweight='bold', ha='center', va='center',
+                         bbox=dict(boxstyle='round,pad=0.6', facecolor='#1E293B', edgecolor='#475569', alpha=0.9))
             self.canvas.draw_idle()
             return
 
         for sat_key, track_points in sat_tracks_dict.items():
+            if not track_points:
+                continue
             sys_prefix, prn = sat_key
             color = self.CONSTELLATION_COLORS.get(sys_prefix, '#94A3B8')
 
@@ -146,13 +141,12 @@ class SkyPlotCanvas(QWidget):
             radii = [90.0 - el for el in elevs]
 
             # 绘制弧线
-            self.ax.plot(thetas, radii, color=color, linewidth=1.5, alpha=0.7, zorder=3)
+            self.ax.plot(thetas, radii, color=color, linewidth=2.0, alpha=0.75, zorder=3)
 
-            # 在轨迹起点与终点标出卫星名
-            if len(thetas) > 0:
-                self.ax.scatter(thetas[-1], radii[-1], s=80, color=color, edgecolors='#FFFFFF', linewidths=1.0, zorder=4)
-                lbl_char = 'B' if sys_prefix == 'BD' else ('G' if sys_prefix == 'GPS' else ('R' if sys_prefix == 'GL' else 'E'))
-                self.ax.text(thetas[-1], radii[-1], f"{lbl_char}{prn:02d}", color='#FFFFFF', fontsize=7.5, fontweight='bold', ha='center', va='center')
+            # 在轨迹终点标出卫星名
+            lbl_char = 'B' if sys_prefix == 'BD' else ('G' if sys_prefix == 'GPS' else ('R' if sys_prefix == 'GL' else 'E'))
+            self.ax.scatter(thetas[-1], radii[-1], s=180, color=color, edgecolors='#FFFFFF', linewidths=1.2, zorder=5)
+            self.ax.text(thetas[-1], radii[-1], f"{lbl_char}{prn:02d}", color='#FFFFFF', fontsize=8.0, fontweight='bold', ha='center', va='center', zorder=6)
 
         self.ax.set_title("全时段卫星运动星轨图 (Sky Tracks)", color='#F8FAFC', fontsize=12, fontweight='bold', pad=18)
         self.canvas.draw_idle()

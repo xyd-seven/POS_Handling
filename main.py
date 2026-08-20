@@ -720,6 +720,12 @@ class MainWindow(QMainWindow):
         self.app_config = {}
         self.skyplot_model = SkyPlotDataModel()
         self.skyplot_mode = 'snapshot'  # 'snapshot' 或 'tracks'
+        self.file_gsv_events_map = {}
+        self.file_gsa_events_map = {}
+        self.skyplot_timer = QTimer(self)
+        self.skyplot_timer.timeout.connect(self.on_skyplot_timer_tick)
+        self.skyplot_is_playing = False
+        self.skyplot_speed = 1.0
         self.parser_thread = None
         self.dynamic_parser_thread = None
 
@@ -1791,9 +1797,53 @@ class MainWindow(QMainWindow):
         sky_ctrl_layout.setContentsMargins(6, 4, 6, 4)
         sky_ctrl_layout.setSpacing(8)
 
-        lbl_timeline = QLabel("时间探伤滑块:")
-        lbl_timeline.setStyleSheet("color: #94A3B8; font-weight: bold; font-size: 11px;")
-        sky_ctrl_layout.addWidget(lbl_timeline)
+        self.btn_sky_play = QPushButton("▶ 播放")
+        self.btn_sky_play.setFixedSize(64, 28)
+        self.btn_sky_play.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(56, 189, 248, 0.15);
+                border: 1px solid #38BDF8;
+                color: #38BDF8;
+                font-weight: bold;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: rgba(56, 189, 248, 0.25);
+                color: #FFFFFF;
+            }
+        """)
+        self.btn_sky_play.clicked.connect(self.toggle_skyplot_playback)
+        sky_ctrl_layout.addWidget(self.btn_sky_play)
+
+        self.btn_sky_reset = QPushButton("⏮ 复位")
+        self.btn_sky_reset.setFixedSize(54, 28)
+        self.btn_sky_reset.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B;
+                border: 1px solid #334155;
+                color: #F8FAFC;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+            }
+        """)
+        self.btn_sky_reset.clicked.connect(self.reset_skyplot_playback)
+        sky_ctrl_layout.addWidget(self.btn_sky_reset)
+
+        lbl_speed = QLabel("倍速:")
+        lbl_speed.setStyleSheet("color: #94A3B8; font-size: 11px; font-weight: bold;")
+        sky_ctrl_layout.addWidget(lbl_speed)
+
+        self.cmb_sky_speed = QComboBox()
+        self.cmb_sky_speed.setFixedHeight(28)
+        self.cmb_sky_speed.setFixedWidth(64)
+        self.cmb_sky_speed.addItems(["0.5x", "1.0x", "2.0x", "5.0x", "10.0x"])
+        self.cmb_sky_speed.setCurrentText("1.0x")
+        self.cmb_sky_speed.currentTextChanged.connect(self.on_skyplot_speed_changed)
+        sky_ctrl_layout.addWidget(self.cmb_sky_speed)
 
         self.slider_skyplot = QSlider(Qt.Horizontal)
         self.slider_skyplot.setStyleSheet("""
@@ -3303,11 +3353,18 @@ class MainWindow(QMainWindow):
             seg['metrics'] = metrics
 
         # 提取活跃分段数据构建 SkyPlot 索引
+        all_gsv_events = []
+        all_gsa_events = []
         active_epochs = []
         for s in self.segments:
-            if s.get('active', True) and s.get('epochs'):
-                active_epochs.extend(s['epochs'])
-        self.skyplot_model.build_from_epochs(active_epochs)
+            if s.get('active', True):
+                f_id = s.get('file_id')
+                if f_id:
+                    all_gsv_events.extend(self.file_gsv_events_map.get(f_id, []))
+                    all_gsa_events.extend(self.file_gsa_events_map.get(f_id, []))
+                if s.get('epochs'):
+                    active_epochs.extend(s['epochs'])
+        self.skyplot_model.build_from_file_data(all_gsv_events, active_epochs, all_gsa_events)
         if self.skyplot_model.time_list:
             self.slider_skyplot.setRange(0, len(self.skyplot_model.time_list) - 1)
             self.slider_skyplot.setValue(0)
@@ -3671,7 +3728,68 @@ class MainWindow(QMainWindow):
     def on_skyplot_mode_changed(self, index):
         self.skyplot_mode = 'snapshot' if index == 0 else 'tracks'
         self.bar_sky_time.setVisible(self.skyplot_mode == 'snapshot')
+        if self.skyplot_mode == 'tracks':
+            if self.skyplot_is_playing:
+                self.toggle_skyplot_playback()
         self.refresh_skyplot()
+
+    def toggle_skyplot_playback(self):
+        if not self.skyplot_model.time_list:
+            return
+        self.skyplot_is_playing = not self.skyplot_is_playing
+        if self.skyplot_is_playing:
+            self.btn_sky_play.setText("⏸ 暂停")
+            self.btn_sky_play.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(239, 68, 68, 0.15);
+                    border: 1px solid #EF4444;
+                    color: #EF4444;
+                    font-weight: bold;
+                    border-radius: 4px;
+                    font-size: 11px;
+                }
+            """)
+            interval = max(50, int(1000.0 / self.skyplot_speed))
+            self.skyplot_timer.start(interval)
+        else:
+            self.btn_sky_play.setText("▶ 播放")
+            self.btn_sky_play.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(56, 189, 248, 0.15);
+                    border: 1px solid #38BDF8;
+                    color: #38BDF8;
+                    font-weight: bold;
+                    border-radius: 4px;
+                    font-size: 11px;
+                }
+            """)
+            self.skyplot_timer.stop()
+
+    def reset_skyplot_playback(self):
+        if self.skyplot_is_playing:
+            self.toggle_skyplot_playback()
+        self.slider_skyplot.setValue(0)
+
+    def on_skyplot_speed_changed(self, text):
+        speed_val = 1.0
+        try:
+            speed_val = float(text.replace('x', ''))
+        except ValueError:
+            speed_val = 1.0
+        self.skyplot_speed = speed_val
+        if self.skyplot_is_playing:
+            interval = max(50, int(1000.0 / self.skyplot_speed))
+            self.skyplot_timer.setInterval(interval)
+
+    def on_skyplot_timer_tick(self):
+        if not self.skyplot_model.time_list:
+            return
+        cur_val = self.slider_skyplot.value()
+        if cur_val < len(self.skyplot_model.time_list) - 1:
+            self.slider_skyplot.setValue(cur_val + 1)
+        else:
+            # 播放到末尾，自动循环或暂停
+            self.slider_skyplot.setValue(0)
 
     def on_skyplot_slider_changed(self, val):
         if not self.skyplot_model.time_list:
@@ -3685,9 +3803,20 @@ class MainWindow(QMainWindow):
         if self.skyplot_mode == 'tracks':
             tracks = self.skyplot_model.get_all_tracks()
             self.canvas_skyplot.render_tracks(tracks)
+            # 在星轨模式下统计累计出现的各星座星数
+            counts = {'BD': 0, 'GPS': 0, 'GL': 0, 'GA': 0}
+            for k in tracks.keys():
+                sys_p = k[0]
+                if sys_p in counts: counts[sys_p] += 1
+            self.lbl_sky_bds.setText(f"{counts['BD']} 颗")
+            self.lbl_sky_gps.setText(f"{counts['GPS']} 颗")
+            self.lbl_sky_glo.setText(f"{counts['GL']} 颗")
+            self.lbl_sky_gal.setText(f"{counts['GA']} 颗")
+            self.lbl_sky_used.setText(f"总计 {len(tracks)} 颗星轨")
         else:
             if not self.skyplot_model.time_list:
                 self.canvas_skyplot.render_snapshot({}, {})
+                self.update_skyplot_side_panel({}, {})
                 return
             idx = self.slider_skyplot.value()
             idx = max(0, min(len(self.skyplot_model.time_list) - 1, idx))
@@ -3697,8 +3826,9 @@ class MainWindow(QMainWindow):
     def refresh_skyplot_at_time(self, t_sec):
         sats, dop = self.skyplot_model.get_snapshot_at_time(t_sec)
         self.canvas_skyplot.render_snapshot(sats, dop, title_prefix=seconds_to_time_str(t_sec % 86400))
+        self.update_skyplot_side_panel(sats, dop)
 
-        # 更新右侧统计卡片
+    def update_skyplot_side_panel(self, sats, dop):
         counts = {'BD': 0, 'GPS': 0, 'GL': 0, 'GA': 0, 'used': 0}
         for k, v in sats.items():
             p = v.get('sys_prefix', 'GPS')
@@ -3713,9 +3843,10 @@ class MainWindow(QMainWindow):
         self.lbl_sky_gal.setText(f"{counts['GA']} 颗")
         self.lbl_sky_used.setText(f"{counts['used']} 颗 / 可见 {len(sats)} 颗")
 
-        self.lbl_sky_pdop.setText(f"{dop.get('pdop', 1.0):.2f}")
-        self.lbl_sky_hdop.setText(f"{dop.get('hdop', 1.0):.2f}")
-        self.lbl_sky_vdop.setText(f"{dop.get('vdop', 1.0):.2f}")
+        if dop:
+            self.lbl_sky_pdop.setText(f"{dop.get('pdop', 1.0):.2f}")
+            self.lbl_sky_hdop.setText(f"{dop.get('hdop', 1.0):.2f}")
+            self.lbl_sky_vdop.setText(f"{dop.get('vdop', 1.0):.2f}")
 
     def on_export_report_clicked(self):
         canvases = {
@@ -5042,6 +5173,7 @@ class MainWindow(QMainWindow):
                 'vdop': getattr(self, 'latest_vdop', 1.0)
             }
             self.canvas_skyplot.render_snapshot(live_sats, dop_info, title_prefix="实时")
+            self.update_skyplot_side_panel(live_sats, dop_info)
 
     def toggle_cno_visibility(self, visible):
         if hasattr(self, 'group_cno'):

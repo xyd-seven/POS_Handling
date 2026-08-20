@@ -1,43 +1,35 @@
 # Hand Off - VCOM定位精度分析工具交接文档
 
 ## 1. 项目目标
-基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、载噪比柱状图及 Word 报告导出。当前阶段已完成雷达极坐标天空图模块与 Word 报告深度集成。
+基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、载噪比柱状图及 Word 报告导出。当前阶段已完成雷达极坐标天空图 GSV 数据解析、右侧统计看板联动与动画控制台增强。
 
 ---
 
 ## 2. 当前状态
-- [x] **模块化分层解耦落地**：
-  - 新增 plots/skyplot_canvas.py：独立封装 Matplotlib 极坐标雷达盘、四大星座分类着色、在用/跟踪星区分、10° 截止角环、时间滑块探伤与全时段星轨曲线渲染；
-  - 新增 core/skyplot_model.py：独立管理 GSV 数据的 (1)$ 秒级快速切片哈希索引与多时段星轨提取；
-  - 在 exporters/word_exporter.py 中深度集成「3.9 卫星极坐标天空图 (SkyPlot)」离屏抓取与排版写入；
-- [x] **主界面「卫星星空图 (SkyPlot)」选项卡装配**：
-  - 左侧展示高清极坐标雷达盘；
-  - 右侧提供「星座在用/可见统计看板」及「DOP 几何衰减因子 (PDOP/HDOP/VDOP)」卡片；
-  - 底部配置「时间探伤滑块」与当前时刻标签，支持单时刻探伤与全时段星轨一键切换；
-  - 串口实时接收与数据回放时自动秒级联动跳动刷新；
-- [x] **全量回归与专项测试**：	est_skyplot.py 与 	est_full_regression.py 全部 100% 通过；
-- [x] **PyInstaller 独立编译与部署**：成功打包并覆盖交付至 F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe。
+- [x] **离线 GSV/GSA 完整解析与星轨收集**：在 LogParserThread 中收集 GSV 与 GSA 状态，通过 SkyPlotDataModel.build_from_file_data 构建时序快照与全时段卫星运动轨迹；
+- [x] **右侧看板全链路数据联动**：封装 update_skyplot_side_panel，无论是实时串口接收、回放、离线滑块拖拽还是自动播放，100% 准确同步显示北斗 (BDS)、GPS、GLONASS、Galileo、在用/可见卫星总数及 PDOP/HDOP/VDOP；
+- [x] **动画控制台与倍速调节**：在底部时间轴滑块区域新增 [▶ 播放 / ⏸ 暂停]、[⏮ 复位] 及 [0.5x, 1.0x, 2.0x, 5.0x, 10.0x] 倍速下拉框，支持平滑自动步进播放；
+- [x] **全时段星轨图 (Sky Tracks)**：一键切换模式，渲染整场测试中所有可见卫星的运动弧线并标注 PRN 徽标，右侧看板同步展示整场累计出现的各星座星数；
+- [x] **全量专项与回归测试**：	est_skyplot_full_fix.py 100% 通过；
+- [x] **PyInstaller 重新编译与部署**：已重新打包并覆盖交付至 F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe。
 
 ---
 
 ## 3. 当前任务
-- 无（雷达极坐标天空图模块开发、测试、打包与交付全部圆满完成）
+- 无（天空图数据源修复、看板同步与动画控制台已全部落地交付）
 
 ---
 
 ## 4. 关键设计决策
-- **极坐标天顶投影数学模型**：天顶仰角 ^\circ$ 映射至极坐标原点（=0$），地平线 ^\circ$ 映射至外圈（=90$），极角以正北（0°/N）为顶部顺时针旋转（$\theta = \text{radians}(90 - \text{Azimuth})$）。
-- **(1)$ 秒级快速检索哈希索引**：在 SkyPlotDataModel 中按秒维护 	ime_to_sats 与 	ime_to_dop 映射，时间轴滑块拖拽时无需重复扫描全量原始日志，实现 60 FPS 流畅拖拽体验。
-- **高对比度多星座着色**：北斗 BDS (红)、GPS (蓝)、GLONASS (黄)、Galileo (青)，在用卫星采用实心高亮圆点，跟踪星采用半透明空心圆点，视觉对比清晰强烈。
+- **多源 GSV 与 GSA 状态融合模型**：在 SkyPlotDataModel 中将 NMEA GSV 方位/仰角数据与 GSA 语句中的在用卫星 PRN 映射后进行对齐绑定，生成包含实心在用星与空心跟踪星的时序快照；
+- **自适应动画定时器**：使用 QTimer 结合倍速系数动态计算定时器间隔（$\text{interval} = 1000.0 / \text{speed}$），实现流畅平滑的星空图动态播放。
 
 ---
 
 ## 5. 修改记录
-- plots/skyplot_canvas.py
-- plots/__init__.py
+- core/segment_manager.py
 - core/skyplot_model.py
-- core/__init__.py
-- exporters/word_exporter.py
+- plots/skyplot_canvas.py
 - main.py
 - handoff.md
 
@@ -55,10 +47,11 @@
 ---
 
 ## 8. 测试状态
-- **SkyPlotDataModel 秒级切片与星轨提取测试**：PASS
-- **SkyPlotCanvas 极坐标快照与星轨渲染测试**：PASS
-- **9 大核心图表端到端全量渲染测试**：PASS
-- **Word 评测报告自动生成测试**：PASS
+- **LogParserThread GSV/GSA 捕获测试**：PASS
+- **SkyPlotDataModel 快照与星轨提取测试**：PASS
+- **看板 BDS/GPS/GLO/GAL 数量准确统计测试**：PASS
+- **动画播放/暂停与定时器步进测试**：PASS
+- **全时段星轨图渲染测试**：PASS
 - **PyInstaller 编译与可执行程序部署**：PASS
 
 ---
