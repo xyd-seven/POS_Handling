@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-雷达极坐标天空图 (SkyPlot) 与 3D 空间立体天穹 (3D SkyDome) 绘图组件
-支持 2D 极坐标雷达盘、全时段抗跳变星轨及 3D 半球空间天球多维可视化。
+雷达极坐标天空图 (SkyPlot) 与 3D 空间立体天球穹顶 (3D SkyDome) 绘图组件
+支持 2D 极坐标雷达盘、全时段抗跳变星轨及 3D 高性能水晶天穹多维可视化。
 """
 import math
 import numpy as np
@@ -34,12 +34,14 @@ class SkyPlotCanvas(QWidget):
 
         self.ax = None
         self.current_mode = 'polar' # 'polar' 或 '3d'
-        self._last_elev_azim_3d = (30, -60) # 记忆用户的 3D 观察视角
+        self._last_elev_azim_3d = (28, -55) # 默认最佳透视视角
+        self._3d_dynamic_artists = [] # 动态元素集合（卫星散点、落地线、文本），用于极速增量刷新
         self.init_polar_axes()
 
     def init_polar_axes(self):
         self.figure.clear()
         self.current_mode = 'polar'
+        self._3d_dynamic_artists.clear()
         self.ax = self.figure.add_subplot(111, projection='polar')
         self.figure.patch.set_facecolor('#0B1120')
         self.ax.set_facecolor('#0F172A')
@@ -65,12 +67,14 @@ class SkyPlotCanvas(QWidget):
         self.ax.spines['polar'].set_linewidth(1.5)
 
     def init_3d_axes(self):
-        # 记忆上一次的视角
+        # 记忆视角
         if self.current_mode == '3d' and hasattr(self.ax, 'elev') and hasattr(self.ax, 'azim'):
-            self._last_elev_azim_3d = (self.ax.elev, self.ax.azim)
+            if self.ax.elev is not None and self.ax.azim is not None:
+                self._last_elev_azim_3d = (self.ax.elev, self.ax.azim)
 
         self.figure.clear()
         self.current_mode = '3d'
+        self._3d_dynamic_artists.clear()
         self.ax = self.figure.add_subplot(111, projection='3d')
         self.figure.patch.set_facecolor('#0B1120')
         self.ax.set_facecolor('#0B1120')
@@ -83,19 +87,77 @@ class SkyPlotCanvas(QWidget):
         self.ax.set_axis_off()
 
         # 设置显示范围与视角
-        self.ax.set_xlim(-1.15, 1.15)
-        self.ax.set_ylim(-1.15, 1.15)
-        self.ax.set_zlim(-0.05, 1.15)
+        self.ax.set_xlim(-1.18, 1.18)
+        self.ax.set_ylim(-1.18, 1.18)
+        self.ax.set_zlim(-0.06, 1.18)
         self.ax.view_init(elev=self._last_elev_azim_3d[0], azim=self._last_elev_azim_3d[1])
+
+        # 构建静态天球骨架与发光半球曲面 (常驻图层)
+        self._build_static_3d_dome_layer()
+
+    def _build_static_3d_dome_layer(self):
+        """
+        构建 3D 静态天穹网格、半透明发光曲面、地平底盘与球心观测站基座
+        """
+        # 1. 绘制半透明发光水晶天穹曲面 (Glass Dome Surface with subtle gradient)
+        u_surf = np.linspace(0, 2 * np.pi, 36)
+        v_surf = np.linspace(0, np.pi / 2, 16)
+        U_surf, V_surf = np.meshgrid(u_surf, v_surf)
+        X_surf = np.cos(V_surf) * np.sin(U_surf)
+        Y_surf = np.cos(V_surf) * np.cos(U_surf)
+        Z_surf = np.sin(V_surf)
+
+        # 柔和科技蓝微光半球曲面
+        self.ax.plot_surface(X_surf, Y_surf, Z_surf, color='#0284C7', alpha=0.07, shade=True, antialiased=True, zorder=1)
+
+        # 2. 仰角同心纬度圈 (Elevation Rings: 0°, 30°, 60°)
+        u_ring = np.linspace(0, 2 * np.pi, 60)
+        for elev_deg in [0, 30, 60]:
+            elev_rad = np.deg2rad(elev_deg)
+            r_ring = np.cos(elev_rad)
+            z_ring = np.sin(elev_rad)
+            x_ring = r_ring * np.sin(u_ring)
+            y_ring = r_ring * np.cos(u_ring)
+            self.ax.plot(x_ring, y_ring, z_ring, color='#38BDF8' if elev_deg == 0 else '#334155', 
+                         linestyle='-' if elev_deg == 0 else '--', linewidth=1.2 if elev_deg == 0 else 0.8, alpha=0.7, zorder=2)
+            if elev_deg > 0:
+                self.ax.text(0, r_ring, z_ring, f" {elev_deg}°", color='#94A3B8', fontsize=8, fontweight='bold', zorder=2)
+
+        # 3. 10° 空间截止角红色虚线环 (Mask 10°)
+        elev_mask = np.deg2rad(10)
+        r_mask = np.cos(elev_mask)
+        z_mask = np.sin(elev_mask)
+        self.ax.plot(r_mask * np.sin(u_ring), r_mask * np.cos(u_ring), z_mask, color='#EF4444', linestyle=':', linewidth=1.2, alpha=0.65, zorder=2)
+
+        # 4. 方位角经线射线 (Azimuth Meridians: 0°, 45°, 90°, ...)
+        v_line = np.linspace(0, np.pi / 2, 20)
+        for azim_deg in [0, 45, 90, 135, 180, 225, 270, 315]:
+            azim_rad = np.deg2rad(azim_deg)
+            x_line = np.cos(v_line) * np.sin(azim_rad)
+            y_line = np.cos(v_line) * np.cos(azim_rad)
+            z_line = np.sin(v_line)
+            self.ax.plot(x_line, y_line, z_line, color='#334155', linestyle=':', linewidth=0.7, alpha=0.5, zorder=2)
+
+        # 5. 地平底盘网格参考十字线与地平底面圆盘
+        self.ax.plot([-1.05, 1.05], [0, 0], [0, 0], color='#1E293B', linestyle='-', linewidth=1.0, zorder=2)
+        self.ax.plot([0, 0], [-1.05, 1.05], [0, 0], color='#1E293B', linestyle='-', linewidth=1.0, zorder=2)
+
+        # 6. 四大主方位与天顶文字标识
+        self.ax.text(0, 1.16, 0, "N (0°)", color='#38BDF8', fontsize=10, fontweight='bold', ha='center', va='center', zorder=3)
+        self.ax.text(1.16, 0, 0, "E (90°)", color='#E2E8F0', fontsize=9, fontweight='bold', ha='center', va='center', zorder=3)
+        self.ax.text(0, -1.16, 0, "S (180°)", color='#E2E8F0', fontsize=9, fontweight='bold', ha='center', va='center', zorder=3)
+        self.ax.text(-1.16, 0, 0, "W (270°)", color='#E2E8F0', fontsize=9, fontweight='bold', ha='center', va='center', zorder=3)
+        self.ax.text(0, 0, 1.08, "Zenith (90°)", color='#94A3B8', fontsize=8.5, fontweight='bold', ha='center', va='bottom', zorder=3)
+
+        # 7. 球心地面观测站地标基座 [⊕]
+        self.ax.scatter([0], [0], [0], s=80, color='#38BDF8', marker='o', edgecolors='#FFFFFF', linewidths=1.2, alpha=0.9, zorder=4)
+        self.ax.text(0, 0, -0.04, "Antenna", color='#64748B', fontsize=7.5, fontweight='bold', ha='center', va='top', zorder=4)
 
     def render_snapshot(self, sats_dict, dop_dict=None, title_prefix=""):
         """
         渲染 2D 单时刻极坐标快照
         """
-        if self.current_mode != 'polar':
-            self.init_polar_axes()
-        else:
-            self.init_polar_axes()
+        self.init_polar_axes()
 
         # 绘制 10° 截止角保护环 (淡红辅助线)
         theta_ring = np.linspace(0, 2*np.pi, 200)
@@ -147,12 +209,8 @@ class SkyPlotCanvas(QWidget):
         """
         渲染 2D 全时段星轨运动图
         """
-        if self.current_mode != 'polar':
-            self.init_polar_axes()
-        else:
-            self.init_polar_axes()
+        self.init_polar_axes()
 
-        # 绘制 10° 截止角保护环
         theta_ring = np.linspace(0, 2*np.pi, 200)
         self.ax.plot(theta_ring, [80]*len(theta_ring), color='#EF4444', linestyle=':', linewidth=1.2, alpha=0.6)
 
@@ -224,52 +282,20 @@ class SkyPlotCanvas(QWidget):
 
     def render_3d_skydome(self, sats_dict, dop_dict=None, sat_tracks_dict=None, title_prefix="", show_tracks=True):
         """
-        渲染 3D 空间半透明立体天球穹顶 (3D SkyDome)
+        渲染 3D 空间立体水晶天穹 (3D SkyDome) - 支持增量图层更新与垂直落地虚线
         """
-        self.init_3d_axes()
+        if self.current_mode != '3d':
+            self.init_3d_axes()
+        else:
+            # 增量清除上一帧的动态元素 (卫星散点、落地垂线、地面光斑与文字)，无需重构半球曲面与底盘网格
+            for artist in self._3d_dynamic_artists:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+            self._3d_dynamic_artists.clear()
 
-        # 1. 绘制半透明天穹半球经纬网格骨架 (Wireframe Dome)
-        u = np.linspace(0, 2 * np.pi, 36)
-        v = np.linspace(0, np.pi / 2, 10)
-        
-        # 仰角同心圈 (Elevation Rings: 0°, 30°, 60°)
-        for elev_deg in [0, 30, 60]:
-            elev_rad = np.deg2rad(elev_deg)
-            r_ring = np.cos(elev_rad)
-            z_ring = np.sin(elev_rad)
-            x_ring = r_ring * np.sin(u) # East
-            y_ring = r_ring * np.cos(u) # North
-            self.ax.plot(x_ring, y_ring, z_ring, color='#334155', linestyle='--', linewidth=0.8, alpha=0.6)
-            if elev_deg > 0:
-                self.ax.text(0, r_ring, z_ring, f" {elev_deg}°", color='#64748B', fontsize=8, fontweight='bold')
-
-        # 10° 截止角红色虚线圈 (Mask 10°)
-        elev_mask = np.deg2rad(10)
-        r_mask = np.cos(elev_mask)
-        z_mask = np.sin(elev_mask)
-        self.ax.plot(r_mask * np.sin(u), r_mask * np.cos(u), z_mask, color='#EF4444', linestyle=':', linewidth=1.2, alpha=0.6)
-
-        # 方位角经线射线 (Azimuth Meridians: 0°, 45°, 90°, ...)
-        for azim_deg in [0, 45, 90, 135, 180, 225, 270, 315]:
-            azim_rad = np.deg2rad(azim_deg)
-            v_line = np.linspace(0, np.pi / 2, 20)
-            x_line = np.cos(v_line) * np.sin(azim_rad)
-            y_line = np.cos(v_line) * np.cos(azim_rad)
-            z_line = np.sin(v_line)
-            self.ax.plot(x_line, y_line, z_line, color='#334155', linestyle=':', linewidth=0.7, alpha=0.5)
-
-        # 地平底面参考十字线
-        self.ax.plot([-1.05, 1.05], [0, 0], [0, 0], color='#1E293B', linestyle='-', linewidth=1.0)
-        self.ax.plot([0, 0], [-1.05, 1.05], [0, 0], color='#1E293B', linestyle='-', linewidth=1.0)
-
-        # 四大主方位与天顶文字标识
-        self.ax.text(0, 1.15, 0, "N (0°)", color='#38BDF8', fontsize=10, fontweight='bold', ha='center', va='center')
-        self.ax.text(1.15, 0, 0, "E (90°)", color='#E2E8F0', fontsize=9, fontweight='bold', ha='center', va='center')
-        self.ax.text(0, -1.15, 0, "S (180°)", color='#E2E8F0', fontsize=9, fontweight='bold', ha='center', va='center')
-        self.ax.text(-1.15, 0, 0, "W (270°)", color='#E2E8F0', fontsize=9, fontweight='bold', ha='center', va='center')
-        self.ax.text(0, 0, 1.08, "Zenith (90°)", color='#94A3B8', fontsize=8.5, fontweight='bold', ha='center', va='bottom')
-
-        # 2. 如果提供了全时段星轨，绘制 3D 空间立体星轨
+        # 1. 绘制 3D 空间立体星轨 (如果开启)
         if sat_tracks_dict and show_tracks:
             for sat_key, raw_track in sat_tracks_dict.items():
                 if not raw_track:
@@ -281,7 +307,6 @@ class SkyPlotCanvas(QWidget):
                 sys_prefix, _ = sat_key
                 color = self.CONSTELLATION_COLORS.get(sys_prefix, '#94A3B8')
 
-                # 轨迹切分
                 sub_segs = []
                 c_seg = [valid_pts[0]]
                 for i in range(1, len(valid_pts)):
@@ -297,18 +322,18 @@ class SkyPlotCanvas(QWidget):
                 if len(c_seg) > 1: sub_segs.append(c_seg)
 
                 for seg in sub_segs:
-                    # 采样防止点过多
-                    if len(seg) > 100:
-                        step = max(1, len(seg) // 100)
+                    if len(seg) > 80:
+                        step = max(1, len(seg) // 80)
                         seg = seg[::step]
                     az_rad = np.deg2rad([p[2] for p in seg])
                     el_rad = np.deg2rad([p[1] for p in seg])
                     x_3d = np.cos(el_rad) * np.sin(az_rad)
                     y_3d = np.cos(el_rad) * np.cos(az_rad)
                     z_3d = np.sin(el_rad)
-                    self.ax.plot(x_3d, y_3d, z_3d, color=color, linewidth=1.8, alpha=0.7, zorder=3)
+                    line_art = self.ax.plot(x_3d, y_3d, z_3d, color=color, linewidth=1.8, alpha=0.75, zorder=4)[0]
+                    self._3d_dynamic_artists.append(line_art)
 
-        # 3. 绘制当前时刻 3D 卫星发光球体与名称标签
+        # 2. 绘制当前时刻 3D 发光卫星球体、垂直落地虚线 (Drop Lines) 与地面光斑 (Footprints)
         if sats_dict:
             for sat_key, sat_info in sats_dict.items():
                 sys_prefix = sat_info.get('sys_prefix', 'GPS')
@@ -330,12 +355,24 @@ class SkyPlotCanvas(QWidget):
                 color = self.CONSTELLATION_COLORS.get(sys_prefix, '#94A3B8')
                 sat_name = f"{lbl_char}{prn:02d}"
 
+                # A. 绘制垂直落地投影虚线 (Drop Line: 从 (x, y, z) 直落到 (x, y, 0))
+                drop_line = self.ax.plot([x, x], [y, y], [0, z], color=color, linestyle=':', linewidth=0.9, alpha=0.45, zorder=3)[0]
+                self._3d_dynamic_artists.append(drop_line)
+
+                # B. 绘制地面投影光环 (Ground Footprint: 增强空间高度感知)
+                ground_spot = self.ax.scatter([x], [y], [0], s=32, facecolors='none', edgecolors=color, linewidths=1.0, alpha=0.55, zorder=3)
+                self._3d_dynamic_artists.append(ground_spot)
+
+                # C. 绘制 3D 卫星主体与文字标签
                 if is_used:
-                    self.ax.scatter([x], [y], [z], s=180, color=color, edgecolors='#FFFFFF', linewidths=1.5, alpha=1.0, zorder=6)
-                    self.ax.text(x, y, z + 0.04, sat_name, color='#FFFFFF', fontsize=8.5, fontweight='bold', ha='center', va='bottom', zorder=7)
+                    sat_dot = self.ax.scatter([x], [y], [z], s=200, color=color, edgecolors='#FFFFFF', linewidths=1.6, alpha=1.0, zorder=6)
+                    sat_txt = self.ax.text(x, y, z + 0.04, sat_name, color='#FFFFFF', fontsize=8.5, fontweight='bold', ha='center', va='bottom', zorder=7)
                 else:
-                    self.ax.scatter([x], [y], [z], s=120, facecolors='none', edgecolors=color, linewidths=1.2, alpha=0.8, zorder=5)
-                    self.ax.text(x, y, z + 0.03, sat_name, color='#94A3B8', fontsize=8.0, fontweight='bold', ha='center', va='bottom', zorder=7)
+                    sat_dot = self.ax.scatter([x], [y], [z], s=130, facecolors='none', edgecolors=color, linewidths=1.3, alpha=0.85, zorder=5)
+                    sat_txt = self.ax.text(x, y, z + 0.03, sat_name, color='#94A3B8', fontsize=8.0, fontweight='bold', ha='center', va='bottom', zorder=7)
+
+                self._3d_dynamic_artists.append(sat_dot)
+                self._3d_dynamic_artists.append(sat_txt)
 
         title_str = f"{title_prefix} 3D 空间立体天穹 (3D SkyDome)" if title_prefix else "3D 空间立体天穹 (3D SkyDome)"
         if dop_dict:
