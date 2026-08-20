@@ -902,7 +902,7 @@ class MainWindow(QMainWindow):
         """
 
 
-        # A. 靶心图容器页 (100% 满屏无侧边栏占用)
+        # A. 靶心图容器页 (100% 满屏紧凑布局)
         self.tab_scatter = QWidget()
         layout_scatter = QVBoxLayout(self.tab_scatter)
         layout_scatter.setContentsMargins(12, 12, 12, 12)
@@ -915,11 +915,12 @@ class MainWindow(QMainWindow):
         card_layout_scatter.setContentsMargins(0, 0, 0, 0)
         card_layout_scatter.setSpacing(0)
 
-        # 顶部横向紧凑工具条 (Toolbar + 快捷复选开关)
+        # 顶部横向紧凑工具条 (固定高度 34px，与 NavigationToolbar 平齐)
         top_bar_widget = QWidget()
+        top_bar_widget.setFixedHeight(34)
         top_bar_widget.setStyleSheet("background-color: #F8FAFC; border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom: 1px solid #E2E8F0;")
         top_bar_layout = QHBoxLayout(top_bar_widget)
-        top_bar_layout.setContentsMargins(6, 4, 12, 4)
+        top_bar_layout.setContentsMargins(4, 2, 12, 2)
         top_bar_layout.setSpacing(16)
 
         self.canvas_scatter = PlotWidget(self.card_scatter)
@@ -931,34 +932,34 @@ class MainWindow(QMainWindow):
 
         # 横向复选开关群
         self.cb_time_sync_scatter = QCheckBox("多图联动")
-        self.cb_time_sync_scatter.setStyleSheet("color: #D97706; font-weight: bold; font-size: 11px;")
+        self.cb_time_sync_scatter.setStyleSheet("QCheckBox { color: #D97706; font-weight: bold; font-size: 11px; }")
         self.cb_time_sync_scatter.setChecked(False)
         self.cb_time_sync_scatter.stateChanged.connect(self.on_master_time_sync_toggled)
         top_bar_layout.addWidget(self.cb_time_sync_scatter)
 
         self.cb_show_confidence_rings = QCheckBox("置信圆 (CEP/R95/2DRMS)")
-        self.cb_show_confidence_rings.setStyleSheet("color: #0284C7; font-weight: bold; font-size: 11px;")
+        self.cb_show_confidence_rings.setStyleSheet("QCheckBox { color: #0284C7; font-weight: bold; font-size: 11px; }")
         self.cb_show_confidence_rings.setChecked(False)
         self.cb_show_confidence_rings.stateChanged.connect(self.on_confidence_rings_toggled)
         top_bar_layout.addWidget(self.cb_show_confidence_rings)
 
         self.cb_show_accuracy_metrics = QCheckBox("定位精度指标")
-        self.cb_show_accuracy_metrics.setStyleSheet("color: #059669; font-weight: bold; font-size: 11px;")
+        self.cb_show_accuracy_metrics.setStyleSheet("QCheckBox { color: #059669; font-weight: bold; font-size: 11px; }")
         self.cb_show_accuracy_metrics.setChecked(False)
         self.cb_show_accuracy_metrics.stateChanged.connect(self.on_accuracy_metrics_toggled)
         top_bar_layout.addWidget(self.cb_show_accuracy_metrics)
 
-        card_layout_scatter.addWidget(top_bar_widget)
+        card_layout_scatter.addWidget(top_bar_widget, 0)
 
-        # 包含画布与半透明 HUD 悬浮指标卡的主体区域
+        # 包含画布与半透明 HUD 悬浮指标卡的主体区域 (垂直撑满全部空间 stretch=1)
         canvas_container = QWidget()
         canvas_container_layout = QGridLayout(canvas_container)
         canvas_container_layout.setContentsMargins(0, 0, 0, 0)
         canvas_container_layout.addWidget(self.canvas_scatter, 0, 0)
 
-        # 半透明 HUD 悬浮定位精度指标卡 (嵌入在右上角，不占任何外部空间)
+        # 半透明 HUD 悬浮定位精度指标卡 (嵌入在右上角)
         self.grp_accuracy_metrics = QGroupBox("【定位精度指标】", canvas_container)
-        self.grp_accuracy_metrics.setStyleSheet("QGroupBox { font-weight: bold; color: #10B981; background-color: rgba(15, 23, 42, 0.92); border: 1.5px solid #10B981; border-radius: 8px; margin-top: 10px; padding-top: 12px; padding-left: 10px; padding-right: 10px; padding-bottom: 8px; }")
+        self.grp_accuracy_metrics.setStyleSheet("QGroupBox { font-weight: bold; color: #10B981; background-color: rgba(15, 23, 42, 0.92); border: 1.5px solid #10B981; border-radius: 8px; margin-top: 10px; margin-right: 10px; padding-top: 12px; padding-left: 10px; padding-right: 10px; padding-bottom: 8px; }")
         acc_layout = QVBoxLayout(self.grp_accuracy_metrics)
         acc_layout.setSpacing(4)
         self.lbl_acc_cep50 = QLabel("• CEP (50% 水平误差): --")
@@ -970,14 +971,13 @@ class MainWindow(QMainWindow):
         self.lbl_acc_rms3d = QLabel("• 3D-RMS (68% 三维空间误差): --")
         self.lbl_acc_sep95 = QLabel("• 3D-95% (95% 三维空间误差): --")
         for lbl in [self.lbl_acc_cep50, self.lbl_acc_rms2d, self.lbl_acc_r95, self.lbl_acc_drms2, self.lbl_acc_cep99, self.lbl_acc_rmsu, self.lbl_acc_rms3d, self.lbl_acc_sep95]:
-            lbl.setStyleSheet("color: #F8FAFC; font-size: 11px; font-weight: bold;")
+            lbl.setStyleSheet("color: #F8FAFC; font-size: 11px; font-weight: bold; background: transparent; border: none;")
             acc_layout.addWidget(lbl)
         self.grp_accuracy_metrics.hide()
         
-        # 将 HUD 放置在右上角
         canvas_container_layout.addWidget(self.grp_accuracy_metrics, 0, 0, Qt.AlignTop | Qt.AlignRight)
 
-        card_layout_scatter.addWidget(canvas_container)
+        card_layout_scatter.addWidget(canvas_container, 1)
         layout_scatter.addWidget(self.card_scatter)
 
         # B. 定位质量图容器页
