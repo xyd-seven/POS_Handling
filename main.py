@@ -902,82 +902,26 @@ class MainWindow(QMainWindow):
         """
 
 
-        # A. 靶心图容器页 (100% 满屏紧凑布局)
+        # A. 靶心图容器页 (与其它 Tab 100% 严格统一的标准布局)
         self.tab_scatter = QWidget()
         layout_scatter = QVBoxLayout(self.tab_scatter)
         layout_scatter.setContentsMargins(12, 12, 12, 12)
         layout_scatter.setSpacing(0)
 
-        # 白卡图表容器
+        # 创建白卡容器
         self.card_scatter = QWidget()
         self.card_scatter.setStyleSheet("background-color: #FFFFFF; border: 1px solid #334155; border-radius: 8px;")
         card_layout_scatter = QVBoxLayout(self.card_scatter)
         card_layout_scatter.setContentsMargins(0, 0, 0, 0)
         card_layout_scatter.setSpacing(0)
 
-        # 顶部横向紧凑工具条 (固定高度 34px，与 NavigationToolbar 平齐)
-        top_bar_widget = QWidget()
-        top_bar_widget.setFixedHeight(34)
-        top_bar_widget.setStyleSheet("background-color: #F8FAFC; border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom: 1px solid #E2E8F0;")
-        top_bar_layout = QHBoxLayout(top_bar_widget)
-        top_bar_layout.setContentsMargins(4, 2, 12, 2)
-        top_bar_layout.setSpacing(16)
-
         self.canvas_scatter = PlotWidget(self.card_scatter)
         self.canvas_scatter.setStyleSheet("background-color: #FFFFFF; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;")
-        self.toolbar_scatter = NavigationToolbar(self.canvas_scatter, top_bar_widget)
-        self.toolbar_scatter.setStyleSheet("background: transparent; border: none;")
-        top_bar_layout.addWidget(self.toolbar_scatter)
-        top_bar_layout.addStretch()
+        self.toolbar_scatter = NavigationToolbar(self.canvas_scatter, self.card_scatter)
+        self.toolbar_scatter.setStyleSheet(TOOLBAR_STYLE)
 
-        # 横向复选开关群
-        self.cb_time_sync_scatter = QCheckBox("多图联动")
-        self.cb_time_sync_scatter.setStyleSheet("QCheckBox { color: #D97706; font-weight: bold; font-size: 11px; }")
-        self.cb_time_sync_scatter.setChecked(False)
-        self.cb_time_sync_scatter.stateChanged.connect(self.on_master_time_sync_toggled)
-        top_bar_layout.addWidget(self.cb_time_sync_scatter)
-
-        self.cb_show_confidence_rings = QCheckBox("置信圆 (CEP/R95/2DRMS)")
-        self.cb_show_confidence_rings.setStyleSheet("QCheckBox { color: #0284C7; font-weight: bold; font-size: 11px; }")
-        self.cb_show_confidence_rings.setChecked(False)
-        self.cb_show_confidence_rings.stateChanged.connect(self.on_confidence_rings_toggled)
-        top_bar_layout.addWidget(self.cb_show_confidence_rings)
-
-        self.cb_show_accuracy_metrics = QCheckBox("定位精度指标")
-        self.cb_show_accuracy_metrics.setStyleSheet("QCheckBox { color: #059669; font-weight: bold; font-size: 11px; }")
-        self.cb_show_accuracy_metrics.setChecked(False)
-        self.cb_show_accuracy_metrics.stateChanged.connect(self.on_accuracy_metrics_toggled)
-        top_bar_layout.addWidget(self.cb_show_accuracy_metrics)
-
-        card_layout_scatter.addWidget(top_bar_widget, 0)
-
-        # 包含画布与半透明 HUD 悬浮指标卡的主体区域 (垂直撑满全部空间 stretch=1)
-        canvas_container = QWidget()
-        canvas_container_layout = QGridLayout(canvas_container)
-        canvas_container_layout.setContentsMargins(0, 0, 0, 0)
-        canvas_container_layout.addWidget(self.canvas_scatter, 0, 0)
-
-        # 半透明 HUD 悬浮定位精度指标卡 (嵌入在右上角)
-        self.grp_accuracy_metrics = QGroupBox("【定位精度指标】", canvas_container)
-        self.grp_accuracy_metrics.setStyleSheet("QGroupBox { font-weight: bold; color: #10B981; background-color: rgba(15, 23, 42, 0.92); border: 1.5px solid #10B981; border-radius: 8px; margin-top: 10px; margin-right: 10px; padding-top: 12px; padding-left: 10px; padding-right: 10px; padding-bottom: 8px; }")
-        acc_layout = QVBoxLayout(self.grp_accuracy_metrics)
-        acc_layout.setSpacing(4)
-        self.lbl_acc_cep50 = QLabel("• CEP (50% 水平误差): --")
-        self.lbl_acc_rms2d = QLabel("• 2D-RMS (68% 水平误差): --")
-        self.lbl_acc_r95 = QLabel("• R95 / CEP95 (95% 水平误差): --")
-        self.lbl_acc_drms2 = QLabel("• 2DRMS (98% 水平误差): --")
-        self.lbl_acc_cep99 = QLabel("• CEP99 (99% 水平误差): --")
-        self.lbl_acc_rmsu = QLabel("• 高程 1D-RMS (68% 高程误差): --")
-        self.lbl_acc_rms3d = QLabel("• 3D-RMS (68% 三维空间误差): --")
-        self.lbl_acc_sep95 = QLabel("• 3D-95% (95% 三维空间误差): --")
-        for lbl in [self.lbl_acc_cep50, self.lbl_acc_rms2d, self.lbl_acc_r95, self.lbl_acc_drms2, self.lbl_acc_cep99, self.lbl_acc_rmsu, self.lbl_acc_rms3d, self.lbl_acc_sep95]:
-            lbl.setStyleSheet("color: #F8FAFC; font-size: 11px; font-weight: bold; background: transparent; border: none;")
-            acc_layout.addWidget(lbl)
-        self.grp_accuracy_metrics.hide()
-        
-        canvas_container_layout.addWidget(self.grp_accuracy_metrics, 0, 0, Qt.AlignTop | Qt.AlignRight)
-
-        card_layout_scatter.addWidget(canvas_container, 1)
+        card_layout_scatter.addWidget(self.toolbar_scatter)
+        card_layout_scatter.addWidget(self.canvas_scatter)
         layout_scatter.addWidget(self.card_scatter)
 
         # B. 定位质量图容器页
@@ -2223,6 +2167,46 @@ class MainWindow(QMainWindow):
         self.cb_show_sats.setChecked(False)
         self.cb_show_sats.stateChanged.connect(self.on_show_sats_changed)
         options_layout.addWidget(self.cb_show_sats, 2, 1)
+
+        self.cb_time_sync_scatter = QCheckBox("多图时间联动")
+        self.cb_time_sync_scatter.setToolTip("在折线图上滑动/点击时，星空图、载噪比图与靶心图同屏毫秒级时间联动。")
+        self.cb_time_sync_scatter.setStyleSheet("color: #F59E0B; font-size: 11px; font-weight: bold;")
+        self.cb_time_sync_scatter.setChecked(False)
+        self.cb_time_sync_scatter.stateChanged.connect(self.on_master_time_sync_toggled)
+        options_layout.addWidget(self.cb_time_sync_scatter, 3, 0)
+
+        self.cb_show_confidence_rings = QCheckBox("靶心图置信圆")
+        self.cb_show_confidence_rings.setToolTip("在靶心图上叠加显示 CEP (50%)、R95 (95%) 和 2DRMS (98%) 置信圆环。")
+        self.cb_show_confidence_rings.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: bold;")
+        self.cb_show_confidence_rings.setChecked(False)
+        self.cb_show_confidence_rings.stateChanged.connect(self.on_confidence_rings_toggled)
+        options_layout.addWidget(self.cb_show_confidence_rings, 3, 1)
+
+        self.cb_show_accuracy_metrics = QCheckBox("显示定位精度指标")
+        self.cb_show_accuracy_metrics.setToolTip("展开显示包含 CEP50、2D-RMS、R95、2DRMS、CEP99 及高程/3D RMS的完整指标体系。")
+        self.cb_show_accuracy_metrics.setStyleSheet("color: #10B981; font-size: 11px; font-weight: bold;")
+        self.cb_show_accuracy_metrics.setChecked(False)
+        self.cb_show_accuracy_metrics.stateChanged.connect(self.on_accuracy_metrics_toggled)
+        options_layout.addWidget(self.cb_show_accuracy_metrics, 4, 0, 1, 2)
+
+        # 右侧全局【定位精度指标】卡片 (默认隐藏)
+        self.grp_accuracy_metrics = QGroupBox("【定位精度指标】")
+        self.grp_accuracy_metrics.setStyleSheet("QGroupBox { font-weight: bold; color: #10B981; border: 1.5px solid #10B981; border-radius: 6px; margin-top: 6px; padding-top: 10px; }")
+        acc_layout = QVBoxLayout(self.grp_accuracy_metrics)
+        acc_layout.setSpacing(4)
+        self.lbl_acc_cep50 = QLabel("• CEP (50% 水平误差): --")
+        self.lbl_acc_rms2d = QLabel("• 2D-RMS (68% 水平误差): --")
+        self.lbl_acc_r95 = QLabel("• R95 / CEP95 (95% 水平误差): --")
+        self.lbl_acc_drms2 = QLabel("• 2DRMS (98% 水平误差): --")
+        self.lbl_acc_cep99 = QLabel("• CEP99 (99% 水平误差): --")
+        self.lbl_acc_rmsu = QLabel("• 高程 1D-RMS (68% 高程误差): --")
+        self.lbl_acc_rms3d = QLabel("• 3D-RMS (68% 三维空间误差): --")
+        self.lbl_acc_sep95 = QLabel("• 3D-95% (95% 三维空间误差): --")
+        for lbl in [self.lbl_acc_cep50, self.lbl_acc_rms2d, self.lbl_acc_r95, self.lbl_acc_drms2, self.lbl_acc_cep99, self.lbl_acc_rmsu, self.lbl_acc_rms3d, self.lbl_acc_sep95]:
+            lbl.setStyleSheet("color: #E2E8F0; font-size: 11px; font-weight: bold;")
+            acc_layout.addWidget(lbl)
+        self.grp_accuracy_metrics.hide()
+        options_layout.addWidget(self.grp_accuracy_metrics, 5, 0, 1, 2)
 
         file_layout.addLayout(options_layout)
 
@@ -3495,24 +3479,7 @@ class MainWindow(QMainWindow):
             self.canvas_scatter.render_data('scatter', self.segments, self.truth, self.time_zone,
                                             show_confidence_rings=show_rings, cursor_time=self.master_sync_time,
                                             enable_time_sync=self.enable_master_time_sync)
-            # 计算并刷新定位精度指标面板
-            all_e, all_n, all_u = [], [], []
-            for s in self.segments:
-                if s.get('active', True) and s.get('metrics'):
-                    m = s['metrics']
-                    all_e.extend(m.get('de', []))
-                    all_n.extend(m.get('dn', []))
-                    all_u.extend(m.get('du', []))
-            if all_e and hasattr(self, 'lbl_acc_cep50'):
-                acc = compute_accuracy_metrics(all_e, all_n, all_u)
-                self.lbl_acc_cep50.setText(f"• CEP (50% 水平误差): {acc['cep_50']:.3f} m")
-                self.lbl_acc_rms2d.setText(f"• 2D-RMS (68% 水平误差): {acc['rms_2d_68']:.3f} m")
-                self.lbl_acc_r95.setText(f"• R95 / CEP95 (95% 水平误差): {acc['r95_95']:.3f} m")
-                self.lbl_acc_drms2.setText(f"• 2DRMS (98% 水平误差): {acc['drms_2_98']:.3f} m")
-                self.lbl_acc_cep99.setText(f"• CEP99 (99% 水平误差): {acc['cep_99']:.3f} m")
-                self.lbl_acc_rmsu.setText(f"• 高程 1D-RMS (68% 高程误差): {acc['rms_u_68']:.3f} m")
-                self.lbl_acc_rms3d.setText(f"• 3D-RMS (68% 三维空间误差): {acc['rms_3d_68']:.3f} m")
-                self.lbl_acc_sep95.setText(f"• 3D-95% (95% 三维空间误差): {acc['sep_95']:.3f} m")
+            self.update_accuracy_metrics_display()
         elif index == 1:
             self.canvas_epoch_h.render_data('epoch_h', self.segments, self.truth, self.time_zone, show_extrema=self.show_extrema, x_axis_mode=self.x_axis_mode, show_sats=self.cb_show_sats.isChecked())
         elif index == 2:
@@ -5639,10 +5606,42 @@ class MainWindow(QMainWindow):
     def on_confidence_rings_toggled(self, state):
         self.refresh_chart()
 
+    def update_accuracy_metrics_display(self):
+        if not hasattr(self, 'lbl_acc_cep50'):
+            return
+        all_e, all_n, all_u = [], [], []
+        for s in self.segments:
+            if s.get('active', True) and s.get('metrics'):
+                m = s['metrics']
+                all_e.extend(m.get('de', []))
+                all_n.extend(m.get('dn', []))
+                all_u.extend(m.get('v_errors', []))
+        if all_e:
+            acc = compute_accuracy_metrics(all_e, all_n, all_u)
+            self.lbl_acc_cep50.setText(f"• CEP (50% 水平误差): {acc['cep_50']:.3f} m")
+            self.lbl_acc_rms2d.setText(f"• 2D-RMS (68% 水平误差): {acc['rms_2d_68']:.3f} m")
+            self.lbl_acc_r95.setText(f"• R95 / CEP95 (95% 水平误差): {acc['r95_95']:.3f} m")
+            self.lbl_acc_drms2.setText(f"• 2DRMS (98% 水平误差): {acc['drms_2_98']:.3f} m")
+            self.lbl_acc_cep99.setText(f"• CEP99 (99% 水平误差): {acc['cep_99']:.3f} m")
+            self.lbl_acc_rmsu.setText(f"• 高程 1D-RMS (68% 高程误差): {acc['rms_u_68']:.3f} m")
+            self.lbl_acc_rms3d.setText(f"• 3D-RMS (68% 三维空间误差): {acc['rms_3d_68']:.3f} m")
+            self.lbl_acc_sep95.setText(f"• 3D-95% (95% 三维空间误差): {acc['sep_95']:.3f} m")
+        else:
+            self.lbl_acc_cep50.setText("• CEP (50% 水平误差): --")
+            self.lbl_acc_rms2d.setText("• 2D-RMS (68% 水平误差): --")
+            self.lbl_acc_r95.setText("• R95 / CEP95 (95% 水平误差): --")
+            self.lbl_acc_drms2.setText("• 2DRMS (98% 水平误差): --")
+            self.lbl_acc_cep99.setText("• CEP99 (99% 水平误差): --")
+            self.lbl_acc_rmsu.setText("• 高程 1D-RMS (68% 高程误差): --")
+            self.lbl_acc_rms3d.setText("• 3D-RMS (68% 三维空间误差): --")
+            self.lbl_acc_sep95.setText("• 3D-95% (95% 三维空间误差): --")
+
     def on_accuracy_metrics_toggled(self, state):
         show_m = (state == 2 or state is True)
         if hasattr(self, 'grp_accuracy_metrics'):
             self.grp_accuracy_metrics.setVisible(show_m)
+        if show_m:
+            self.update_accuracy_metrics_display()
         self.refresh_chart()
 
     def on_plot_time_hovered(self, t_sec):

@@ -213,7 +213,7 @@ class PlotWidget(FigureCanvas):
             self.ax.set_facecolor('#FFFFFF')
         
         if tab == 'scatter':
-            self.draw_scatter(segments, truth)
+            self.draw_scatter(segments, truth, show_confidence_rings=show_confidence_rings, cursor_time=cursor_time)
         elif tab == 'status':
             self.draw_status(segments)
         elif tab == 'epoch_h':
