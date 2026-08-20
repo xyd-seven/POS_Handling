@@ -932,7 +932,7 @@ class MainWindow(QMainWindow):
         self.cb_time_sync_scatter.stateChanged.connect(self.on_master_time_sync_toggled)
         self.toolbar_scatter.addWidget(self.cb_time_sync_scatter)
 
-        self.cb_show_confidence_rings = QCheckBox("置信圆(CEP/R95/2DRMS)")
+        self.cb_show_confidence_rings = QCheckBox("置信圆(50%/68%/95%)")
         self.cb_show_confidence_rings.setStyleSheet("QCheckBox { color: #38BDF8; font-weight: bold; font-size: 11px; margin-right: 8px; }")
         self.cb_show_confidence_rings.setChecked(False)
         self.cb_show_confidence_rings.stateChanged.connect(self.on_confidence_rings_toggled)
@@ -954,7 +954,27 @@ class MainWindow(QMainWindow):
 
         # 半透明 HUD 悬浮定位精度指标卡 (嵌入在靶心图右上角，零外部空间占用)
         self.grp_accuracy_metrics = QGroupBox("【定位精度指标】", canvas_container)
-        self.grp_accuracy_metrics.setStyleSheet("QGroupBox { font-weight: bold; color: #10B981; background-color: rgba(15, 23, 42, 0.92); border: 1.5px solid #10B981; border-radius: 8px; margin-top: 10px; margin-right: 10px; padding-top: 12px; padding-left: 10px; padding-right: 10px; padding-bottom: 8px; }")
+        self.grp_accuracy_metrics.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                color: #10B981;
+                background-color: rgba(15, 23, 42, 0.95);
+                border: 1.5px solid #10B981;
+                border-radius: 8px;
+                margin-top: 24px;
+                margin-right: 14px;
+                padding-top: 14px;
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-bottom: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 12px;
+                padding: 0 4px;
+            }
+        """)
         acc_layout = QVBoxLayout(self.grp_accuracy_metrics)
         acc_layout.setSpacing(4)
         self.lbl_acc_cep50 = QLabel("• CEP (50% 水平误差): --")
@@ -5668,14 +5688,14 @@ class MainWindow(QMainWindow):
         if not getattr(self, 'enable_master_time_sync', False):
             return
         t_sec = float(x_val)
-        # 如果当前 X 轴是历元数模式，把索引转换成真实秒数
+        # 如果当前 X 轴是历元数模式 (1-indexed)，从 epochs 提取真实秒数
         if getattr(self, 'x_axis_mode', '历元数') == '历元数':
             for s in self.segments:
-                if s.get('active', True) and s.get('times'):
-                    times = s['times']
-                    idx = int(round(x_val))
-                    if 0 <= idx < len(times):
-                        t_sec = float(times[idx])
+                if s.get('active', True) and s.get('epochs'):
+                    epochs = s['epochs']
+                    idx = int(round(x_val)) - 1
+                    if 0 <= idx < len(epochs):
+                        t_sec = float(epochs[idx].get('utc_time_sec', epochs[idx].get('time', 0)))
                         break
         self.master_sync_time = t_sec
         # 同步更新天空图 (2D/3D)

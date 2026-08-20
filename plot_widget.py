@@ -176,14 +176,15 @@ class PlotWidget(FigureCanvas):
         if x_axis_mode == '时间轴':
             cx = cursor_time
         else:
-            # 找到最接近 cursor_time 的历元索引
             for s in segments:
-                if s.get('active', True) and s.get('times'):
-                    t_arr = np.array(s['times'])
-                    idx = int(np.argmin(np.abs(t_arr - cursor_time)))
-                    if abs(t_arr[idx] - cursor_time) <= 2.0:
-                        cx = idx
-                        break
+                if s.get('active', True) and s.get('epochs'):
+                    t_list = [ep.get('utc_time_sec', ep.get('time', 0)) for ep in s['epochs']]
+                    if t_list:
+                        t_arr = np.array(t_list)
+                        idx = int(np.argmin(np.abs(t_arr - cursor_time)))
+                        if abs(t_arr[idx] - cursor_time) <= 3.0:
+                            cx = idx + 1  # 历元数是 1-indexed
+                            break
         if cx is not None:
             try:
                 ax.axvline(x=cx, color='#F59E0B', linestyle='--', linewidth=1.8, alpha=0.9, zorder=10)
@@ -444,17 +445,18 @@ class PlotWidget(FigureCanvas):
                 rms_2d = float(np.sqrt(np.mean(d_2d**2)))
                 drms_98 = 2.0 * rms_2d
 
-                # 绘制 CEP (50%) 绿色虚线圆
-                circle_cep = patches.Circle((0, 0), c_50, fill=False, color='#10B981', linestyle='--', linewidth=1.5, zorder=4, label=f'CEP(50%): {c_50:.3f}m')
+                c_68 = float(np.percentile(d_2d, 68.3))
+                # 1. 绘制 50% 置信圆 (CEP50) 绿色虚线
+                circle_cep = patches.Circle((0, 0), c_50, fill=False, color='#10B981', linestyle='--', linewidth=1.5, zorder=4, label=f'50%: {c_50:.3f}m')
                 self.ax.add_patch(circle_cep)
                 
-                # 绘制 R95 (95%) 橙色虚线圆
-                circle_r95 = patches.Circle((0, 0), r_95, fill=False, color='#F97316', linestyle='--', linewidth=1.6, zorder=4, label=f'R95(95%): {r_95:.3f}m')
-                self.ax.add_patch(circle_r95)
+                # 2. 绘制 68% 置信圆 (2D-RMS / 68%) 橙色虚线
+                circle_68 = patches.Circle((0, 0), c_68, fill=False, color='#F59E0B', linestyle='--', linewidth=1.6, zorder=4, label=f'68%: {c_68:.3f}m')
+                self.ax.add_patch(circle_68)
 
-                # 绘制 2DRMS (98%) 蓝色点划线圆
-                circle_2drms = patches.Circle((0, 0), drms_98, fill=False, color='#3B82F6', linestyle='-.', linewidth=1.5, zorder=4, label=f'2DRMS(98%): {drms_98:.3f}m')
-                self.ax.add_patch(circle_2drms)
+                # 3. 绘制 95% 置信圆 (R95 / 95%) 蓝色点划线
+                circle_r95 = patches.Circle((0, 0), r_95, fill=False, color='#3B82F6', linestyle='-.', linewidth=1.6, zorder=4, label=f'95%: {r_95:.3f}m')
+                self.ax.add_patch(circle_r95)
 
         # --- 高亮联动选中的历元点 ---
         if cursor_time is not None and active_segments:
