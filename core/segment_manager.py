@@ -160,6 +160,16 @@ class LogParserThread(QThread):
                         if best_fields:
                             ep.update(best_fields)
 
+                for gsv in gsv_events:
+                    if gsv.get('utc_time_sec') is None:
+                        gsv['utc_time_sec'] = first_time_sec
+
+                if gsv_events:
+                    valid_gsv_times = [g.get('utc_time_sec', first_time_sec) for g in gsv_events]
+                    unwrapped_gsv = unwrap_times(valid_gsv_times)
+                    for i, gsv in enumerate(gsv_events):
+                        gsv['utc_time_sec'] = unwrapped_gsv[i]
+
                 file_epochs = attach_rmc_speed_to_epochs(file_epochs)
 
             self.progress_updated.emit(100)

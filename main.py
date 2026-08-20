@@ -2606,6 +2606,10 @@ class MainWindow(QMainWindow):
         self.file_epochs_map[filepath] = []
         self.file_epochs_map[filepath].extend(file_epochs)
 
+        # 存储 GSV 与 GSA 原始时序事件，用于离线天空图 (SkyPlot) 构建
+        self.file_gsv_events_map[filepath] = result.get('gsv_events', [])
+        self.file_gsa_events_map[filepath] = result.get('gsa_events', [])
+
         # 为了后面的 bisect 二分查找，必须保证 file_epochs 是按时间严格递增的
         self.file_epochs_map[filepath].sort(key=lambda x: x['utc_time_sec'])
 
