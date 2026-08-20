@@ -1351,3 +1351,56 @@ class BKStreamParser:
                 return 'BK', frame_data
                 
         return None
+
+def get_sat_info(prefix_or_talker, prn):
+    """
+    根据卫星系统前缀/Talker ID与PRN映射为标准系统简称、物理PRN和单字符标签。
+    严格符合博通 BK166X 协议说明书表 2-7 定义。
+    """
+    p = prefix_or_talker.upper() if prefix_or_talker else ''
+
+    # 优先支持已完全确定的系统前缀，避免与 talker ID 重合冲突
+    if p == 'SBAS':
+        return 'SBAS', prn, 'S'
+    elif p == 'QZSS':
+        return 'QZSS', prn, 'Q'
+    elif p == 'IRNSS':
+        return 'IRNSS', prn, 'I'
+
+    if 'GP' in p or 'GPS' in p:
+        if 1 <= prn <= 32:
+            return 'GPS', prn, 'G'
+        elif 33 <= prn <= 64:
+            return 'SBAS', prn, 'S'
+        elif 193 <= prn <= 202:
+            return 'QZSS', prn, 'Q'
+    elif 'GL' in p or 'GLONASS' in p:
+        if 33 <= prn <= 64:
+            return 'SBAS', prn, 'S'
+        elif 65 <= prn <= 99:
+            return 'GL', prn, 'R'
+    elif 'GA' in p or 'GALILEO' in p or 'GAL' in p:
+        if 37 <= prn <= 64:
+            return 'SBAS', prn, 'S'
+        elif 1 <= prn <= 36:
+            return 'GA', prn, 'E'
+    elif 'BD' in p or 'GB' in p or 'BDS' in p:
+        if 1 <= prn <= 63:
+            return 'BD', prn, 'B'
+    elif 'IR' in p or 'GI' in p or 'IRNSS' in p:
+        if 1 <= prn <= 14:
+            return 'IRNSS', prn, 'I'
+        elif 15 <= prn <= 64:
+            return 'SBAS', prn, 'S'
+
+    # 兜底默认分类
+    if 'GL' in p:
+        return 'GL', prn, 'R'
+    elif 'GA' in p:
+        return 'GA', prn, 'E'
+    elif 'BD' in p or 'GB' in p:
+        return 'BD', prn, 'B'
+    elif 'IR' in p or 'GI' in p:
+        return 'IRNSS', prn, 'I'
+    return 'GPS', prn, 'G'
+

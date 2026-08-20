@@ -1,44 +1,44 @@
 # Hand Off - VCOM定位精度分析工具交接文档
 
 ## 1. 项目目标
-基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、载噪比柱状图及 Word 报告导出。当前阶段已完成全部新增图表与高程/速度算法优化。
+基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、载噪比柱状图及 Word 报告导出。当前阶段已完成核心架构模块化解耦与代码瘦身重构。
 
 ---
 
 ## 2. 当前状态
-- `[x]` 在 `plot_widget.py` 与 `main.py` 中新增「ENU三向误差时域分布图」选项卡，支持 E-W / N-S / U-D 三子图垂直联动及动态统计框
-- `[x]` 在 `plot_widget.py` 与 `main.py` 中新增「速度对比图」选项卡，支持待测 vs 动态真值双曲线与速度误差（$\Delta V$）双子图联动
-- `[x]` 在 `plot_widget.py` 与 `main.py` 中新增「误差累积分布图 (CDF)」选项卡，支持水平/高程/3D/速度 4 种维度切换、50%/68%/95%/99% 分位数辅助线与交点标签、多模组同屏曲线叠加及右上角动态统计卡片
-- `[x]` 实现速度对比图与速度 CDF 图 `m/s` 与 `km/h` 一键无缝切换与自适应缩放（$\times 3.6$）
-- `[x]` 在 `gnss_parser.py` 中实现 NMEA 协议单字节微误码自愈机制（自动修复 `E?4`、`s449`、`106.38;` 等粘连字符，挽救 GGA 报文）
-- `[x]` 规范化 RMC 语句高程为 `None`，从源头上杜绝其以 `0.0` 高程污染计算
-- `[x]` 实现通用高程提纯与平滑插补机制（`clean_and_interpolate_altitudes`），全面消除动态真值对比中的 +114m 伪尖峰与静态基准对比中的 -90m 深坑
-- `[x]` 实现同秒 RMC 高精度多普勒车速自动跨语句挂载融合（`attach_rmc_speed_to_epochs`），使 GGA 分段优先享受硬件原生测速
-- `[x]` 完成 Windows 深色模式（Dark Mode）工具栏（NavigationToolbar）图标适配
-- `[x]` 完成 Word 报告导出模块扩展（新增 3.6 ENU 误差图、3.7 速度对比图与 3.8 误差 CDF 曲线自动渲染与写入）
-- `[x]` 完成全套单元与回归测试验证，通过 PyInstaller 重新编译并同步交付至 `F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe`
+- [x] **双重安全备份**：已创建 Git 远端备份分支 ackup/pre-refactor-20260820、标签 1.0.9-pre-refactor 及本地全量物理归档目录 F:\TestTools\pos_handling\backups\backup_pre_refactor_20260820
+- [x] **模块化分层解耦落地**：
+  - 新建 exporters/word_exporter.py：独立封装 Word 评测报告生成、表格数据排版、8 大图表离屏高保真抓取与文件占用冲突防护；
+  - 新建 core/replay_manager.py：独立封装 ReplaySnapshotWorker 后台多线程解析器、切片快照、(1)$ 状态恢复与 Seek 调度；
+  - 新建 core/segment_manager.py：独立封装 LogParserThread、分段数据加载与时间对齐模型；
+  - 在 gnss_parser.py 中规范化沉淀 get_sat_info 星座与 PRN 映射核心底层算法；
+- [x] **100% 接口与业务零破坏**：MainWindow 保持全部公开属性与方法委托，所有既有 UI 控件、信号槽与配置读写完全兼容；
+- [x] **全量端到端回归测试**：	est_refactored_modules.py 与 	est_full_regression.py 100% 通过（涵盖协议解析、指标计算、8 大图表渲染、Word 导出与数据绑定）；
+- [x] **编译与部署**：通过 PyInstaller 重新打包并同步交付覆盖至 F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe。
 
 ---
 
 ## 3. 当前任务
-- 无（本阶段开发、优化、测试、编译打包与清理工作已全部圆满完成）
+- 无（架构模块化解耦、全量回归测试与生产环境重新打包部署已全部圆满完成）
 
 ---
 
 ## 4. 关键设计决策
-- **多维度经验累积分布函数 (ECDF) 与分位数动态计算**：在 `calculate_metrics` 中补充 3D 空间误差（$\sqrt{E^2+N^2+U^2}$）及各维度的 50%、68.3%、95%、99% 分位数。在 `draw_cdf` 中对误差数组升序排序并计算百分比，绘制分段专属曲线、门限交点高亮圆点及右上角自适应统计矩阵卡片。
-- **多子图垂直联动与双单位即时换算**：ENU 三向误差图与速度对比图均采用垂直共享 X 轴联动子图架构。速度图工具栏支持 `m/s` 与 `km/h` 无缝切换，切换时波形与统计指标即时乘除 3.6 动态缩放，无需重算或重构数据。
-- **NMEA 容错自愈解析机制**：针对串口通信常见的单字节粘连（如 `E?4` 代替 `E,4`），自动提取合法半球字母并将后续数字回填至解状态字段，避免因微小偶发误码丢失整行定位历元。
-- **高程序列提纯与 1D 线性平滑插补**：解除高程计算对 RMC `0.0` 高程的依赖。待测与真值数据的高程序列均通过 `clean_and_interpolate_altitudes` 提纯，缺失时沿时间轴线性插补，彻底杜绝动态对比中的伪尖峰与静态基准对比中的 0 点塌陷。
-- **同秒 RMC 原生速度跨语句对齐与挂载**：在文件解析与实时流中，提取同秒 RMC 的原生多普勒测速自动挂载至同秒 GGA 历元中。`extract_or_compute_speed` 100% 优先使用原生硬件测速，仅在纯 GGA 日志下兜底采用 $\Delta d / \Delta t$ 空间位移差分。
+- **委托模式（Delegation Pattern）实现无缝解耦**：MainWindow 保持原有方法签名，将实际实现委托给 core 与 exporters 子模块，既做到了主入口瘦身，又保证了外部调用、单元测试与 Qt 信号槽的 100% 向后兼容。
+- **深度容错与异常隔离**：各子模块独立捕获 IO、多线程与文档导出异常，统一派发安全信号，杜绝程序崩溃。Word 导出层增加 PermissionError 智能拦截与进度条取消即时响应。
+- **卫星星座映射算法沉淀至底层算法库**：将原在 UI 层的 get_sat_info 迁移至 gnss_parser.py，使回放引擎、分段管理、图表渲染与后续天空图均能统一复用一致的标准星座与 PRN 分类标准。
 
 ---
 
 ## 5. 修改记录
-- `gnss_parser.py`
-- `plot_widget.py`
-- `main.py`
-- `handoff.md`
+- gnss_parser.py
+- main.py
+- core/__init__.py
+- core/replay_manager.py
+- core/segment_manager.py
+- exporters/__init__.py
+- exporters/word_exporter.py
+- handoff.md
 
 ---
 
@@ -48,18 +48,17 @@
 ---
 
 ## 7. 下一步任务
-1. **[优先级 - 中] 极坐标天空图 (SkyPlot) & DOP 分析**：在 GSV 数据基础上实现 2D 雷达极坐标天空图与 PDOP/HDOP 曲线。
-2. **[优先级 - 低] 动态真值多源切换**：用户指示暂不需要增加该功能，若未来有业务需求可再开启。
+1. **[优先级 - 高] 极坐标天空图 (SkyPlot) 模块开发**：在 plots/ 下基于 get_sat_info 与 GSV 方位角/仰角数据实现 2D 雷达极坐标天空图组件。
+2. **[优先级 - 中] DOP 几何构型分析曲线**：实现 PDOP/HDOP/VDOP 时域走势图。
 
 ---
 
 ## 8. 测试状态
-- **误差累积分布 (CDF) 4种模式与分位数标注测试**：PASS
-- **速度对比与双单位切换测试**：PASS
-- **动态真值高程误差突跳消除与微误码自愈测试**：PASS
-- **静态基准对比 RMC 混杂高程防护测试**：PASS
-- **同秒 RMC 车速自动跨语句挂载测试**：PASS
-- **回放、Seek 与快照综合回归测试**：PASS
+- **模块导入与依赖完整性测试**：PASS
+- **LogParserThread 多协议解析测试**：PASS
+- **ReplaySnapshotWorker 切片快照与回放测试**：PASS
+- **8 大图表渲染引擎端到端测试**：PASS
+- **Word 评测报告自动生成测试**：PASS
 - **PyInstaller 编译与可执行程序部署**：PASS
 
 ---
