@@ -204,11 +204,12 @@ class PlotWidget(FigureCanvas):
             return
 
         target_axes = []
-        if getattr(self, 'current_tab_name', '') == 'epoch_enu':
+        tab_name = getattr(self, 'current_tab_name', 'epoch_h')
+        if tab_name == 'epoch_enu':
             for a in [getattr(self, 'ax_e', None), getattr(self, 'ax_n', None), getattr(self, 'ax_u', None)]:
                 if a is not None:
                     target_axes.append(a)
-        elif getattr(self, 'current_tab_name', '') == 'speed':
+        elif tab_name == 'speed':
             for a in [getattr(self, 'ax_speed', None), getattr(self, 'ax_speed_err', None)]:
                 if a is not None:
                     target_axes.append(a)
@@ -223,12 +224,10 @@ class PlotWidget(FigureCanvas):
 
         self._remove_existing_cursor_artists()
 
-        # 查找匹配的历元数据
         cx = None
         target_info = None
         segments = getattr(self, 'current_segments', [])
         x_axis_mode = getattr(self, 'current_x_mode', '历元数')
-        tab_name = getattr(self, 'current_tab_name', 'epoch_h')
 
         for s in segments:
             if s.get('active', True) and s.get('epochs'):
@@ -238,7 +237,7 @@ class PlotWidget(FigureCanvas):
                 if t_list:
                     t_arr = np.array(t_list)
                     idx = int(np.argmin(np.abs(t_arr - self.cursor_time)))
-                    if abs(t_arr[idx] - self.cursor_time) <= 3.0:
+                    if abs(t_arr[idx] - self.cursor_time) <= 5.0:
                         ep = epochs[idx]
                         sec = int(ep.get('utc_time_sec', ep.get('time', 0))) % 86400
                         time_str = f"{sec//3600:02d}:{(sec%3600)//60:02d}:{sec%60:02d}"
@@ -251,8 +250,10 @@ class PlotWidget(FigureCanvas):
                             err_str = f"误差: {m['h_errors'][idx]:.3f}m"
                         elif tab_name == 'epoch_v' and m.get('v_errors') and idx < len(m['v_errors']):
                             err_str = f"误差: {m['v_errors'][idx]:+.3f}m"
-                        elif tab_name == 'speed' and m.get('speed_errors') and idx < len(m['speed_errors']):
-                            err_str = f"误差: {m['speed_errors'][idx]:+.2f}m/s"
+                        elif tab_name == 'speed':
+                            v_err = m.get('speed_errors', [])
+                            if v_err and idx < len(v_err):
+                                err_str = f"误差: {v_err[idx]:+.2f}m/s"
                         elif tab_name == 'epoch_enu' and m.get('de') and m.get('dn') and m.get('v_errors'):
                             if idx < len(m['de']) and idx < len(m['dn']) and idx < len(m['v_errors']):
                                 err_str = f"E:{m['de'][idx]:+.2f} N:{m['dn'][idx]:+.2f} U:{m['v_errors'][idx]:+.2f}m"
@@ -273,11 +274,18 @@ class PlotWidget(FigureCanvas):
         if cx is not None:
             for i, ax_item in enumerate(target_axes):
                 orig_xlim = ax_item.get_xlim()
+                # 如果坐标轴范围未初始化或异常，使用合理范围
+                if orig_xlim == (0.0, 1.0) and segments:
+                    max_len = max([len(s.get('epochs', [])) for s in segments if s.get('active', True)] or [1])
+                    if x_axis_mode == '历元数':
+                        orig_xlim = (0, max_len + 1)
+                        ax_item.set_xlim(orig_xlim)
+                        
                 if orig_xlim[0] <= cx <= orig_xlim[1]:
                     try:
                         line = ax_item.axvline(x=cx, color='#F59E0B', linestyle='--', linewidth=1.8, alpha=0.9, zorder=10)
                         self.cursor_artists.append(line)
-                        if target_info and i == 0:  # 仅在主坐标轴绘制文字气泡
+                        if target_info and i == 0:
                             parts = [f"#{target_info['epoch']}", target_info['time_str']]
                             if target_info['err_str']:
                                 parts.append(target_info['err_str'])
@@ -303,6 +311,13 @@ class PlotWidget(FigureCanvas):
     def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s', cdf_mode='horizontal', show_quantiles=True, show_confidence_rings=False, cursor_time=None, enable_time_sync=False):
         self.clear_canvas()
         
+        # 在最开头完整初始化并记录当前图表的所有状态
+        self.enable_time_sync = enable_time_sync
+        self.cursor_time = cursor_time
+        self.current_segments = segments
+        self.current_x_mode = x_axis_mode
+        self.current_tab_name = tab
+        
         if tab == 'epoch_enu':
             axs = self.fig.subplots(3, 1, sharex=True)
             self.ax_e = axs[0]
@@ -311,9 +326,7 @@ class PlotWidget(FigureCanvas):
             for a in axs:
                 a.set_facecolor('#FFFFFF')
             self.draw_epoch_enu(segments, truth, time_zone, x_axis_mode, show_stats)
-            self._draw_cursor_line(self.ax_e, cursor_time, segments, x_axis_mode, 'epoch_enu')
-            self._draw_cursor_line(self.ax_n, cursor_time, segments, x_axis_mode)
-            self._draw_cursor_line(self.ax_u, cursor_time, segments, x_axis_mode)
+            self.update_cursor_overlay(cursor_time)
             self.fig.subplots_adjust(left=0.08, right=0.98, top=0.96, bottom=0.08, hspace=0.15)
             self.draw()
             return
@@ -325,8 +338,7 @@ class PlotWidget(FigureCanvas):
             for a in axs:
                 a.set_facecolor('#FFFFFF')
             self.draw_speed_comparison(segments, truth, time_zone, x_axis_mode, speed_unit, show_stats)
-            self._draw_cursor_line(self.ax_speed, cursor_time, segments, x_axis_mode, 'speed')
-            self._draw_cursor_line(self.ax_speed_err, cursor_time, segments, x_axis_mode)
+            self.update_cursor_overlay(cursor_time)
             self.fig.subplots_adjust(left=0.08, right=0.98, top=0.95, bottom=0.09, hspace=0.18)
             self.draw()
             return
@@ -1094,6 +1106,10 @@ class PlotWidget(FigureCanvas):
             self.ax_u.xaxis.set_major_formatter(ticker.ScalarFormatter())
             self.ax_u.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
             self.ax_u.set_xlabel("历元数 (Epoch)", fontsize=11, fontweight='bold', color='#0F172A')
+            if active_segments:
+                max_len = max([len(s.get('epochs', [])) for s in active_segments] or [1])
+                for a in [self.ax_e, self.ax_n, self.ax_u]:
+                    a.set_xlim(0, max_len + 1)
 
     def draw_speed_comparison(self, segments, truth=None, time_zone='UTC', x_axis_mode='历元数', speed_unit='m/s', show_stats=True):
         """
@@ -1121,7 +1137,7 @@ class PlotWidget(FigureCanvas):
         for seg in active_segments:
             epochs = seg['epochs']
             m = seg['metrics']
-            v_test = m.get('speed_test', [])
+            v_test = m.get('speed_test') or m.get('speed') or m.get('velocities') or []
             v_truth = m.get('speed_truth', [])
             v_err = m.get('speed_errors', [])
             
@@ -1219,6 +1235,10 @@ class PlotWidget(FigureCanvas):
             self.ax_speed_err.xaxis.set_major_formatter(ticker.ScalarFormatter())
             self.ax_speed_err.tick_params(axis='x', rotation=0, labelsize=10, colors='#0F172A')
             self.ax_speed_err.set_xlabel("历元数 (Epoch)", fontsize=11, fontweight='bold', color='#0F172A')
+            if active_segments:
+                max_len = max([len(s.get('epochs', [])) for s in active_segments] or [1])
+                for a in [self.ax_speed, self.ax_speed_err]:
+                    a.set_xlim(0, max_len + 1)
 
     def draw_cdf(self, segments, truth=None, cdf_mode='horizontal', speed_unit='m/s', show_quantiles=True):
         """
