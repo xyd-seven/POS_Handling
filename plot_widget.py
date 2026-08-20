@@ -31,7 +31,12 @@ class PlotWidget(FigureCanvas):
         self.ax_sats_twin = None
         self.is_maximized = False
         self.maximized_ax = None
+        self.cursor_artists = []
         self.cursor_time = None
+        self.enable_time_sync = False
+        self.current_segments = []
+        self.current_x_mode = '历元数'
+        self.current_tab_name = 'epoch_h'
         self.show_confidence_rings = False
         self.enable_time_sync = False
         super().__init__(self.fig)
@@ -77,7 +82,6 @@ class PlotWidget(FigureCanvas):
             return
         if event.button == 1 and not event.dblclick:
             x_val = float(event.xdata)
-            # 计算对应的绝对 UTC 秒数
             t_sec = x_val
             if getattr(self, 'current_x_mode', '历元数') == '历元数' and getattr(self, 'current_segments', None):
                 for s in self.current_segments:
@@ -87,7 +91,9 @@ class PlotWidget(FigureCanvas):
                         if 0 <= idx < len(epochs):
                             t_sec = float(epochs[idx].get('utc_time_sec', epochs[idx].get('time', 0)))
                             break
-            # 发射全局同步信号
+            # 1. 本地立即 0 延迟刷新当前图表的时间线 Overlay
+            self.update_cursor_overlay(t_sec)
+            # 2. 发射信号广播给其它 Tab 和天空图
             self.sig_click_time.emit(t_sec)
 
     def clear_canvas(self):
@@ -181,13 +187,49 @@ class PlotWidget(FigureCanvas):
         # Draw idle is needed for relayout 
         self.fig.canvas.draw_idle()
         
-    def _draw_cursor_line(self, ax, cursor_time, segments, x_axis_mode, tab_name='epoch_h'):
-        if cursor_time is None or ax is None:
+    def _remove_existing_cursor_artists(self):
+        for artist in list(getattr(self, 'cursor_artists', [])):
+            try:
+                artist.remove()
+            except Exception:
+                pass
+        self.cursor_artists = []
+
+    def update_cursor_overlay(self, cursor_time=None):
+        if cursor_time is not None:
+            self.cursor_time = cursor_time
+        if not getattr(self, 'enable_time_sync', False) or self.cursor_time is None:
+            self._remove_existing_cursor_artists()
+            self.fig.canvas.draw_idle()
             return
-        orig_xlim = ax.get_xlim()
+
+        target_axes = []
+        if getattr(self, 'current_tab_name', '') == 'epoch_enu':
+            for a in [getattr(self, 'ax_e', None), getattr(self, 'ax_n', None), getattr(self, 'ax_u', None)]:
+                if a is not None:
+                    target_axes.append(a)
+        elif getattr(self, 'current_tab_name', '') == 'speed':
+            for a in [getattr(self, 'ax_speed', None), getattr(self, 'ax_speed_err', None)]:
+                if a is not None:
+                    target_axes.append(a)
+        else:
+            if getattr(self, 'ax', None) is not None:
+                target_axes.append(self.ax)
+            if getattr(self, 'ax_sats', None) is not None:
+                target_axes.append(self.ax_sats)
+
+        if not target_axes:
+            return
+
+        self._remove_existing_cursor_artists()
+
+        # 查找匹配的历元数据
         cx = None
         target_info = None
-        
+        segments = getattr(self, 'current_segments', [])
+        x_axis_mode = getattr(self, 'current_x_mode', '历元数')
+        tab_name = getattr(self, 'current_tab_name', 'epoch_h')
+
         for s in segments:
             if s.get('active', True) and s.get('epochs'):
                 epochs = s['epochs']
@@ -195,8 +237,8 @@ class PlotWidget(FigureCanvas):
                 t_list = [ep.get('utc_time_sec', ep.get('time', 0)) for ep in epochs]
                 if t_list:
                     t_arr = np.array(t_list)
-                    idx = int(np.argmin(np.abs(t_arr - cursor_time)))
-                    if abs(t_arr[idx] - cursor_time) <= 3.0:
+                    idx = int(np.argmin(np.abs(t_arr - self.cursor_time)))
+                    if abs(t_arr[idx] - self.cursor_time) <= 3.0:
                         ep = epochs[idx]
                         sec = int(ep.get('utc_time_sec', ep.get('time', 0))) % 86400
                         time_str = f"{sec//3600:02d}:{(sec%3600)//60:02d}:{sec%60:02d}"
@@ -204,7 +246,6 @@ class PlotWidget(FigureCanvas):
                         q_map = {4: "RTK固定(4)", 5: "RTK浮点(5)", 2: "差分(2)", 1: "单点(1)", 0: "无效(0)"}
                         q_str = q_map.get(q, f"状态({q})")
                         
-                        # 提取当前图表的具体误差值
                         err_str = ""
                         if tab_name == 'epoch_h' and m.get('h_errors') and idx < len(m['h_errors']):
                             err_str = f"误差: {m['h_errors'][idx]:.3f}m"
@@ -230,26 +271,34 @@ class PlotWidget(FigureCanvas):
                         break
 
         if cx is not None:
-            if orig_xlim[0] <= cx <= orig_xlim[1]:
-                try:
-                    # 记录并绘制时间虚线
-                    ax.axvline(x=cx, color='#F59E0B', linestyle='--', linewidth=1.8, alpha=0.9, zorder=10)
-                    if target_info:
-                        parts = [f"#{target_info['epoch']}", target_info['time_str']]
-                        if target_info['err_str']:
-                            parts.append(target_info['err_str'])
-                        parts.append(target_info['quality_str'])
-                        txt = " | ".join(parts)
-                        
-                        ylim = ax.get_ylim()
-                        y_pos = ylim[1] - (ylim[1] - ylim[0]) * 0.08
-                        ha = 'left' if cx < (orig_xlim[0] + orig_xlim[1]) / 2 else 'right'
-                        ax.text(cx, y_pos, txt, color='#0F172A', fontsize=9, fontweight='bold',
-                                bbox=dict(boxstyle="round,pad=0.25", fc='#FEF3C7', ec='#F59E0B', lw=1.0, alpha=0.95),
-                                zorder=11, ha=ha)
-                except Exception:
-                    pass
-        ax.set_xlim(orig_xlim)
+            for i, ax_item in enumerate(target_axes):
+                orig_xlim = ax_item.get_xlim()
+                if orig_xlim[0] <= cx <= orig_xlim[1]:
+                    try:
+                        line = ax_item.axvline(x=cx, color='#F59E0B', linestyle='--', linewidth=1.8, alpha=0.9, zorder=10)
+                        self.cursor_artists.append(line)
+                        if target_info and i == 0:  # 仅在主坐标轴绘制文字气泡
+                            parts = [f"#{target_info['epoch']}", target_info['time_str']]
+                            if target_info['err_str']:
+                                parts.append(target_info['err_str'])
+                            parts.append(target_info['quality_str'])
+                            txt = " | ".join(parts)
+                            
+                            ylim = ax_item.get_ylim()
+                            y_pos = ylim[1] - (ylim[1] - ylim[0]) * 0.08
+                            ha = 'left' if cx < (orig_xlim[0] + orig_xlim[1]) / 2 else 'right'
+                            bubble = ax_item.text(cx, y_pos, txt, color='#0F172A', fontsize=9, fontweight='bold',
+                                                 bbox=dict(boxstyle="round,pad=0.25", fc='#FEF3C7', ec='#F59E0B', lw=1.0, alpha=0.95),
+                                                 zorder=11, ha=ha)
+                            self.cursor_artists.append(bubble)
+                    except Exception:
+                        pass
+                ax_item.set_xlim(orig_xlim)
+        
+        self.fig.canvas.draw_idle()
+
+    def _draw_cursor_line(self, ax, cursor_time, segments, x_axis_mode, tab_name='epoch_h'):
+        self.update_cursor_overlay(cursor_time)
 
     def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s', cdf_mode='horizontal', show_quantiles=True, show_confidence_rings=False, cursor_time=None, enable_time_sync=False):
         self.clear_canvas()
@@ -303,6 +352,7 @@ class PlotWidget(FigureCanvas):
         self.cursor_time = cursor_time
         self.current_segments = segments
         self.current_x_mode = x_axis_mode
+        self.current_tab_name = tab
 
         if tab == 'scatter':
             self.draw_scatter(segments, truth, show_confidence_rings=show_confidence_rings, cursor_time=cursor_time)

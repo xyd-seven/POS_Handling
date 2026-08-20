@@ -5702,17 +5702,22 @@ class MainWindow(QMainWindow):
         if not getattr(self, 'enable_master_time_sync', False):
             return
         self.master_sync_time = float(t_sec)
+        
         # 1. 同步更新天空图 (2D/3D)
         if hasattr(self, 'skyplot_model') and self.skyplot_model.time_list:
             t_arr = np.array(self.skyplot_model.time_list)
             idx = int(np.argmin(np.abs(t_arr - self.master_sync_time)))
             if hasattr(self, 'slider_skyplot'):
                 self.slider_skyplot.setValue(idx)
-        # 2. 立即重绘当前活跃图表并触发 draw_idle
-        self.refresh_chart()
-        curr_canvas = self.get_current_canvas()
-        if curr_canvas and hasattr(curr_canvas, 'draw_idle'):
-            curr_canvas.draw_idle()
+                
+        # 2. 局部广播更新所有折线图的 Overlay (0 延迟，绝不调用 clear_canvas)
+        for canvas in [self.canvas_epoch_h, self.canvas_epoch_v, self.canvas_epoch_enu, self.canvas_speed]:
+            if hasattr(canvas, 'update_cursor_overlay'):
+                canvas.update_cursor_overlay(self.master_sync_time)
+                
+        # 3. 如果当前处于靶心图，则刷新靶心图红点
+        if self.tab_widget.currentIndex() == 0 and hasattr(self, 'canvas_scatter'):
+            self.refresh_chart()
 
     def closeEvent(self, event):
         # 1. 安全标记并停止正向日志文件解析线程
