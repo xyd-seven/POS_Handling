@@ -84,7 +84,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 isGcj: true
             },
             'google_sat': {
-                url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                url: 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
                 subdomains: ['0','1','2','3'],
                 maxZoom: 20,
                 isGcj: false
@@ -339,7 +339,7 @@ class GISMapWidget(QWidget):
         self.combo_map_type = QComboBox()
         self.combo_map_type.addItem("高德矢量路网 (免Key/推荐)", "amap_vec")
         self.combo_map_type.addItem("高德高清卫星 (免Key/推荐)", "amap_sat")
-        self.combo_map_type.addItem("谷歌混合卫星 (免Key/高清)", "google_sat")
+        self.combo_map_type.addItem("谷歌纯高清卫星 (免Key/无偏移路网)", "google_sat")
         self.combo_map_type.addItem("天地图官方卫星 (DataServer)", "tdt_sat")
         self.combo_map_type.addItem("天地图官方路网 (DataServer)", "tdt_vec")
         self.combo_map_type.addItem("OpenStreetMap (开源)", "osm")
