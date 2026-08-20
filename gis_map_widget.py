@@ -66,6 +66,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         var currentAnnotLayer = null;
         var currentMapType = 'amap_vec';
         var pyBridge = null;
+        window.isMapReady = true;
 
         // Base Layer Definitions
         var baseLayers = {
@@ -352,6 +353,10 @@ class GISMapWidget(QWidget):
         layout.addWidget(toolbar)
 
         # WebEngine 地图视图
+        self.is_page_loaded = False
+        self.cached_segments = None
+        self.cached_truth = None
+
         self.web_view = QWebEngineView(self)
         self.bridge = WebBridge()
         self.bridge.sig_point_clicked.connect(self.sig_time_clicked.emit)
@@ -360,8 +365,14 @@ class GISMapWidget(QWidget):
         self.channel.registerObject("pyBridge", self.bridge)
         self.web_view.page().setWebChannel(self.channel)
 
+        self.web_view.loadFinished.connect(self.on_load_finished)
         self.web_view.setHtml(HTML_TEMPLATE)
         layout.addWidget(self.web_view)
+
+    def on_load_finished(self, ok):
+        self.is_page_loaded = True
+        if self.cached_segments is not None:
+            self.render_trajectories(self.cached_segments, self.cached_truth, auto_fit=True)
 
     def on_map_type_changed(self):
         map_type = self.combo_map_type.currentData()
@@ -370,10 +381,15 @@ class GISMapWidget(QWidget):
     def fit_bounds(self):
         self.web_view.page().runJavaScript("fitBoundsNow();")
 
-    def render_trajectories(self, segments, truth=None, auto_fit=False):
+    def render_trajectories(self, segments, truth=None, auto_fit=True):
         """
         处理分段待测轨迹与参考真值，进行高精度 WGS84 -> GCJ-02 转换并推送至 Leaflet WebGIS。
         """
+        self.cached_segments = segments
+        self.cached_truth = truth
+        if not getattr(self, 'is_page_loaded', False):
+            return
+
         payload = {
             'showTruth': self.cb_show_truth.isChecked(),
             'showTest': self.cb_show_test.isChecked(),

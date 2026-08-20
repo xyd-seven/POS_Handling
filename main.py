@@ -1181,6 +1181,18 @@ class MainWindow(QMainWindow):
         self.canvas_trajectory.setStyleSheet("background-color: #FFFFFF; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;")
         self.toolbar_trajectory = NavigationToolbar(self.canvas_trajectory, self.widget_cartesian)
         self.toolbar_trajectory.setStyleSheet(TOOLBAR_STYLE)
+
+        # 在笛卡尔工具栏最右侧添加切换回 GIS 按钮
+        spacer_cart = QWidget()
+        spacer_cart.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        spacer_cart.setStyleSheet("background: transparent;")
+        self.toolbar_trajectory.addWidget(spacer_cart)
+
+        self.btn_switch_to_gis = QPushButton("🌐 切换至GIS地图视图")
+        self.btn_switch_to_gis.setStyleSheet("background-color: #1E293B; color: #38BDF8; border: 1px solid #38BDF8; padding: 4px 8px; border-radius: 4px; font-weight: bold;")
+        self.btn_switch_to_gis.clicked.connect(self.toggle_trajectory_view_mode)
+        self.toolbar_trajectory.addWidget(self.btn_switch_to_gis)
+
         layout_cart.addWidget(self.toolbar_trajectory)
         layout_cart.addWidget(self.canvas_trajectory)
         self.stack_trajectory.addWidget(self.widget_cartesian)
@@ -3535,14 +3547,12 @@ class MainWindow(QMainWindow):
         curr_idx = self.stack_trajectory.currentIndex()
         if curr_idx == 0:
             self.stack_trajectory.setCurrentIndex(1)
-            self.btn_switch_traj_mode.setText("🌐 切换至GIS地图视图")
             if hasattr(self, 'canvas_trajectory'):
                 self.canvas_trajectory.render_data('trajectory', self.segments, self.truth)
         else:
             self.stack_trajectory.setCurrentIndex(0)
-            self.btn_switch_traj_mode.setText("📊 切换至笛卡尔视图")
             if hasattr(self, 'gis_map_widget'):
-                self.gis_map_widget.render_trajectories(self.segments, self.truth)
+                self.gis_map_widget.render_trajectories(self.segments, self.truth, auto_fit=True)
 
     def refresh_chart(self):
         index = self.tab_widget.currentIndex()
