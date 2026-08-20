@@ -87,10 +87,18 @@ class SkyPlotCanvas(QWidget):
         self.ax.set_axis_off()
 
         # 设置显示范围与视角
-        self.ax.set_xlim(-1.18, 1.18)
-        self.ax.set_ylim(-1.18, 1.18)
-        self.ax.set_zlim(-0.06, 1.18)
+        self.ax.set_xlim(-1.08, 1.08)
+        self.ax.set_ylim(-1.08, 1.08)
+        self.ax.set_zlim(-0.04, 1.08)
         self.ax.view_init(elev=self._last_elev_azim_3d[0], azim=self._last_elev_azim_3d[1])
+
+        # 拉近相机距离并消除四周多余空白，让 3D 天穹饱满填充整个大屏幕
+        try:
+            self.ax.dist = 6.8
+            self.ax.set_box_aspect([1.0, 1.0, 0.72])
+        except Exception:
+            pass
+        self.figure.subplots_adjust(left=-0.10, right=1.10, bottom=-0.10, top=1.08)
 
         # 构建静态天球骨架与发光半球曲面 (常驻图层)
         self._build_static_3d_dome_layer()
@@ -143,11 +151,11 @@ class SkyPlotCanvas(QWidget):
         self.ax.plot([0, 0], [-1.05, 1.05], [0, 0], color='#1E293B', linestyle='-', linewidth=1.0, zorder=2)
 
         # 6. 四大主方位与天顶文字标识
-        self.ax.text(0, 1.16, 0, "N (0°)", color='#38BDF8', fontsize=10, fontweight='bold', ha='center', va='center', zorder=3)
-        self.ax.text(1.16, 0, 0, "E (90°)", color='#E2E8F0', fontsize=9, fontweight='bold', ha='center', va='center', zorder=3)
-        self.ax.text(0, -1.16, 0, "S (180°)", color='#E2E8F0', fontsize=9, fontweight='bold', ha='center', va='center', zorder=3)
-        self.ax.text(-1.16, 0, 0, "W (270°)", color='#E2E8F0', fontsize=9, fontweight='bold', ha='center', va='center', zorder=3)
-        self.ax.text(0, 0, 1.08, "Zenith (90°)", color='#94A3B8', fontsize=8.5, fontweight='bold', ha='center', va='bottom', zorder=3)
+        self.ax.text(0, 1.14, 0, "N (0°)", color='#38BDF8', fontsize=11, fontweight='bold', ha='center', va='center', zorder=3)
+        self.ax.text(1.14, 0, 0, "E (90°)", color='#E2E8F0', fontsize=10, fontweight='bold', ha='center', va='center', zorder=3)
+        self.ax.text(0, -1.14, 0, "S (180°)", color='#E2E8F0', fontsize=10, fontweight='bold', ha='center', va='center', zorder=3)
+        self.ax.text(-1.14, 0, 0, "W (270°)", color='#E2E8F0', fontsize=10, fontweight='bold', ha='center', va='center', zorder=3)
+        self.ax.text(0, 0, 1.06, "Zenith (90°)", color='#94A3B8', fontsize=9.5, fontweight='bold', ha='center', va='bottom', zorder=3)
 
         # 7. 球心地面观测站地标基座 [⊕]
         self.ax.scatter([0], [0], [0], s=80, color='#38BDF8', marker='o', edgecolors='#FFFFFF', linewidths=1.2, alpha=0.9, zorder=4)
@@ -363,13 +371,13 @@ class SkyPlotCanvas(QWidget):
                 ground_spot = self.ax.scatter([x], [y], [0], s=32, facecolors='none', edgecolors=color, linewidths=1.0, alpha=0.55, zorder=3)
                 self._3d_dynamic_artists.append(ground_spot)
 
-                # C. 绘制 3D 卫星主体与文字标签
+                # C. 绘制 3D 卫星主体与文字标签 (尺寸放大更清晰)
                 if is_used:
-                    sat_dot = self.ax.scatter([x], [y], [z], s=200, color=color, edgecolors='#FFFFFF', linewidths=1.6, alpha=1.0, zorder=6)
-                    sat_txt = self.ax.text(x, y, z + 0.04, sat_name, color='#FFFFFF', fontsize=8.5, fontweight='bold', ha='center', va='bottom', zorder=7)
+                    sat_dot = self.ax.scatter([x], [y], [z], s=280, color=color, edgecolors='#FFFFFF', linewidths=1.8, alpha=1.0, zorder=6)
+                    sat_txt = self.ax.text(x, y, z + 0.045, sat_name, color='#FFFFFF', fontsize=9.5, fontweight='bold', ha='center', va='bottom', zorder=7)
                 else:
-                    sat_dot = self.ax.scatter([x], [y], [z], s=130, facecolors='none', edgecolors=color, linewidths=1.3, alpha=0.85, zorder=5)
-                    sat_txt = self.ax.text(x, y, z + 0.03, sat_name, color='#94A3B8', fontsize=8.0, fontweight='bold', ha='center', va='bottom', zorder=7)
+                    sat_dot = self.ax.scatter([x], [y], [z], s=180, facecolors='none', edgecolors=color, linewidths=1.5, alpha=0.85, zorder=5)
+                    sat_txt = self.ax.text(x, y, z + 0.035, sat_name, color='#94A3B8', fontsize=9.0, fontweight='bold', ha='center', va='bottom', zorder=7)
 
                 self._3d_dynamic_artists.append(sat_dot)
                 self._3d_dynamic_artists.append(sat_txt)
