@@ -142,6 +142,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         function renderTrajectories(payload) {
             window.rawTrajectoryData = payload;
+            if (map) { map.invalidateSize(); }
             truthLayerGroup.clearLayers();
             testLayerGroup.clearLayers();
 
@@ -200,7 +201,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
 
             if (payload.autoFit && allLatLngs.length > 1) {
-                map.fitBounds(L.latLngBounds(allLatLngs), { padding: [40, 40], maxZoom: 18 });
+                var bounds = L.latLngBounds(allLatLngs);
+                map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
+                setTimeout(function() {
+                    if (map) {
+                        map.invalidateSize();
+                        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
+                    }
+                }, 200);
             }
         }
 
@@ -277,11 +285,12 @@ class GISMapWidget(QWidget):
 
         # 顶部工具栏
         toolbar = QFrame(self)
+        toolbar.setFixedHeight(38)
         toolbar.setStyleSheet("""
             QFrame {
                 background-color: #0F172A;
                 border-bottom: 1px solid #334155;
-                padding: 4px 8px;
+                padding: 0px 8px;
             }
             QLabel {
                 color: #94A3B8;
@@ -350,7 +359,7 @@ class GISMapWidget(QWidget):
         self.btn_fit_bounds.clicked.connect(self.fit_bounds)
         tb_layout.addWidget(self.btn_fit_bounds)
 
-        layout.addWidget(toolbar)
+        layout.addWidget(toolbar, 0)
 
         # WebEngine 地图视图
         self.is_page_loaded = False
@@ -367,7 +376,18 @@ class GISMapWidget(QWidget):
 
         self.web_view.loadFinished.connect(self.on_load_finished)
         self.web_view.setHtml(HTML_TEMPLATE)
-        layout.addWidget(self.web_view)
+        layout.addWidget(self.web_view, 1)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(100, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(); fitBoundsNow(); }"))
+        QTimer.singleShot(300, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(); fitBoundsNow(); }"))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if getattr(self, 'is_page_loaded', False):
+            self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(); }")
 
     def on_load_finished(self, ok):
         self.is_page_loaded = True
