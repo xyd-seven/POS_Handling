@@ -1782,7 +1782,7 @@ class MainWindow(QMainWindow):
         mode_box_layout.setSpacing(6)
 
         self.cmb_sky_mode = QComboBox()
-        self.cmb_sky_mode.addItems(["单时刻探伤 (Snapshot)", "全时段星轨 (Sky Tracks)"])
+        self.cmb_sky_mode.addItems(["单时刻探伤 (Snapshot)", "全时段星轨 (Sky Tracks)", "3D 立体天穹 (3D SkyDome)"])
         self.cmb_sky_mode.currentIndexChanged.connect(self.on_skyplot_mode_changed)
         mode_box_layout.addWidget(self.cmb_sky_mode)
         sky_side_layout.addWidget(grp_sky_mode)
@@ -3730,8 +3730,14 @@ class MainWindow(QMainWindow):
 
     
     def on_skyplot_mode_changed(self, index):
-        self.skyplot_mode = 'snapshot' if index == 0 else 'tracks'
-        self.bar_sky_time.setVisible(self.skyplot_mode == 'snapshot')
+        if index == 0:
+            self.skyplot_mode = 'snapshot'
+        elif index == 1:
+            self.skyplot_mode = 'tracks'
+        else:
+            self.skyplot_mode = '3d'
+
+        self.bar_sky_time.setVisible(self.skyplot_mode in ['snapshot', '3d'])
         if self.skyplot_mode == 'tracks':
             if self.skyplot_is_playing:
                 self.toggle_skyplot_playback()
@@ -3817,6 +3823,18 @@ class MainWindow(QMainWindow):
             self.lbl_sky_glo.setText(f"{counts['GL']} 颗")
             self.lbl_sky_gal.setText(f"{counts['GA']} 颗")
             self.lbl_sky_used.setText(f"总计 {len(tracks)} 颗星轨")
+        elif self.skyplot_mode == '3d':
+            tracks = self.skyplot_model.get_all_tracks()
+            if not self.skyplot_model.time_list:
+                self.canvas_skyplot.render_3d_skydome({}, {}, tracks)
+                self.update_skyplot_side_panel({}, {})
+                return
+            idx = self.slider_skyplot.value()
+            idx = max(0, min(len(self.skyplot_model.time_list) - 1, idx))
+            t_sec = self.skyplot_model.time_list[idx]
+            sats, dop = self.skyplot_model.get_snapshot_at_time(t_sec)
+            self.canvas_skyplot.render_3d_skydome(sats, dop, tracks, title_prefix=seconds_to_time_str(t_sec % 86400))
+            self.update_skyplot_side_panel(sats, dop)
         else:
             if not self.skyplot_model.time_list:
                 self.canvas_skyplot.render_snapshot({}, {})
@@ -3829,7 +3847,12 @@ class MainWindow(QMainWindow):
 
     def refresh_skyplot_at_time(self, t_sec):
         sats, dop = self.skyplot_model.get_snapshot_at_time(t_sec)
-        self.canvas_skyplot.render_snapshot(sats, dop, title_prefix=seconds_to_time_str(t_sec % 86400))
+        time_str = seconds_to_time_str(t_sec % 86400)
+        if self.skyplot_mode == '3d':
+            tracks = self.skyplot_model.get_all_tracks()
+            self.canvas_skyplot.render_3d_skydome(sats, dop, tracks, title_prefix=time_str)
+        else:
+            self.canvas_skyplot.render_snapshot(sats, dop, title_prefix=time_str)
         self.update_skyplot_side_panel(sats, dop)
 
     def update_skyplot_side_panel(self, sats, dop):
@@ -5152,7 +5175,7 @@ class MainWindow(QMainWindow):
             self._last_cno_snapshot = snapshot
             self.canvas_cno.render_cno(self.gsv_satellites, self.used_satellites, self.has_received_gsa, self.sat_metadata)
 
-        if hasattr(self, 'canvas_skyplot') and self.tab_widget.currentIndex() == 6 and self.skyplot_mode == 'snapshot':
+        if hasattr(self, 'canvas_skyplot') and self.tab_widget.currentIndex() == 6 and self.skyplot_mode in ['snapshot', '3d']:
             live_sats = {}
             for sat_key, sig_dict in self.gsv_satellites.items():
                 sys_prefix, prn = sat_key
@@ -5176,7 +5199,10 @@ class MainWindow(QMainWindow):
                 'hdop': getattr(self, 'latest_hdop', 1.0),
                 'vdop': getattr(self, 'latest_vdop', 1.0)
             }
-            self.canvas_skyplot.render_snapshot(live_sats, dop_info, title_prefix="实时")
+            if self.skyplot_mode == '3d':
+                self.canvas_skyplot.render_3d_skydome(live_sats, dop_info, title_prefix="实时")
+            else:
+                self.canvas_skyplot.render_snapshot(live_sats, dop_info, title_prefix="实时")
             self.update_skyplot_side_panel(live_sats, dop_info)
 
     def toggle_cno_visibility(self, visible):
