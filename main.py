@@ -5704,6 +5704,7 @@ class MainWindow(QMainWindow):
             idx = int(np.argmin(np.abs(t_arr - t_sec)))
             if hasattr(self, 'slider_skyplot'):
                 self.slider_skyplot.setValue(idx)
+        # 立即刷新当前页面图表
         self.refresh_chart()
 
     def closeEvent(self, event):

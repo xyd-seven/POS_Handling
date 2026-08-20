@@ -172,24 +172,54 @@ class PlotWidget(FigureCanvas):
     def _draw_cursor_line(self, ax, cursor_time, segments, x_axis_mode):
         if cursor_time is None or ax is None:
             return
+        orig_xlim = ax.get_xlim()
         cx = None
-        if x_axis_mode == '时间轴':
-            cx = cursor_time
-        else:
-            for s in segments:
-                if s.get('active', True) and s.get('epochs'):
-                    t_list = [ep.get('utc_time_sec', ep.get('time', 0)) for ep in s['epochs']]
-                    if t_list:
-                        t_arr = np.array(t_list)
-                        idx = int(np.argmin(np.abs(t_arr - cursor_time)))
-                        if abs(t_arr[idx] - cursor_time) <= 3.0:
-                            cx = idx + 1  # 历元数是 1-indexed
-                            break
+        target_info = None
+        
+        for s in segments:
+            if s.get('active', True) and s.get('epochs'):
+                epochs = s['epochs']
+                t_list = [ep.get('utc_time_sec', ep.get('time', 0)) for ep in epochs]
+                if t_list:
+                    t_arr = np.array(t_list)
+                    idx = int(np.argmin(np.abs(t_arr - cursor_time)))
+                    if abs(t_arr[idx] - cursor_time) <= 3.0:
+                        ep = epochs[idx]
+                        sec = int(ep.get('utc_time_sec', ep.get('time', 0))) % 86400
+                        time_str = f"{sec//3600:02d}:{(sec%3600)//60:02d}:{sec%60:02d}"
+                        q = ep.get('quality', 1)
+                        q_map = {4: "RTK固定(4)", 5: "RTK浮点(5)", 2: "差分(2)", 1: "单点(1)", 0: "无效(0)"}
+                        q_str = q_map.get(q, f"状态({q})")
+                        
+                        if x_axis_mode == '时间轴':
+                            cx = t_arr[idx]
+                        else:
+                            cx = idx + 1
+                            
+                        target_info = {
+                            'epoch': idx + 1,
+                            'time_str': time_str,
+                            'quality_str': q_str
+                        }
+                        break
+
         if cx is not None:
-            try:
-                ax.axvline(x=cx, color='#F59E0B', linestyle='--', linewidth=1.8, alpha=0.9, zorder=10)
-            except Exception:
-                pass
+            # 严格边界保护：只有当 cx 在当前坐标轴可视范围内时才绘制，绝不拉伸坐标轴
+            if orig_xlim[0] <= cx <= orig_xlim[1]:
+                try:
+                    ax.axvline(x=cx, color='#F59E0B', linestyle='--', linewidth=1.8, alpha=0.9, zorder=10)
+                    if target_info:
+                        txt = f"#{target_info['epoch']} | {target_info['time_str']} | {target_info['quality_str']}"
+                        ylim = ax.get_ylim()
+                        y_pos = ylim[1] - (ylim[1] - ylim[0]) * 0.08
+                        ha = 'left' if cx < (orig_xlim[0] + orig_xlim[1]) / 2 else 'right'
+                        ax.text(cx, y_pos, txt, color='#0F172A', fontsize=9, fontweight='bold',
+                                bbox=dict(boxstyle="round,pad=0.25", fc='#FEF3C7', ec='#F59E0B', lw=1.0, alpha=0.92),
+                                zorder=11, ha=ha)
+                except Exception:
+                    pass
+        # 强制锁定原始坐标轴范围，彻底杜绝坐标轴拉伸变形
+        ax.set_xlim(orig_xlim)
 
     def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s', cdf_mode='horizontal', show_quantiles=True, show_confidence_rings=False, cursor_time=None, enable_time_sync=False):
         self.clear_canvas()
@@ -629,6 +659,10 @@ class PlotWidget(FigureCanvas):
         self.ax.set_ylabel("水平偏差 (m)", fontsize=11)
         self.ax.grid(True, which='both', color='#94A3B8', linestyle='--', linewidth=0.7)
         self.ax.legend(loc='upper right', fontsize=10)
+        if active_segments:
+            max_len = max([len(s.get('epochs', [])) for s in active_segments] or [1])
+            if x_axis_mode == '历元数':
+                self.ax.set_xlim(0, max_len + 1)
         
         if show_sats and hasattr(self, 'ax_sats') and self.ax_sats:
             self._draw_sats_subplot(active_segments, x_axis_mode, time_zone, dop_type='HDOP')
@@ -735,6 +769,10 @@ class PlotWidget(FigureCanvas):
         
         self.ax.grid(True, which='both', color='#94A3B8', linestyle='--', linewidth=0.7)
         self.ax.legend(loc='upper right', fontsize=10)
+        if active_segments:
+            max_len = max([len(s.get('epochs', [])) for s in active_segments] or [1])
+            if x_axis_mode == '历元数':
+                self.ax.set_xlim(0, max_len + 1)
         
         if show_sats and hasattr(self, 'ax_sats') and self.ax_sats:
             self._draw_sats_subplot(active_segments, x_axis_mode, time_zone, dop_type='VDOP')
