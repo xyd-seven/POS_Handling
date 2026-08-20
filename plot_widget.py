@@ -76,7 +76,19 @@ class PlotWidget(FigureCanvas):
         if not getattr(self, 'enable_time_sync', False) or event.inaxes is None or event.xdata is None:
             return
         if event.button == 1 and not event.dblclick:
-            self.sig_click_time.emit(float(event.xdata))
+            x_val = float(event.xdata)
+            # 计算对应的绝对 UTC 秒数
+            t_sec = x_val
+            if getattr(self, 'current_x_mode', '历元数') == '历元数' and getattr(self, 'current_segments', None):
+                for s in self.current_segments:
+                    if s.get('active', True) and s.get('epochs'):
+                        epochs = s['epochs']
+                        idx = int(round(x_val)) - 1
+                        if 0 <= idx < len(epochs):
+                            t_sec = float(epochs[idx].get('utc_time_sec', epochs[idx].get('time', 0)))
+                            break
+            # 发射全局同步信号
+            self.sig_click_time.emit(t_sec)
 
     def clear_canvas(self):
         self.fig.clear()
@@ -169,7 +181,7 @@ class PlotWidget(FigureCanvas):
         # Draw idle is needed for relayout 
         self.fig.canvas.draw_idle()
         
-    def _draw_cursor_line(self, ax, cursor_time, segments, x_axis_mode):
+    def _draw_cursor_line(self, ax, cursor_time, segments, x_axis_mode, tab_name='epoch_h'):
         if cursor_time is None or ax is None:
             return
         orig_xlim = ax.get_xlim()
@@ -179,6 +191,7 @@ class PlotWidget(FigureCanvas):
         for s in segments:
             if s.get('active', True) and s.get('epochs'):
                 epochs = s['epochs']
+                m = s.get('metrics', {})
                 t_list = [ep.get('utc_time_sec', ep.get('time', 0)) for ep in epochs]
                 if t_list:
                     t_arr = np.array(t_list)
@@ -191,6 +204,18 @@ class PlotWidget(FigureCanvas):
                         q_map = {4: "RTK固定(4)", 5: "RTK浮点(5)", 2: "差分(2)", 1: "单点(1)", 0: "无效(0)"}
                         q_str = q_map.get(q, f"状态({q})")
                         
+                        # 提取当前图表的具体误差值
+                        err_str = ""
+                        if tab_name == 'epoch_h' and m.get('h_errors') and idx < len(m['h_errors']):
+                            err_str = f"误差: {m['h_errors'][idx]:.3f}m"
+                        elif tab_name == 'epoch_v' and m.get('v_errors') and idx < len(m['v_errors']):
+                            err_str = f"误差: {m['v_errors'][idx]:+.3f}m"
+                        elif tab_name == 'speed' and m.get('speed_errors') and idx < len(m['speed_errors']):
+                            err_str = f"误差: {m['speed_errors'][idx]:+.2f}m/s"
+                        elif tab_name == 'epoch_enu' and m.get('de') and m.get('dn') and m.get('v_errors'):
+                            if idx < len(m['de']) and idx < len(m['dn']) and idx < len(m['v_errors']):
+                                err_str = f"E:{m['de'][idx]:+.2f} N:{m['dn'][idx]:+.2f} U:{m['v_errors'][idx]:+.2f}m"
+                        
                         if x_axis_mode == '时间轴':
                             cx = t_arr[idx]
                         else:
@@ -199,26 +224,31 @@ class PlotWidget(FigureCanvas):
                         target_info = {
                             'epoch': idx + 1,
                             'time_str': time_str,
+                            'err_str': err_str,
                             'quality_str': q_str
                         }
                         break
 
         if cx is not None:
-            # 严格边界保护：只有当 cx 在当前坐标轴可视范围内时才绘制，绝不拉伸坐标轴
             if orig_xlim[0] <= cx <= orig_xlim[1]:
                 try:
+                    # 记录并绘制时间虚线
                     ax.axvline(x=cx, color='#F59E0B', linestyle='--', linewidth=1.8, alpha=0.9, zorder=10)
                     if target_info:
-                        txt = f"#{target_info['epoch']} | {target_info['time_str']} | {target_info['quality_str']}"
+                        parts = [f"#{target_info['epoch']}", target_info['time_str']]
+                        if target_info['err_str']:
+                            parts.append(target_info['err_str'])
+                        parts.append(target_info['quality_str'])
+                        txt = " | ".join(parts)
+                        
                         ylim = ax.get_ylim()
                         y_pos = ylim[1] - (ylim[1] - ylim[0]) * 0.08
                         ha = 'left' if cx < (orig_xlim[0] + orig_xlim[1]) / 2 else 'right'
                         ax.text(cx, y_pos, txt, color='#0F172A', fontsize=9, fontweight='bold',
-                                bbox=dict(boxstyle="round,pad=0.25", fc='#FEF3C7', ec='#F59E0B', lw=1.0, alpha=0.92),
+                                bbox=dict(boxstyle="round,pad=0.25", fc='#FEF3C7', ec='#F59E0B', lw=1.0, alpha=0.95),
                                 zorder=11, ha=ha)
                 except Exception:
                     pass
-        # 强制锁定原始坐标轴范围，彻底杜绝坐标轴拉伸变形
         ax.set_xlim(orig_xlim)
 
     def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s', cdf_mode='horizontal', show_quantiles=True, show_confidence_rings=False, cursor_time=None, enable_time_sync=False):
@@ -232,7 +262,7 @@ class PlotWidget(FigureCanvas):
             for a in axs:
                 a.set_facecolor('#FFFFFF')
             self.draw_epoch_enu(segments, truth, time_zone, x_axis_mode, show_stats)
-            self._draw_cursor_line(self.ax_e, cursor_time, segments, x_axis_mode)
+            self._draw_cursor_line(self.ax_e, cursor_time, segments, x_axis_mode, 'epoch_enu')
             self._draw_cursor_line(self.ax_n, cursor_time, segments, x_axis_mode)
             self._draw_cursor_line(self.ax_u, cursor_time, segments, x_axis_mode)
             self.fig.subplots_adjust(left=0.08, right=0.98, top=0.96, bottom=0.08, hspace=0.15)
@@ -246,7 +276,7 @@ class PlotWidget(FigureCanvas):
             for a in axs:
                 a.set_facecolor('#FFFFFF')
             self.draw_speed_comparison(segments, truth, time_zone, x_axis_mode, speed_unit, show_stats)
-            self._draw_cursor_line(self.ax_speed, cursor_time, segments, x_axis_mode)
+            self._draw_cursor_line(self.ax_speed, cursor_time, segments, x_axis_mode, 'speed')
             self._draw_cursor_line(self.ax_speed_err, cursor_time, segments, x_axis_mode)
             self.fig.subplots_adjust(left=0.08, right=0.98, top=0.95, bottom=0.09, hspace=0.18)
             self.draw()
@@ -280,10 +310,10 @@ class PlotWidget(FigureCanvas):
             self.draw_status(segments)
         elif tab == 'epoch_h':
             self.draw_epoch_horizontal(segments, time_zone, show_extrema, x_axis_mode, show_sats)
-            self._draw_cursor_line(self.ax, cursor_time, segments, x_axis_mode)
+            self._draw_cursor_line(self.ax, cursor_time, segments, x_axis_mode, tab)
         elif tab == 'epoch_v':
             self.draw_epoch_vertical(segments, time_zone, show_absolute_alt, show_extrema, x_axis_mode, show_sats, show_raw_alt)
-            self._draw_cursor_line(self.ax, cursor_time, segments, x_axis_mode)
+            self._draw_cursor_line(self.ax, cursor_time, segments, x_axis_mode, tab)
         elif tab == 'trajectory':
             self.draw_trajectory_2d(segments, truth)
             

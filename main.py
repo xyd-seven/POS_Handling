@@ -5684,28 +5684,35 @@ class MainWindow(QMainWindow):
             return
         pass
 
-    def on_plot_time_clicked(self, x_val):
+    def get_current_canvas(self):
+        index = self.tab_widget.currentIndex()
+        canvas_map = {
+            0: getattr(self, 'canvas_scatter', None),
+            1: getattr(self, 'canvas_epoch_h', None),
+            2: getattr(self, 'canvas_epoch_v', None),
+            3: getattr(self, 'canvas_epoch_enu', None),
+            4: getattr(self, 'canvas_speed', None),
+            5: getattr(self, 'canvas_cdf', None),
+            7: getattr(self, 'canvas_status', None),
+            8: getattr(self, 'canvas_trajectory', None)
+        }
+        return canvas_map.get(index)
+
+    def on_plot_time_clicked(self, t_sec):
         if not getattr(self, 'enable_master_time_sync', False):
             return
-        t_sec = float(x_val)
-        # 如果当前 X 轴是历元数模式 (1-indexed)，从 epochs 提取真实秒数
-        if getattr(self, 'x_axis_mode', '历元数') == '历元数':
-            for s in self.segments:
-                if s.get('active', True) and s.get('epochs'):
-                    epochs = s['epochs']
-                    idx = int(round(x_val)) - 1
-                    if 0 <= idx < len(epochs):
-                        t_sec = float(epochs[idx].get('utc_time_sec', epochs[idx].get('time', 0)))
-                        break
-        self.master_sync_time = t_sec
-        # 同步更新天空图 (2D/3D)
+        self.master_sync_time = float(t_sec)
+        # 1. 同步更新天空图 (2D/3D)
         if hasattr(self, 'skyplot_model') and self.skyplot_model.time_list:
             t_arr = np.array(self.skyplot_model.time_list)
-            idx = int(np.argmin(np.abs(t_arr - t_sec)))
+            idx = int(np.argmin(np.abs(t_arr - self.master_sync_time)))
             if hasattr(self, 'slider_skyplot'):
                 self.slider_skyplot.setValue(idx)
-        # 立即刷新当前页面图表
+        # 2. 立即重绘当前活跃图表并触发 draw_idle
         self.refresh_chart()
+        curr_canvas = self.get_current_canvas()
+        if curr_canvas and hasattr(curr_canvas, 'draw_idle'):
+            curr_canvas.draw_idle()
 
     def closeEvent(self, event):
         # 1. 安全标记并停止正向日志文件解析线程
