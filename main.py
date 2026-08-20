@@ -33,6 +33,7 @@ from exporters import export_word_report
 from core import ReplaySnapshotWorker, LogParserThread, SkyPlotDataModel
 from plots import SkyPlotCanvas
 from plot_widget import PlotWidget
+from gis_map_widget import GISMapWidget
 from ui_main import QSS_STYLE, SegmentListItemWidget
 from settings_dialog import SettingsDialog
 from PIL import Image, ImageDraw
@@ -1151,25 +1152,46 @@ class MainWindow(QMainWindow):
         card_layout_cdf.addWidget(self.canvas_cdf)
         layout_cdf.addWidget(self.card_cdf)
 
-        # E. 绝对轨迹投影页
+        # E. 绝对轨迹投影页 (双模: GIS真实路况地图 + 笛卡尔投影图)
         self.tab_trajectory = QWidget()
         layout_trajectory = QVBoxLayout(self.tab_trajectory)
         layout_trajectory.setContentsMargins(12, 12, 12, 12)
         layout_trajectory.setSpacing(0)
 
         self.card_trajectory = QWidget()
-        self.card_trajectory.setStyleSheet("background-color: #FFFFFF; border: 1px solid #334155; border-radius: 8px;")
+        self.card_trajectory.setStyleSheet("background-color: #0F172A; border: 1px solid #334155; border-radius: 8px;")
         card_layout_trajectory = QVBoxLayout(self.card_trajectory)
         card_layout_trajectory.setContentsMargins(0, 0, 0, 0)
         card_layout_trajectory.setSpacing(0)
 
-        self.canvas_trajectory = PlotWidget(self.card_trajectory)
-        self.canvas_trajectory.setStyleSheet("background-color: #FFFFFF; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;")
-        self.toolbar_trajectory = NavigationToolbar(self.canvas_trajectory, self.card_trajectory)
-        self.toolbar_trajectory.setStyleSheet(TOOLBAR_STYLE)
+        from PySide6.QtWidgets import QStackedWidget
+        self.stack_trajectory = QStackedWidget(self.card_trajectory)
 
-        card_layout_trajectory.addWidget(self.toolbar_trajectory)
-        card_layout_trajectory.addWidget(self.canvas_trajectory)
+        # 视图 0: GIS 真实路况与卫星地图
+        self.gis_map_widget = GISMapWidget(self.card_trajectory)
+        self.gis_map_widget.sig_time_clicked.connect(self.on_plot_time_clicked)
+        self.stack_trajectory.addWidget(self.gis_map_widget)
+
+        # 视图 1: Matplotlib 经典笛卡尔经纬度投影图
+        self.widget_cartesian = QWidget()
+        layout_cart = QVBoxLayout(self.widget_cartesian)
+        layout_cart.setContentsMargins(0, 0, 0, 0)
+        layout_cart.setSpacing(0)
+        self.canvas_trajectory = PlotWidget(self.widget_cartesian)
+        self.canvas_trajectory.setStyleSheet("background-color: #FFFFFF; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;")
+        self.toolbar_trajectory = NavigationToolbar(self.canvas_trajectory, self.widget_cartesian)
+        self.toolbar_trajectory.setStyleSheet(TOOLBAR_STYLE)
+        layout_cart.addWidget(self.toolbar_trajectory)
+        layout_cart.addWidget(self.canvas_trajectory)
+        self.stack_trajectory.addWidget(self.widget_cartesian)
+
+        # 在 GIS 工具栏上附加视图模式切换开关
+        self.btn_switch_traj_mode = QPushButton("📊 切换至笛卡尔视图")
+        self.btn_switch_traj_mode.setStyleSheet("background-color: #1E293B; color: #38BDF8; border: 1px solid #38BDF8; padding: 4px 8px; border-radius: 4px; font-weight: bold;")
+        self.btn_switch_traj_mode.clicked.connect(self.toggle_trajectory_view_mode)
+        self.gis_map_widget.layout().itemAt(0).widget().layout().addWidget(self.btn_switch_traj_mode)
+
+        card_layout_trajectory.addWidget(self.stack_trajectory)
         layout_trajectory.addWidget(self.card_trajectory)
 
         # F. 实时串口页
@@ -3507,6 +3529,21 @@ class MainWindow(QMainWindow):
     def on_tab_changed(self, index):
         self.refresh_chart()
 
+    def toggle_trajectory_view_mode(self):
+        if not hasattr(self, 'stack_trajectory'):
+            return
+        curr_idx = self.stack_trajectory.currentIndex()
+        if curr_idx == 0:
+            self.stack_trajectory.setCurrentIndex(1)
+            self.btn_switch_traj_mode.setText("🌐 切换至GIS地图视图")
+            if hasattr(self, 'canvas_trajectory'):
+                self.canvas_trajectory.render_data('trajectory', self.segments, self.truth)
+        else:
+            self.stack_trajectory.setCurrentIndex(0)
+            self.btn_switch_traj_mode.setText("📊 切换至笛卡尔视图")
+            if hasattr(self, 'gis_map_widget'):
+                self.gis_map_widget.render_trajectories(self.segments, self.truth)
+
     def refresh_chart(self):
         index = self.tab_widget.currentIndex()
         if index == 0:
@@ -5715,7 +5752,11 @@ class MainWindow(QMainWindow):
             if hasattr(canvas, 'update_cursor_overlay'):
                 canvas.update_cursor_overlay(self.master_sync_time)
                 
-        # 3. 如果当前处于靶心图，则刷新靶心图红点
+        # 3. 同步车辆定位光标到 GIS 地图
+        if hasattr(self, 'gis_map_widget'):
+            self.gis_map_widget.set_cursor_time(self.master_sync_time, self.segments)
+
+        # 4. 如果当前处于靶心图，则刷新靶心图红点
         if self.tab_widget.currentIndex() == 0 and hasattr(self, 'canvas_scatter'):
             self.refresh_chart()
 
