@@ -1,3 +1,4 @@
+from core.statistics_calculator import compute_accuracy_metrics
 # -*- coding: utf-8 -*-
 """
 VCOM (精度分析与转换工具 Qt版) - 主运行模块 (双向网格与双误差曲线切换版)
@@ -899,13 +900,13 @@ class MainWindow(QMainWindow):
         """
 
 
-        # A. 靶心图容器页
+        # A. 靶心图容器页 (左右分栏布局)
         self.tab_scatter = QWidget()
-        layout_scatter = QVBoxLayout(self.tab_scatter)
+        layout_scatter = QHBoxLayout(self.tab_scatter)
         layout_scatter.setContentsMargins(12, 12, 12, 12)
-        layout_scatter.setSpacing(0)
+        layout_scatter.setSpacing(12)
 
-        # 创建白卡容器
+        # 左侧白卡图表容器
         self.card_scatter = QWidget()
         self.card_scatter.setStyleSheet("background-color: #FFFFFF; border: 1px solid #334155; border-radius: 8px;")
         card_layout_scatter = QVBoxLayout(self.card_scatter)
@@ -919,7 +920,63 @@ class MainWindow(QMainWindow):
 
         card_layout_scatter.addWidget(self.toolbar_scatter)
         card_layout_scatter.addWidget(self.canvas_scatter)
-        layout_scatter.addWidget(self.card_scatter)
+        layout_scatter.addWidget(self.card_scatter, 1)
+
+        # 右侧侧边控制与定位精度指标栏
+        self.side_panel_scatter = QWidget()
+        self.side_panel_scatter.setFixedWidth(240)
+        self.side_panel_scatter.setStyleSheet("background-color: #0F172A; border: 1px solid #1E293B; border-radius: 8px;")
+        side_layout_scatter = QVBoxLayout(self.side_panel_scatter)
+        side_layout_scatter.setContentsMargins(12, 12, 12, 12)
+        side_layout_scatter.setSpacing(10)
+
+        # 1. 功能开关组
+        grp_scatter_ctrl = QGroupBox("图表控制")
+        grp_scatter_ctrl.setStyleSheet("QGroupBox { font-weight: bold; color: #94A3B8; font-size: 11px; }")
+        ctrl_layout = QVBoxLayout(grp_scatter_ctrl)
+        ctrl_layout.setSpacing(8)
+
+        self.cb_time_sync_scatter = QCheckBox("多图时间联动")
+        self.cb_time_sync_scatter.setStyleSheet("color: #F59E0B; font-weight: bold; font-size: 11px;")
+        self.cb_time_sync_scatter.setChecked(False)
+        self.cb_time_sync_scatter.stateChanged.connect(self.on_master_time_sync_toggled)
+        ctrl_layout.addWidget(self.cb_time_sync_scatter)
+
+        self.cb_show_confidence_rings = QCheckBox("显示置信圆 (CEP/R95/2DRMS)")
+        self.cb_show_confidence_rings.setStyleSheet("color: #38BDF8; font-weight: bold; font-size: 11px;")
+        self.cb_show_confidence_rings.setChecked(False)
+        self.cb_show_confidence_rings.stateChanged.connect(self.on_confidence_rings_toggled)
+        ctrl_layout.addWidget(self.cb_show_confidence_rings)
+
+        self.cb_show_accuracy_metrics = QCheckBox("显示定位精度指标")
+        self.cb_show_accuracy_metrics.setStyleSheet("color: #10B981; font-weight: bold; font-size: 11px;")
+        self.cb_show_accuracy_metrics.setChecked(False)
+        self.cb_show_accuracy_metrics.stateChanged.connect(self.on_accuracy_metrics_toggled)
+        ctrl_layout.addWidget(self.cb_show_accuracy_metrics)
+
+        side_layout_scatter.addWidget(grp_scatter_ctrl)
+
+        # 2. 定位精度指标卡片 (默认隐藏)
+        self.grp_accuracy_metrics = QGroupBox("【定位精度指标】")
+        self.grp_accuracy_metrics.setStyleSheet("QGroupBox { font-weight: bold; color: #10B981; border: 1px solid #10B981; border-radius: 6px; margin-top: 6px; padding-top: 10px; }")
+        acc_layout = QVBoxLayout(self.grp_accuracy_metrics)
+        acc_layout.setSpacing(6)
+        self.lbl_acc_cep50 = QLabel("• CEP (50% 水平误差): --")
+        self.lbl_acc_rms2d = QLabel("• 2D-RMS (68% 水平误差): --")
+        self.lbl_acc_r95 = QLabel("• R95 / CEP95 (95% 水平误差): --")
+        self.lbl_acc_drms2 = QLabel("• 2DRMS (98% 水平误差): --")
+        self.lbl_acc_cep99 = QLabel("• CEP99 (99% 水平误差): --")
+        self.lbl_acc_rmsu = QLabel("• 高程 1D-RMS (68% 高程误差): --")
+        self.lbl_acc_rms3d = QLabel("• 3D-RMS (68% 三维空间误差): --")
+        self.lbl_acc_sep95 = QLabel("• 3D-95% (95% 三维空间误差): --")
+        for lbl in [self.lbl_acc_cep50, self.lbl_acc_rms2d, self.lbl_acc_r95, self.lbl_acc_drms2, self.lbl_acc_cep99, self.lbl_acc_rmsu, self.lbl_acc_rms3d, self.lbl_acc_sep95]:
+            lbl.setStyleSheet("color: #E2E8F0; font-size: 11px;")
+            acc_layout.addWidget(lbl)
+        self.grp_accuracy_metrics.hide()
+        side_layout_scatter.addWidget(self.grp_accuracy_metrics)
+
+        side_layout_scatter.addStretch()
+        layout_scatter.addWidget(self.side_panel_scatter, 0)
 
         # B. 定位质量图容器页
         self.tab_status = QWidget()
@@ -2394,6 +2451,12 @@ class MainWindow(QMainWindow):
         self.inputs_widget.hide()
         self.dynamic_widget.show()
 
+                # 连接时序图时间同步信号
+        for canvas in [self.canvas_epoch_h, self.canvas_epoch_v, self.canvas_epoch_enu, self.canvas_speed]:
+            if hasattr(canvas, 'sig_hover_time'):
+                canvas.sig_hover_time.connect(self.on_plot_time_hovered)
+            if hasattr(canvas, 'sig_click_time'):
+                canvas.sig_click_time.connect(self.on_plot_time_clicked)
         self.recompute_all()
         self.save_config()
 
@@ -5544,6 +5607,37 @@ class MainWindow(QMainWindow):
             self.lbl_ins_mileage.setText(f"{epoch.get('drive_mileage', 0.0):.1f} 米")
             self.lbl_ins_tow.setText(f"{epoch.get('gps_tow', 0.0):.3f}")
 
+    def on_master_time_sync_toggled(self, state):
+        self.enable_master_time_sync = (state == 2 or state is True)
+        if not self.enable_master_time_sync:
+            self.master_sync_time = None
+        self.recompute_all()
+
+    def on_confidence_rings_toggled(self, state):
+        self.recompute_all()
+
+    def on_accuracy_metrics_toggled(self, state):
+        show_m = (state == 2 or state is True)
+        if hasattr(self, 'grp_accuracy_metrics'):
+            self.grp_accuracy_metrics.setVisible(show_m)
+
+    def on_plot_time_hovered(self, t_sec):
+        if not self.enable_master_time_sync:
+            return
+        pass
+
+    def on_plot_time_clicked(self, t_sec):
+        if not self.enable_master_time_sync:
+            return
+        self.master_sync_time = t_sec
+        # 同步更新天空图 (2D/3D)
+        if hasattr(self, 'skyplot_model') and self.skyplot_model.time_list:
+            t_arr = np.array(self.skyplot_model.time_list)
+            idx = int(np.argmin(np.abs(t_arr - t_sec)))
+            if hasattr(self, 'slider_skyplot'):
+                self.slider_skyplot.setValue(idx)
+        self.recompute_all()
+
     def closeEvent(self, event):
         # 1. 安全标记并停止正向日志文件解析线程
         if hasattr(self, 'parser_thread') and self.parser_thread:
@@ -5563,7 +5657,7 @@ class MainWindow(QMainWindow):
                 worker.wait(1000)
             except Exception:
                 pass
-        if hasattr(self, 'serial_port') and self.serial_port.isOpen():
+        if hasattr(self, 'serial_port') and self.serial_port and self.serial_port.isOpen():
             self.serial_port.close()
         if hasattr(self, 'record_file') and self.record_file:
             try:

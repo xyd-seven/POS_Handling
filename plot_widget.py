@@ -6,6 +6,7 @@ import sys
 import math
 import numpy as np
 from PySide6.QtWidgets import QWidget, QVBoxLayout
+from PySide6.QtCore import Signal
 import matplotlib
 matplotlib.use('QtAgg')
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -18,6 +19,9 @@ matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun',
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 class PlotWidget(FigureCanvas):
+    sig_hover_time = Signal(float)   # 鼠标悬停时间信号 (UTC 秒)
+    sig_click_time = Signal(float)   # 鼠标点击时间信号 (UTC 秒)
+
     def __init__(self, parent=None, width=5, height=4, dpi=100):
         self.fig = Figure(figsize=(width, height), dpi=dpi, facecolor='#FFFFFF')
         self.gs_split = gridspec.GridSpec(2, 1)
@@ -27,7 +31,12 @@ class PlotWidget(FigureCanvas):
         self.ax_sats_twin = None
         self.is_maximized = False
         self.maximized_ax = None
+        self.cursor_time = None
+        self.show_confidence_rings = False
+        self.enable_time_sync = False
         super().__init__(self.fig)
+        self.fig.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
+        self.fig.canvas.mpl_connect('button_press_event', self.on_mouse_click)
         self.setParent(parent)
         self.downsample_threshold = 100000
         self.min_downsample_points = 2000
@@ -50,8 +59,25 @@ class PlotWidget(FigureCanvas):
             winch = self._pending_width / dpival
             hinch = self._pending_height / dpival
             self.figure.set_size_inches(winch, hinch, forward=False)
+            if getattr(self, 'cursor_time', None) is not None and self.ax is not None:
+                try:
+                    self.ax.axvline(x=self.cursor_time, color='#F59E0B', linestyle='--', linewidth=1.5, alpha=0.9, zorder=10)
+                except Exception:
+                    pass
             self.draw_idle()
         
+    def on_mouse_move(self, event):
+        if not getattr(self, 'enable_time_sync', False) or event.inaxes is None or event.xdata is None:
+            return
+        # 仅在时序图 (X 轴表示历元秒) 上分发
+        self.sig_hover_time.emit(float(event.xdata))
+
+    def on_mouse_click(self, event):
+        if not getattr(self, 'enable_time_sync', False) or event.inaxes is None or event.xdata is None:
+            return
+        if event.button == 1 and not event.dblclick:
+            self.sig_click_time.emit(float(event.xdata))
+
     def clear_canvas(self):
         self.fig.clear()
         self.ax = None
@@ -143,7 +169,7 @@ class PlotWidget(FigureCanvas):
         # Draw idle is needed for relayout 
         self.fig.canvas.draw_idle()
         
-    def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s', cdf_mode='horizontal', show_quantiles=True):
+    def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s', cdf_mode='horizontal', show_quantiles=True, show_confidence_rings=False, cursor_time=None, enable_time_sync=False):
         self.clear_canvas()
         
         if tab == 'epoch_enu':
@@ -287,7 +313,7 @@ class PlotWidget(FigureCanvas):
         
         self.ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=5, fontsize=10, frameon=True, facecolor='#FFFFFF', edgecolor='#CBD5E1')
 
-    def draw_scatter(self, segments, truth):
+    def draw_scatter(self, segments, truth, show_confidence_rings=False, cursor_time=None):
         """
         绘制自适应高精度靶心图
         """
@@ -368,10 +394,55 @@ class PlotWidget(FigureCanvas):
         self.ax.text(limit * 0.98, 0, "E", ha='right', va='center', fontsize=12, fontweight='bold', color='#0F172A')
         self.ax.text(-limit * 0.98, 0, "W", ha='left', va='center', fontsize=12, fontweight='bold', color='#0F172A')
         
+        # --- 置信圆环绘制 (CEP 50%, R95 95%, 2DRMS 98%) ---
+        if show_confidence_rings and active_segments:
+            all_de = []
+            all_dn = []
+            for s in active_segments:
+                m = s.get('metrics', {})
+                all_de.extend(m.get('de', []))
+                all_dn.extend(m.get('dn', []))
+            if all_de and all_dn:
+                arr_de = np.array(all_de)
+                arr_dn = np.array(all_dn)
+                d_2d = np.hypot(arr_de, arr_dn)
+                c_50 = float(np.percentile(d_2d, 50))
+                r_95 = float(np.percentile(d_2d, 95))
+                rms_2d = float(np.sqrt(np.mean(d_2d**2)))
+                drms_98 = 2.0 * rms_2d
+
+                # 绘制 CEP (50%) 绿色虚线圆
+                circle_cep = patches.Circle((0, 0), c_50, fill=False, color='#10B981', linestyle='--', linewidth=1.5, zorder=4, label=f'CEP(50%): {c_50:.3f}m')
+                self.ax.add_patch(circle_cep)
+                
+                # 绘制 R95 (95%) 橙色虚线圆
+                circle_r95 = patches.Circle((0, 0), r_95, fill=False, color='#F97316', linestyle='--', linewidth=1.6, zorder=4, label=f'R95(95%): {r_95:.3f}m')
+                self.ax.add_patch(circle_r95)
+
+                # 绘制 2DRMS (98%) 蓝色点划线圆
+                circle_2drms = patches.Circle((0, 0), drms_98, fill=False, color='#3B82F6', linestyle='-.', linewidth=1.5, zorder=4, label=f'2DRMS(98%): {drms_98:.3f}m')
+                self.ax.add_patch(circle_2drms)
+
+        # --- 高亮联动选中的历元点 ---
+        if cursor_time is not None and active_segments:
+            for s in active_segments:
+                m = s.get('metrics', {})
+                times = s.get('times', [])
+                de_list = m.get('de', [])
+                dn_list = m.get('dn', [])
+                if times and len(times) == len(de_list):
+                    t_arr = np.array(times)
+                    idx = np.argmin(np.abs(t_arr - cursor_time))
+                    if abs(t_arr[idx] - cursor_time) <= 1.5:
+                        hl_e = de_list[idx]
+                        hl_n = dn_list[idx]
+                        self.ax.scatter([hl_e], [hl_n], s=160, color='#F59E0B', marker='o', edgecolors='#FFFFFF', linewidths=2.0, zorder=6, label='当前选中点')
+                        break
+
         self.ax.set_title("定位偏差分布图 (靶心图)", fontsize=14, fontweight='bold', pad=10)
         self.ax.grid(False)
         if active_segments:
-            self.ax.legend(loc='upper right', framealpha=0.9, fontsize=10)
+            self.ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
         self.ax.set_aspect('equal')
 
     def draw_status(self, segments):
