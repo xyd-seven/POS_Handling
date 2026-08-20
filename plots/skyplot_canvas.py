@@ -66,6 +66,9 @@ class SkyPlotCanvas(QWidget):
         self.ax.spines['polar'].set_color('#475569')
         self.ax.spines['polar'].set_linewidth(1.5)
 
+        # 显式重置 2D 极坐标边距，保证 N(0°)、S(180°)、E(90°)、W(270°) 及外圈刻度 100% 完整显示
+        self.figure.subplots_adjust(left=0.08, right=0.92, bottom=0.06, top=0.91)
+
     def init_3d_axes(self):
         # 记忆视角
         if self.current_mode == '3d' and hasattr(self.ax, 'elev') and hasattr(self.ax, 'azim'):
@@ -92,13 +95,13 @@ class SkyPlotCanvas(QWidget):
         self.ax.set_zlim(-0.04, 1.08)
         self.ax.view_init(elev=self._last_elev_azim_3d[0], azim=self._last_elev_azim_3d[1])
 
-        # 拉近相机距离并消除四周多余空白，让 3D 天穹饱满填充整个大屏幕
+        # 适度拉近相机距离，保持 3D 天穹饱满大气同时避免切边
         try:
-            self.ax.dist = 6.8
-            self.ax.set_box_aspect([1.0, 1.0, 0.72])
+            self.ax.dist = 7.5
+            self.ax.set_box_aspect([1.0, 1.0, 0.75])
         except Exception:
             pass
-        self.figure.subplots_adjust(left=-0.10, right=1.10, bottom=-0.10, top=1.08)
+        self.figure.subplots_adjust(left=-0.04, right=1.04, bottom=-0.04, top=1.04)
 
         # 构建静态天球骨架与发光半球曲面 (常驻图层)
         self._build_static_3d_dome_layer()
