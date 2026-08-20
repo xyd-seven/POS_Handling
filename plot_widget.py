@@ -169,6 +169,27 @@ class PlotWidget(FigureCanvas):
         # Draw idle is needed for relayout 
         self.fig.canvas.draw_idle()
         
+    def _draw_cursor_line(self, ax, cursor_time, segments, x_axis_mode):
+        if cursor_time is None or ax is None:
+            return
+        cx = None
+        if x_axis_mode == '时间轴':
+            cx = cursor_time
+        else:
+            # 找到最接近 cursor_time 的历元索引
+            for s in segments:
+                if s.get('active', True) and s.get('times'):
+                    t_arr = np.array(s['times'])
+                    idx = int(np.argmin(np.abs(t_arr - cursor_time)))
+                    if abs(t_arr[idx] - cursor_time) <= 2.0:
+                        cx = idx
+                        break
+        if cx is not None:
+            try:
+                ax.axvline(x=cx, color='#F59E0B', linestyle='--', linewidth=1.8, alpha=0.9, zorder=10)
+            except Exception:
+                pass
+
     def render_data(self, tab, segments, truth=None, time_zone='UTC', show_absolute_alt=False, show_extrema=True, x_axis_mode='历元数', show_sats=False, show_raw_alt=False, show_stats=True, speed_unit='m/s', cdf_mode='horizontal', show_quantiles=True, show_confidence_rings=False, cursor_time=None, enable_time_sync=False):
         self.clear_canvas()
         
@@ -180,6 +201,9 @@ class PlotWidget(FigureCanvas):
             for a in axs:
                 a.set_facecolor('#FFFFFF')
             self.draw_epoch_enu(segments, truth, time_zone, x_axis_mode, show_stats)
+            self._draw_cursor_line(self.ax_e, cursor_time, segments, x_axis_mode)
+            self._draw_cursor_line(self.ax_n, cursor_time, segments, x_axis_mode)
+            self._draw_cursor_line(self.ax_u, cursor_time, segments, x_axis_mode)
             self.fig.subplots_adjust(left=0.08, right=0.98, top=0.96, bottom=0.08, hspace=0.15)
             self.draw()
             return
@@ -191,6 +215,8 @@ class PlotWidget(FigureCanvas):
             for a in axs:
                 a.set_facecolor('#FFFFFF')
             self.draw_speed_comparison(segments, truth, time_zone, x_axis_mode, speed_unit, show_stats)
+            self._draw_cursor_line(self.ax_speed, cursor_time, segments, x_axis_mode)
+            self._draw_cursor_line(self.ax_speed_err, cursor_time, segments, x_axis_mode)
             self.fig.subplots_adjust(left=0.08, right=0.98, top=0.95, bottom=0.09, hspace=0.18)
             self.draw()
             return
@@ -212,14 +238,21 @@ class PlotWidget(FigureCanvas):
             self.ax = self.fig.add_subplot(111)
             self.ax.set_facecolor('#FFFFFF')
         
+        self.enable_time_sync = enable_time_sync
+        self.cursor_time = cursor_time
+        self.current_segments = segments
+        self.current_x_mode = x_axis_mode
+
         if tab == 'scatter':
             self.draw_scatter(segments, truth, show_confidence_rings=show_confidence_rings, cursor_time=cursor_time)
         elif tab == 'status':
             self.draw_status(segments)
         elif tab == 'epoch_h':
             self.draw_epoch_horizontal(segments, time_zone, show_extrema, x_axis_mode, show_sats)
+            self._draw_cursor_line(self.ax, cursor_time, segments, x_axis_mode)
         elif tab == 'epoch_v':
             self.draw_epoch_vertical(segments, time_zone, show_absolute_alt, show_extrema, x_axis_mode, show_sats, show_raw_alt)
+            self._draw_cursor_line(self.ax, cursor_time, segments, x_axis_mode)
         elif tab == 'trajectory':
             self.draw_trajectory_2d(segments, truth)
             
