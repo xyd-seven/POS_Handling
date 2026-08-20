@@ -3507,6 +3507,8 @@ class MainWindow(QMainWindow):
         # 联动检查X轴时间可用性并自动禁用
         self.check_xaxis_mode_availability()
         self.update_metrics_table()
+        if hasattr(self, 'gis_map_widget'):
+            self.gis_map_widget.render_trajectories(self.segments, self.truth, auto_fit=True)
         self.refresh_chart()
 
     def update_metrics_table(self):

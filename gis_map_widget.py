@@ -87,7 +87,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
                 subdomains: ['0','1','2','3'],
                 maxZoom: 20,
-                isGcj: true
+                isGcj: false
             },
             'tdt_sat': {
                 url: 'https://t{s}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=16e3c80a229a437f8842e61a6c4b2a8d',
@@ -419,8 +419,6 @@ class GISMapWidget(QWidget):
         """
         self.cached_segments = segments
         self.cached_truth = truth
-        if not getattr(self, 'is_page_loaded', False):
-            return
 
         payload = {
             'showTruth': self.cb_show_truth.isChecked(),
@@ -504,7 +502,20 @@ class GISMapWidget(QWidget):
 
         self.raw_payload = payload
         json_str = json.dumps(payload, ensure_ascii=False)
-        self.web_view.page().runJavaScript(f"renderTrajectories({json_str});")
+        js_wrapper = f"""
+        (function() {{
+            var payloadData = {json_str};
+            function tryExecute() {{
+                if (window.isMapReady && window.renderTrajectories) {{
+                    window.renderTrajectories(payloadData);
+                }} else {{
+                    setTimeout(tryExecute, 100);
+                }}
+            }}
+            tryExecute();
+        }})();
+        """
+        self.web_view.page().runJavaScript(js_wrapper)
 
     def update_map_display(self):
         if self.raw_payload:
