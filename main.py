@@ -29,7 +29,8 @@ from gnss_parser import (parse_log_line, convert_pogos_to_gga, calculate_metrics
                     interpolate_dynamic_truth, parse_bk_frame, BKStreamParser,
                     crc16_ccitt)
 from exporters import export_word_report
-from core import ReplaySnapshotWorker, LogParserThread
+from core import ReplaySnapshotWorker, LogParserThread, SkyPlotDataModel
+from plots import SkyPlotCanvas
 from plot_widget import PlotWidget
 from ui_main import QSS_STYLE, SegmentListItemWidget
 from settings_dialog import SettingsDialog
@@ -717,6 +718,8 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(QSS_STYLE)
 
         self.app_config = {}
+        self.skyplot_model = SkyPlotDataModel()
+        self.skyplot_mode = 'snapshot'  # 'snapshot' 或 'tracks'
         self.parser_thread = None
         self.dynamic_parser_thread = None
 
@@ -1689,6 +1692,125 @@ class MainWindow(QMainWindow):
         self.serial_vertical_splitter.setCollapsible(0, False)
         self.serial_vertical_splitter.setCollapsible(1, False)
 
+
+        # --- 6. 卫星星空图 (SkyPlot) 选项卡 ---
+        self.tab_skyplot = QWidget()
+        skyplot_main_layout = QVBoxLayout(self.tab_skyplot)
+        skyplot_main_layout.setContentsMargins(6, 6, 6, 6)
+        skyplot_main_layout.setSpacing(6)
+
+        # 上部水平分割 (左侧雷达表盘，右侧状态看板)
+        skyplot_upper_layout = QHBoxLayout()
+        skyplot_upper_layout.setSpacing(8)
+
+        self.canvas_skyplot = SkyPlotCanvas(self.tab_skyplot)
+        skyplot_upper_layout.addWidget(self.canvas_skyplot, 7)
+
+        # 右侧卫星与DOP信息看板
+        sky_side_widget = QWidget()
+        sky_side_widget.setMaximumWidth(280)
+        sky_side_layout = QVBoxLayout(sky_side_widget)
+        sky_side_layout.setContentsMargins(8, 8, 8, 8)
+        sky_side_layout.setSpacing(10)
+
+        # 星座统计卡片
+        grp_sats_stat = QGroupBox("星座可见 / 在用统计")
+        grp_sats_layout = QGridLayout(grp_sats_stat)
+        grp_sats_layout.setContentsMargins(8, 12, 8, 8)
+        grp_sats_layout.setSpacing(6)
+
+        grp_sats_layout.addWidget(QLabel("北斗 (BDS):"), 0, 0)
+        self.lbl_sky_bds = QLabel("0 颗")
+        self.lbl_sky_bds.setStyleSheet("color: #EF4444; font-weight: bold;")
+        grp_sats_layout.addWidget(self.lbl_sky_bds, 0, 1)
+
+        grp_sats_layout.addWidget(QLabel("GPS:"), 1, 0)
+        self.lbl_sky_gps = QLabel("0 颗")
+        self.lbl_sky_gps.setStyleSheet("color: #3B82F6; font-weight: bold;")
+        grp_sats_layout.addWidget(self.lbl_sky_gps, 1, 1)
+
+        grp_sats_layout.addWidget(QLabel("GLONASS:"), 2, 0)
+        self.lbl_sky_glo = QLabel("0 颗")
+        self.lbl_sky_glo.setStyleSheet("color: #F59E0B; font-weight: bold;")
+        grp_sats_layout.addWidget(self.lbl_sky_glo, 2, 1)
+
+        grp_sats_layout.addWidget(QLabel("Galileo:"), 3, 0)
+        self.lbl_sky_gal = QLabel("0 颗")
+        self.lbl_sky_gal.setStyleSheet("color: #06B6D4; font-weight: bold;")
+        grp_sats_layout.addWidget(self.lbl_sky_gal, 3, 1)
+
+        grp_sats_layout.addWidget(QLabel("在用卫星数:"), 4, 0)
+        self.lbl_sky_used = QLabel("0 颗")
+        self.lbl_sky_used.setStyleSheet("color: #10B981; font-weight: bold; font-size: 13px;")
+        grp_sats_layout.addWidget(self.lbl_sky_used, 4, 1)
+
+        sky_side_layout.addWidget(grp_sats_stat)
+
+        # 几何衰减因子 (DOP) 卡片
+        grp_dop = QGroupBox("DOP 几何衰减因子")
+        grp_dop_layout = QGridLayout(grp_dop)
+        grp_dop_layout.setContentsMargins(8, 12, 8, 8)
+        grp_dop_layout.setSpacing(6)
+
+        grp_dop_layout.addWidget(QLabel("位置精度因子 (PDOP):"), 0, 0)
+        self.lbl_sky_pdop = QLabel("1.0")
+        self.lbl_sky_pdop.setStyleSheet("color: #38BDF8; font-weight: bold; font-family: Consolas;")
+        grp_dop_layout.addWidget(self.lbl_sky_pdop, 0, 1)
+
+        grp_dop_layout.addWidget(QLabel("水平精度因子 (HDOP):"), 1, 0)
+        self.lbl_sky_hdop = QLabel("1.0")
+        self.lbl_sky_hdop.setStyleSheet("color: #38BDF8; font-weight: bold; font-family: Consolas;")
+        grp_dop_layout.addWidget(self.lbl_sky_hdop, 1, 1)
+
+        grp_dop_layout.addWidget(QLabel("高程精度因子 (VDOP):"), 2, 0)
+        self.lbl_sky_vdop = QLabel("1.0")
+        self.lbl_sky_vdop.setStyleSheet("color: #38BDF8; font-weight: bold; font-family: Consolas;")
+        grp_dop_layout.addWidget(self.lbl_sky_vdop, 2, 1)
+
+        sky_side_layout.addWidget(grp_dop)
+
+        # 视图模式选择 (单时刻探伤 vs 全时段星轨)
+        grp_sky_mode = QGroupBox("图表模式")
+        mode_box_layout = QVBoxLayout(grp_sky_mode)
+        mode_box_layout.setContentsMargins(8, 12, 8, 8)
+        mode_box_layout.setSpacing(6)
+
+        self.cmb_sky_mode = QComboBox()
+        self.cmb_sky_mode.addItems(["单时刻探伤 (Snapshot)", "全时段星轨 (Sky Tracks)"])
+        self.cmb_sky_mode.currentIndexChanged.connect(self.on_skyplot_mode_changed)
+        mode_box_layout.addWidget(self.cmb_sky_mode)
+        sky_side_layout.addWidget(grp_sky_mode)
+
+        sky_side_layout.addStretch()
+        skyplot_upper_layout.addWidget(sky_side_widget, 3)
+        skyplot_main_layout.addLayout(skyplot_upper_layout, 1)
+
+        # 下部时间轴滑块与播放控制栏
+        self.bar_sky_time = QWidget()
+        sky_ctrl_layout = QHBoxLayout(self.bar_sky_time)
+        sky_ctrl_layout.setContentsMargins(6, 4, 6, 4)
+        sky_ctrl_layout.setSpacing(8)
+
+        lbl_timeline = QLabel("时间探伤滑块:")
+        lbl_timeline.setStyleSheet("color: #94A3B8; font-weight: bold; font-size: 11px;")
+        sky_ctrl_layout.addWidget(lbl_timeline)
+
+        self.slider_skyplot = QSlider(Qt.Horizontal)
+        self.slider_skyplot.setStyleSheet("""
+            QSlider::groove:horizontal { border: 1px solid #1E293B; height: 6px; background: #0B1120; border-radius: 3px; }
+            QSlider::sub-page:horizontal { background: #38BDF8; border-radius: 3px; }
+            QSlider::handle:horizontal { background: #38BDF8; border: 1px solid #38BDF8; width: 14px; height: 14px; margin: -4px 0; border-radius: 7px; }
+            QSlider::handle:horizontal:hover { background: #F8FAFC; border-color: #F8FAFC; }
+        """)
+        self.slider_skyplot.valueChanged.connect(self.on_skyplot_slider_changed)
+        sky_ctrl_layout.addWidget(self.slider_skyplot, 1)
+
+        self.lbl_skyplot_time = QLabel("00:00:00")
+        self.lbl_skyplot_time.setStyleSheet("color: #F8FAFC; font-family: Consolas; font-weight: bold; font-size: 12px;")
+        sky_ctrl_layout.addWidget(self.lbl_skyplot_time)
+
+        skyplot_main_layout.addWidget(self.bar_sky_time)
+
         # 添加选项卡
         self.tab_widget.addTab(self.tab_scatter, "靶心图")
         self.tab_widget.addTab(self.tab_epoch_h, "水平位置误差历元分布图")
@@ -1696,6 +1818,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.tab_epoch_enu, "ENU三向误差图")
         self.tab_widget.addTab(self.tab_speed, "速度对比图")
         self.tab_widget.addTab(self.tab_cdf, "误差累积分布图 (CDF)")
+        self.tab_widget.addTab(self.tab_skyplot, "卫星星空图 (SkyPlot)")
         self.tab_widget.addTab(self.tab_status, "定位质量图")
         self.tab_widget.addTab(self.tab_trajectory, "绝对轨迹图")
         self.tab_widget.addTab(self.tab_serial, "实时串口")
@@ -3179,6 +3302,21 @@ class MainWindow(QMainWindow):
             seg['epochs'] = filtered_epochs
             seg['metrics'] = metrics
 
+        # 提取活跃分段数据构建 SkyPlot 索引
+        active_epochs = []
+        for s in self.segments:
+            if s.get('active', True) and s.get('epochs'):
+                active_epochs.extend(s['epochs'])
+        self.skyplot_model.build_from_epochs(active_epochs)
+        if self.skyplot_model.time_list:
+            self.slider_skyplot.setRange(0, len(self.skyplot_model.time_list) - 1)
+            self.slider_skyplot.setValue(0)
+            t_sec = self.skyplot_model.time_list[0]
+            self.lbl_skyplot_time.setText(seconds_to_time_str(t_sec % 86400))
+        else:
+            self.slider_skyplot.setRange(0, 0)
+            self.lbl_skyplot_time.setText("00:00:00")
+
         # 联动检查X轴时间可用性并自动禁用
         self.check_xaxis_mode_availability()
         self.update_metrics_table()
@@ -3231,8 +3369,10 @@ class MainWindow(QMainWindow):
         elif index == 5:
             self.canvas_cdf.render_data('cdf', self.segments, self.truth, cdf_mode=getattr(self, 'cdf_mode', 'horizontal'), speed_unit=getattr(self, 'speed_unit', 'm/s'), show_quantiles=getattr(self, 'show_cdf_quantiles', True))
         elif index == 6:
-            self.canvas_status.render_data('status', self.segments, self.truth, self.time_zone)
+            self.refresh_skyplot()
         elif index == 7:
+            self.canvas_status.render_data('status', self.segments, self.truth, self.time_zone)
+        elif index == 8:
             self.canvas_trajectory.render_data('trajectory', self.segments, self.truth)
 
     # 8. 导出数据逻辑
@@ -3527,6 +3667,56 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"KML 导出失败: {str(e)}")
 
+    
+    def on_skyplot_mode_changed(self, index):
+        self.skyplot_mode = 'snapshot' if index == 0 else 'tracks'
+        self.bar_sky_time.setVisible(self.skyplot_mode == 'snapshot')
+        self.refresh_skyplot()
+
+    def on_skyplot_slider_changed(self, val):
+        if not self.skyplot_model.time_list:
+            return
+        if 0 <= val < len(self.skyplot_model.time_list):
+            t_sec = self.skyplot_model.time_list[val]
+            self.lbl_skyplot_time.setText(seconds_to_time_str(t_sec % 86400))
+            self.refresh_skyplot_at_time(t_sec)
+
+    def refresh_skyplot(self):
+        if self.skyplot_mode == 'tracks':
+            tracks = self.skyplot_model.get_all_tracks()
+            self.canvas_skyplot.render_tracks(tracks)
+        else:
+            if not self.skyplot_model.time_list:
+                self.canvas_skyplot.render_snapshot({}, {})
+                return
+            idx = self.slider_skyplot.value()
+            idx = max(0, min(len(self.skyplot_model.time_list) - 1, idx))
+            t_sec = self.skyplot_model.time_list[idx]
+            self.refresh_skyplot_at_time(t_sec)
+
+    def refresh_skyplot_at_time(self, t_sec):
+        sats, dop = self.skyplot_model.get_snapshot_at_time(t_sec)
+        self.canvas_skyplot.render_snapshot(sats, dop, title_prefix=seconds_to_time_str(t_sec % 86400))
+
+        # 更新右侧统计卡片
+        counts = {'BD': 0, 'GPS': 0, 'GL': 0, 'GA': 0, 'used': 0}
+        for k, v in sats.items():
+            p = v.get('sys_prefix', 'GPS')
+            if p in counts:
+                counts[p] += 1
+            if v.get('is_used', False):
+                counts['used'] += 1
+
+        self.lbl_sky_bds.setText(f"{counts['BD']} 颗")
+        self.lbl_sky_gps.setText(f"{counts['GPS']} 颗")
+        self.lbl_sky_glo.setText(f"{counts['GL']} 颗")
+        self.lbl_sky_gal.setText(f"{counts['GA']} 颗")
+        self.lbl_sky_used.setText(f"{counts['used']} 颗 / 可见 {len(sats)} 颗")
+
+        self.lbl_sky_pdop.setText(f"{dop.get('pdop', 1.0):.2f}")
+        self.lbl_sky_hdop.setText(f"{dop.get('hdop', 1.0):.2f}")
+        self.lbl_sky_vdop.setText(f"{dop.get('vdop', 1.0):.2f}")
+
     def on_export_report_clicked(self):
         canvases = {
             'scatter': self.canvas_scatter,
@@ -3536,7 +3726,8 @@ class MainWindow(QMainWindow):
             'epoch_v': self.canvas_epoch_v,
             'epoch_enu': self.canvas_epoch_enu,
             'speed': self.canvas_speed,
-            'cdf': self.canvas_cdf
+            'cdf': self.canvas_cdf,
+            'skyplot': self.canvas_skyplot
         }
         export_word_report(self, self.segments, self.truth, self.table_metrics, canvases, getattr(self, 'app_config', {}))
 
@@ -4825,6 +5016,32 @@ class MainWindow(QMainWindow):
                 return
             self._last_cno_snapshot = snapshot
             self.canvas_cno.render_cno(self.gsv_satellites, self.used_satellites, self.has_received_gsa, self.sat_metadata)
+
+        if hasattr(self, 'canvas_skyplot') and self.tab_widget.currentIndex() == 6 and self.skyplot_mode == 'snapshot':
+            live_sats = {}
+            for sat_key, sig_dict in self.gsv_satellites.items():
+                sys_prefix, prn = sat_key
+                meta = self.sat_metadata.get(sat_key, {})
+                elev = meta.get('elevation', 0.0)
+                azim = meta.get('azimuth', 0.0)
+                is_used = sat_key in self.used_satellites
+                max_snr = max(sig_dict.values()) if sig_dict else 0
+                _, _, lbl_char = get_sat_info(sys_prefix, prn)
+                live_sats[sat_key] = {
+                    'sys_prefix': sys_prefix,
+                    'prn': prn,
+                    'lbl_char': lbl_char,
+                    'elevation': float(elev) if elev is not None else 0.0,
+                    'azimuth': float(azim) if azim is not None else 0.0,
+                    'snr': float(max_snr),
+                    'is_used': is_used
+                }
+            dop_info = {
+                'pdop': getattr(self, 'latest_pdop', 1.0),
+                'hdop': getattr(self, 'latest_hdop', 1.0),
+                'vdop': getattr(self, 'latest_vdop', 1.0)
+            }
+            self.canvas_skyplot.render_snapshot(live_sats, dop_info, title_prefix="实时")
 
     def toggle_cno_visibility(self, visible):
         if hasattr(self, 'group_cno'):

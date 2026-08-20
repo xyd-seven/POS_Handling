@@ -1,43 +1,44 @@
 # Hand Off - VCOM定位精度分析工具交接文档
 
 ## 1. 项目目标
-基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、载噪比柱状图及 Word 报告导出。当前阶段已完成核心架构模块化解耦与代码瘦身重构。
+基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、载噪比柱状图及 Word 报告导出。当前阶段已完成雷达极坐标天空图模块与 Word 报告深度集成。
 
 ---
 
 ## 2. 当前状态
-- [x] **双重安全备份**：已创建 Git 远端备份分支 ackup/pre-refactor-20260820、标签 1.0.9-pre-refactor 及本地全量物理归档目录 F:\TestTools\pos_handling\backups\backup_pre_refactor_20260820
 - [x] **模块化分层解耦落地**：
-  - 新建 exporters/word_exporter.py：独立封装 Word 评测报告生成、表格数据排版、8 大图表离屏高保真抓取与文件占用冲突防护；
-  - 新建 core/replay_manager.py：独立封装 ReplaySnapshotWorker 后台多线程解析器、切片快照、(1)$ 状态恢复与 Seek 调度；
-  - 新建 core/segment_manager.py：独立封装 LogParserThread、分段数据加载与时间对齐模型；
-  - 在 gnss_parser.py 中规范化沉淀 get_sat_info 星座与 PRN 映射核心底层算法；
-- [x] **100% 接口与业务零破坏**：MainWindow 保持全部公开属性与方法委托，所有既有 UI 控件、信号槽与配置读写完全兼容；
-- [x] **全量端到端回归测试**：	est_refactored_modules.py 与 	est_full_regression.py 100% 通过（涵盖协议解析、指标计算、8 大图表渲染、Word 导出与数据绑定）；
-- [x] **编译与部署**：通过 PyInstaller 重新打包并同步交付覆盖至 F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe。
+  - 新增 plots/skyplot_canvas.py：独立封装 Matplotlib 极坐标雷达盘、四大星座分类着色、在用/跟踪星区分、10° 截止角环、时间滑块探伤与全时段星轨曲线渲染；
+  - 新增 core/skyplot_model.py：独立管理 GSV 数据的 (1)$ 秒级快速切片哈希索引与多时段星轨提取；
+  - 在 exporters/word_exporter.py 中深度集成「3.9 卫星极坐标天空图 (SkyPlot)」离屏抓取与排版写入；
+- [x] **主界面「卫星星空图 (SkyPlot)」选项卡装配**：
+  - 左侧展示高清极坐标雷达盘；
+  - 右侧提供「星座在用/可见统计看板」及「DOP 几何衰减因子 (PDOP/HDOP/VDOP)」卡片；
+  - 底部配置「时间探伤滑块」与当前时刻标签，支持单时刻探伤与全时段星轨一键切换；
+  - 串口实时接收与数据回放时自动秒级联动跳动刷新；
+- [x] **全量回归与专项测试**：	est_skyplot.py 与 	est_full_regression.py 全部 100% 通过；
+- [x] **PyInstaller 独立编译与部署**：成功打包并覆盖交付至 F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe。
 
 ---
 
 ## 3. 当前任务
-- 无（架构模块化解耦、全量回归测试与生产环境重新打包部署已全部圆满完成）
+- 无（雷达极坐标天空图模块开发、测试、打包与交付全部圆满完成）
 
 ---
 
 ## 4. 关键设计决策
-- **委托模式（Delegation Pattern）实现无缝解耦**：MainWindow 保持原有方法签名，将实际实现委托给 core 与 exporters 子模块，既做到了主入口瘦身，又保证了外部调用、单元测试与 Qt 信号槽的 100% 向后兼容。
-- **深度容错与异常隔离**：各子模块独立捕获 IO、多线程与文档导出异常，统一派发安全信号，杜绝程序崩溃。Word 导出层增加 PermissionError 智能拦截与进度条取消即时响应。
-- **卫星星座映射算法沉淀至底层算法库**：将原在 UI 层的 get_sat_info 迁移至 gnss_parser.py，使回放引擎、分段管理、图表渲染与后续天空图均能统一复用一致的标准星座与 PRN 分类标准。
+- **极坐标天顶投影数学模型**：天顶仰角 ^\circ$ 映射至极坐标原点（=0$），地平线 ^\circ$ 映射至外圈（=90$），极角以正北（0°/N）为顶部顺时针旋转（$\theta = \text{radians}(90 - \text{Azimuth})$）。
+- **(1)$ 秒级快速检索哈希索引**：在 SkyPlotDataModel 中按秒维护 	ime_to_sats 与 	ime_to_dop 映射，时间轴滑块拖拽时无需重复扫描全量原始日志，实现 60 FPS 流畅拖拽体验。
+- **高对比度多星座着色**：北斗 BDS (红)、GPS (蓝)、GLONASS (黄)、Galileo (青)，在用卫星采用实心高亮圆点，跟踪星采用半透明空心圆点，视觉对比清晰强烈。
 
 ---
 
 ## 5. 修改记录
-- gnss_parser.py
-- main.py
+- plots/skyplot_canvas.py
+- plots/__init__.py
+- core/skyplot_model.py
 - core/__init__.py
-- core/replay_manager.py
-- core/segment_manager.py
-- exporters/__init__.py
 - exporters/word_exporter.py
+- main.py
 - handoff.md
 
 ---
@@ -48,16 +49,15 @@
 ---
 
 ## 7. 下一步任务
-1. **[优先级 - 高] 极坐标天空图 (SkyPlot) 模块开发**：在 plots/ 下基于 get_sat_info 与 GSV 方位角/仰角数据实现 2D 雷达极坐标天空图组件。
-2. **[优先级 - 中] DOP 几何构型分析曲线**：实现 PDOP/HDOP/VDOP 时域走势图。
+1. **[优先级 - 中] TTFF 首次定位时间与 RTK 重捕获 (Re-Fix) 分析**：冷热启动首个有效历元耗时与 RTK 失锁后恢复固定时间统计。
+2. **[优先级 - 低] 多模组同屏对比跑分**：批量多日志同屏 CDF 与精度雷达对比。
 
 ---
 
 ## 8. 测试状态
-- **模块导入与依赖完整性测试**：PASS
-- **LogParserThread 多协议解析测试**：PASS
-- **ReplaySnapshotWorker 切片快照与回放测试**：PASS
-- **8 大图表渲染引擎端到端测试**：PASS
+- **SkyPlotDataModel 秒级切片与星轨提取测试**：PASS
+- **SkyPlotCanvas 极坐标快照与星轨渲染测试**：PASS
+- **9 大核心图表端到端全量渲染测试**：PASS
 - **Word 评测报告自动生成测试**：PASS
 - **PyInstaller 编译与可执行程序部署**：PASS
 

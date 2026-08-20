@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+"""
+Word 评测报告自动生成与排版导出模块
+支持 9 大核心图表离屏高保真渲染、表格数据格式化及占用冲突容错。
+"""
 import io
 import os
 from datetime import datetime
@@ -22,7 +26,7 @@ def export_word_report(parent_window, segments, truth, table_metrics, canvases_d
         return
 
     try:
-        progress = QProgressDialog("正在生成 Word 报告...", "取消", 0, 11, parent_window)
+        progress = QProgressDialog("正在生成 Word 报告...", "取消", 0, 12, parent_window)
         progress.setWindowTitle("导出报告")
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
@@ -38,6 +42,7 @@ def export_word_report(parent_window, segments, truth, table_metrics, canvases_d
         if progress.wasCanceled():
             return
 
+        # 添加表格数据 (精度指标)
         doc.add_heading('2. 精度指标对比', level=1)
         table = doc.add_table(rows=1, cols=table_metrics.columnCount())
         table.style = 'Table Grid'
@@ -55,6 +60,7 @@ def export_word_report(parent_window, segments, truth, table_metrics, canvases_d
         if progress.wasCanceled():
             return
 
+        # 导出图表截图
         doc.add_heading('3. 图表分析', level=1)
 
         def add_plot_to_doc(canvas, title, progress_value):
@@ -67,6 +73,7 @@ def export_word_report(parent_window, segments, truth, table_metrics, canvases_d
             progress.setValue(progress_value)
             QApplication.processEvents()
 
+        # 强制预渲染所有图表，防止用户未点击的选项卡截图为空白
         progress.setLabelText("正在渲染图表...")
         time_zone = getattr(parent_window, 'time_zone', 'UTC')
         show_extrema = getattr(parent_window, 'show_extrema', True)
@@ -79,53 +86,66 @@ def export_word_report(parent_window, segments, truth, table_metrics, canvases_d
         cdf_mode = getattr(parent_window, 'cdf_mode', 'horizontal')
         show_cdf_quantiles = getattr(parent_window, 'show_cdf_quantiles', True)
 
-        c_scatter = canvases_dict['scatter']
-        c_trajectory = canvases_dict['trajectory']
-        c_status = canvases_dict['status']
-        c_epoch_h = canvases_dict['epoch_h']
-        c_epoch_v = canvases_dict['epoch_v']
-        c_epoch_enu = canvases_dict['epoch_enu']
-        c_speed = canvases_dict['speed']
-        c_cdf = canvases_dict['cdf']
+        c_scatter = canvases_dict.get('scatter')
+        c_trajectory = canvases_dict.get('trajectory')
+        c_status = canvases_dict.get('status')
+        c_epoch_h = canvases_dict.get('epoch_h')
+        c_epoch_v = canvases_dict.get('epoch_v')
+        c_epoch_enu = canvases_dict.get('epoch_enu')
+        c_speed = canvases_dict.get('speed')
+        c_cdf = canvases_dict.get('cdf')
+        c_skyplot = canvases_dict.get('skyplot')
 
-        c_scatter.render_data('scatter', segments, truth, time_zone)
-        c_trajectory.render_data('trajectory', segments, truth)
-        c_status.render_data('status', segments, truth, time_zone)
-        c_epoch_h.render_data('epoch_h', segments, truth, time_zone, show_extrema=show_extrema, x_axis_mode=x_axis_mode, show_sats=is_sats_checked)
-        c_epoch_v.render_data('epoch_v', segments, truth, time_zone, show_absolute_alt, show_extrema=show_extrema, x_axis_mode=x_axis_mode, show_sats=is_sats_checked, show_raw_alt=show_raw_alt)
-        c_epoch_enu.render_data('epoch_enu', segments, truth, time_zone, x_axis_mode=x_axis_mode, show_stats=True)
-        c_speed.render_data('speed', segments, truth, time_zone, x_axis_mode=x_axis_mode, show_stats=True, speed_unit=speed_unit)
-        c_cdf.render_data('cdf', segments, truth, cdf_mode=cdf_mode, speed_unit=speed_unit, show_quantiles=show_cdf_quantiles)
+        if c_scatter:
+            c_scatter.render_data('scatter', segments, truth, time_zone)
+        if c_trajectory:
+            c_trajectory.render_data('trajectory', segments, truth)
+        if c_status:
+            c_status.render_data('status', segments, truth, time_zone)
+        if c_epoch_h:
+            c_epoch_h.render_data('epoch_h', segments, truth, time_zone, show_extrema=show_extrema, x_axis_mode=x_axis_mode, show_sats=is_sats_checked)
+        if c_epoch_v:
+            c_epoch_v.render_data('epoch_v', segments, truth, time_zone, show_absolute_alt, show_extrema=show_extrema, x_axis_mode=x_axis_mode, show_sats=is_sats_checked, show_raw_alt=show_raw_alt)
+        if c_epoch_enu:
+            c_epoch_enu.render_data('epoch_enu', segments, truth, time_zone, x_axis_mode=x_axis_mode, show_stats=True)
+        if c_speed:
+            c_speed.render_data('speed', segments, truth, time_zone, x_axis_mode=x_axis_mode, show_stats=True, speed_unit=speed_unit)
+        if c_cdf:
+            c_cdf.render_data('cdf', segments, truth, cdf_mode=cdf_mode, speed_unit=speed_unit, show_quantiles=show_cdf_quantiles)
+        
         progress.setValue(3)
         QApplication.processEvents()
         if progress.wasCanceled():
             return
 
         progress.setLabelText("正在写入图表...")
-        add_plot_to_doc(c_trajectory, '3.1 绝对二维轨迹投影图', 4)
-        if progress.wasCanceled():
-            return
-        add_plot_to_doc(c_scatter, '3.2 定位偏差分布图 (靶心图)', 5)
-        if progress.wasCanceled():
-            return
-        add_plot_to_doc(c_status, '3.3 定位解状态分布', 6)
-        if progress.wasCanceled():
-            return
-        add_plot_to_doc(c_epoch_h, '3.4 水平位置误差分布', 7)
-        if progress.wasCanceled():
-            return
-        add_plot_to_doc(c_epoch_v, '3.5 高程位置误差分布', 8)
-        if progress.wasCanceled():
-            return
-        add_plot_to_doc(c_epoch_enu, '3.6 ENU三向误差时域分布', 9)
-        if progress.wasCanceled():
-            return
-        add_plot_to_doc(c_speed, '3.7 动态速度跟踪与误差分布', 10)
-        if progress.wasCanceled():
-            return
-        add_plot_to_doc(c_cdf, '3.8 定位误差累积分布曲线 (CDF)', 11)
-        if progress.wasCanceled():
-            return
+        if c_trajectory:
+            add_plot_to_doc(c_trajectory, '3.1 绝对二维轨迹投影图', 4)
+            if progress.wasCanceled(): return
+        if c_scatter:
+            add_plot_to_doc(c_scatter, '3.2 定位偏差分布图 (靶心图)', 5)
+            if progress.wasCanceled(): return
+        if c_status:
+            add_plot_to_doc(c_status, '3.3 定位解状态分布', 6)
+            if progress.wasCanceled(): return
+        if c_epoch_h:
+            add_plot_to_doc(c_epoch_h, '3.4 水平位置误差分布', 7)
+            if progress.wasCanceled(): return
+        if c_epoch_v:
+            add_plot_to_doc(c_epoch_v, '3.5 高程位置误差分布', 8)
+            if progress.wasCanceled(): return
+        if c_epoch_enu:
+            add_plot_to_doc(c_epoch_enu, '3.6 ENU三向误差时域分布', 9)
+            if progress.wasCanceled(): return
+        if c_speed:
+            add_plot_to_doc(c_speed, '3.7 动态速度跟踪与误差分布', 10)
+            if progress.wasCanceled(): return
+        if c_cdf:
+            add_plot_to_doc(c_cdf, '3.8 定位误差累积分布曲线 (CDF)', 11)
+            if progress.wasCanceled(): return
+        if c_skyplot:
+            add_plot_to_doc(c_skyplot, '3.9 卫星极坐标天空图 (SkyPlot)', 12)
+            if progress.wasCanceled(): return
 
         progress.setLabelText("正在保存报告...")
         doc.save(save_path)
