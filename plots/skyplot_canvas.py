@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 雷达极坐标天空图 (SkyPlot) 独立 Matplotlib 绘图组件
-支持四大星座着色、在用/跟踪星区分、等仰角同心环、时间滑块探伤与全时段星轨渲染。
+支持四大星座着色、在用/跟踪星区分、等仰角同心环、时间滑块探伤与全时段星轨抗跳变渲染。
 """
 import math
 import numpy as np
@@ -85,6 +85,10 @@ class SkyPlotCanvas(QWidget):
             azim = sat_info.get('azimuth', 0.0)
             is_used = sat_info.get('is_used', False)
 
+            # 过滤仰角和方位角全为0的无效点
+            if elev <= 0.01 and azim <= 0.01:
+                continue
+
             r = max(0.0, min(90.0, 90.0 - elev))
             theta = np.deg2rad(azim)
 
@@ -113,7 +117,7 @@ class SkyPlotCanvas(QWidget):
 
     def render_tracks(self, sat_tracks_dict):
         """
-        渲染全时段星轨运动图
+        渲染全时段星轨运动图（包含零值过滤、时间中断切分与 360°/0° 跨界抗跳线）
         """
         self.init_polar_axes()
 
@@ -128,25 +132,70 @@ class SkyPlotCanvas(QWidget):
             self.canvas.draw_idle()
             return
 
-        for sat_key, track_points in sat_tracks_dict.items():
-            if not track_points:
+        rendered_sats_count = 0
+
+        for sat_key, raw_track in sat_tracks_dict.items():
+            if not raw_track:
                 continue
+
+            # 1. 过滤零值和异常点
+            valid_points = []
+            for pt in raw_track:
+                t, elev, azim, is_used = pt
+                if elev <= 0.01 and azim <= 0.01:
+                    continue
+                if 0 <= elev <= 90 and 0 <= azim <= 360:
+                    valid_points.append(pt)
+
+            if not valid_points:
+                continue
+
             sys_prefix, prn = sat_key
             color = self.CONSTELLATION_COLORS.get(sys_prefix, '#94A3B8')
-
-            azims = [p[2] for p in track_points]
-            elevs = [p[1] for p in track_points]
-
-            thetas = np.deg2rad(azims)
-            radii = [90.0 - el for el in elevs]
-
-            # 绘制弧线
-            self.ax.plot(thetas, radii, color=color, linewidth=2.0, alpha=0.75, zorder=3)
-
-            # 在轨迹终点标出卫星名
             lbl_char = 'B' if sys_prefix == 'BD' else ('G' if sys_prefix == 'GPS' else ('R' if sys_prefix == 'GL' else 'E'))
-            self.ax.scatter(thetas[-1], radii[-1], s=180, color=color, edgecolors='#FFFFFF', linewidths=1.2, zorder=5)
-            self.ax.text(thetas[-1], radii[-1], f"{lbl_char}{prn:02d}", color='#FFFFFF', fontsize=8.0, fontweight='bold', ha='center', va='center', zorder=6)
+
+            # 2. 轨迹切分算法：根据时间间隔 > 30s 或方位角跳变 > 25° 拆分为连续子段
+            sub_segments = []
+            cur_seg = [valid_points[0]]
+
+            for i in range(1, len(valid_points)):
+                prev_t, prev_el, prev_az, _ = valid_points[i-1]
+                t, el, az, _ = valid_points[i]
+
+                dt = abs(t - prev_t)
+                d_az = abs(az - prev_az)
+                d_el = abs(el - prev_el)
+
+                # 角度跨界检测 (例如 359° -> 1° 正常差应为 2°)
+                if d_az > 180:
+                    d_az = 360 - d_az
+
+                # 若时间断档超 30 秒，或角度突变超 25°，则断开为新的子轨迹
+                if dt > 30.0 or d_az > 25.0 or d_el > 20.0:
+                    if len(cur_seg) > 1:
+                        sub_segments.append(cur_seg)
+                    cur_seg = [valid_points[i]]
+                else:
+                    cur_seg.append(valid_points[i])
+
+            if len(cur_seg) > 1:
+                sub_segments.append(cur_seg)
+
+            # 3. 绘制平滑子弧线
+            for seg in sub_segments:
+                azims = [p[2] for p in seg]
+                elevs = [p[1] for p in seg]
+                thetas = np.deg2rad(azims)
+                radii = [90.0 - el for el in elevs]
+                self.ax.plot(thetas, radii, color=color, linewidth=2.0, alpha=0.8, zorder=3)
+
+            # 4. 在有效轨迹末端（最新位置）标注卫星图标
+            last_pt = valid_points[-1]
+            last_theta = np.deg2rad(last_pt[2])
+            last_r = 90.0 - last_pt[1]
+            self.ax.scatter(last_theta, last_r, s=180, color=color, edgecolors='#FFFFFF', linewidths=1.2, zorder=5)
+            self.ax.text(last_theta, last_r, f"{lbl_char}{prn:02d}", color='#FFFFFF', fontsize=8.0, fontweight='bold', ha='center', va='center', zorder=6)
+            rendered_sats_count += 1
 
         self.ax.set_title("全时段卫星运动星轨图 (Sky Tracks)", color='#F8FAFC', fontsize=12, fontweight='bold', pad=18)
         self.canvas.draw_idle()

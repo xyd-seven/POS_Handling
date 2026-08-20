@@ -93,6 +93,10 @@ class SkyPlotDataModel:
                 snr = s.get('snr', 0)
                 if prn is None or elev is None or azim is None:
                     continue
+                
+                # 过滤无效哑数据（仰角和方位角均为0的未解算点）
+                if elev <= 0.01 and azim <= 0.01:
+                    continue
                 if not (0 <= elev <= 90 and 0 <= azim <= 360):
                     continue
 
@@ -110,7 +114,7 @@ class SkyPlotDataModel:
                     'is_used': is_used
                 }
 
-                # 记录星轨
+                # 记录星轨点
                 if sat_key not in self.all_sat_tracks:
                     self.all_sat_tracks[sat_key] = []
                 self.all_sat_tracks[sat_key].append((t, float(elev), float(azim), is_used))

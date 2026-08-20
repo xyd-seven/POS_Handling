@@ -1,36 +1,34 @@
 # Hand Off - VCOM定位精度分析工具交接文档
 
 ## 1. 项目目标
-基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、载噪比柱状图及 Word 报告导出。当前阶段已打通普通离线文件导入全流程的天空图自动构建与星轨绘制。
+基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、载噪比柱状图及 Word 报告导出。当前阶段已修复星轨零点伪拉线与跨界跳变问题。
 
 ---
 
 ## 2. 当前状态
-- [x] **打通「➕ 导入日志」全链路天空图数据源**：
-  - 在 on_parse_finished 中将普通离线文件解析出的 gsv_events 与 gsa_events 正确缓存在 self.file_gsv_events_map 和 self.file_gsa_events_map；
-  - 在 
-ecompute_all 中从活跃分段所关联的文件中聚合 GSV 数据，自动填充 SkyPlotDataModel；
-  - 普通日志导入后，用户直接点击「卫星星空图 (SkyPlot)」选项卡，即可完整查看离线单时刻探伤、时间轴拖拽、播放/暂停、倍速及全时段星轨图；
-- [x] **右侧看板多星座统计精准联动**：实时串口接收、回放、离线滑块拖拽与自动播放均 100% 准确同步显示 BDS、GPS、GLONASS、Galileo、在用/可见卫星总数及 PDOP/HDOP/VDOP；
-- [x] **全量端到端导入测试**：	est_import_skyplot.py 100% 通过；
-- [x] **PyInstaller 编译与部署**：已重新打包并覆盖交付至 F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe。
+- `[x]` **彻底消除星轨正北 N(0°) 伪拉线与断点跳线**：
+  - 在 `SkyPlotDataModel` 与 `SkyPlotCanvas` 中加入哑数据过滤：剔除仰角与方位角为 0, 0 的无效占位点；
+  - 引入**轨迹切分算法 (Track Splitting)**：当相邻采样点时间间隔大于 30 秒、或方位角突变大于 25°（含 360°/0° 跨界）、或仰角突变大于 20° 时，自动拆分为平滑独立的子轨迹，杜绝跨越全圆的假拉线；
+  - 仅在连续真实移动的点集间绘制平滑弧线，在最新的有效位置处绘制卫星圆点徽标；
+- `[x]` **全量专项测试**：`test_track_filter.py` 100% 通过；
+- `[x]` **PyInstaller 重新编译与部署**：已重新打包并覆盖交付至 `F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe`。
 
 ---
 
 ## 3. 当前任务
-- 无（普通日志导入与天空图离线查看链路已彻底打通并发布）
+- 无（星轨伪拉线修复完成并重新发布）
 
 ---
 
 ## 4. 关键设计决策
-- **分段与底层文件数据解耦管理**：分段列表中的分段项通过 ile_id 引用底层文件的原始 gsv_events，确保多文件导入或自定义时间分段切换时，天空图能够精准提取对应时段内的卫星分布。
+- **连续性阈值判定**：GNSS 卫星在天空中的角速度极慢（约 15°/小时），若两帧之间方位角突变 > 25° 或仰角突变 > 20°，判定为重新捕获或跨界断点，采用断开子段独立成图策略。
 
 ---
 
 ## 5. 修改记录
-- core/segment_manager.py
-- main.py
-- handoff.md
+- `core/skyplot_model.py`
+- `plots/skyplot_canvas.py`
+- `handoff.md`
 
 ---
 
@@ -46,9 +44,7 @@ ecompute_all 中从活跃分段所关联的文件中聚合 GSV 数据，自动�
 ---
 
 ## 8. 测试状态
-- **标准日志导入并解析 SkyPlot 测试**：PASS
-- **离线时间轴滑块与播放控制测试**：PASS
-- **离线全时段星轨图渲染测试**：PASS
+- **星轨零点过滤与子段切分测试**：PASS
 - **PyInstaller 编译与可执行程序部署**：PASS
 
 ---
