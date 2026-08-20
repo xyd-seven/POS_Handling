@@ -1,37 +1,35 @@
 # Hand Off - VCOM定位精度分析工具交接文档
 
 ## 1. 项目目标
-基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、3D 空间立体天球穹顶 (3D SkyDome)、载噪比柱状图及 Word 报告导出。当前阶段已完成 3D 立体天球穹顶模式开发与集成发布。
+基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、3D 空间立体天球穹顶 (3D SkyDome)、载噪比柱状图及 Word 报告导出。当前阶段已增加「显示 3D 星轨」可交互复选开关。
 
 ---
 
 ## 2. 当前状态
-- `[x]` **「3D 立体天穹 (3D SkyDome)」全新交互模式上线**：
-  - 在 `plots/skyplot_canvas.py` 中增加 `render_3d_skydome`：基于局部东北天 (ENU) 空间球面坐标变换生成半透明经纬天穹半球网格；
-  - 空间 3D 发光卫星球体（在用实心高亮、跟踪半透明空心）及空间 3D 样条星轨立体展示；
-  - 包含底盘地平线圆环、$10^\circ$ 红色空间截止角虚线保护环、正北/正东/正南/正西及天顶 (Zenith) 立体方位指示；
-  - 支持鼠标左键 360° 自由拖拽旋转视角、俯仰与滚轮缩放，并具备视角记忆机制；
-  - 联动时间轴滑块与 **`[▶ 播放 / ⏸ 暂停]`**，支持 3D 视角下动态播放卫星移动；
-- `[x]` **全量专项测试与回归测试**：`test_skydome_3d.py` 与 `test_full_regression_3d.py` 100% 通过；
-- `[x]` **PyInstaller 独立编译与部署**：已重新打包并覆盖交付至 `F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe`。
+- [x] **3D 立体天穹增加「显示 3D 星轨」复选开关**：
+  - 在「3D 立体天穹」模式下，右侧自动出现「显示 3D 星轨」复选框（非 3D 模式自动隐藏，保持界面清爽）；
+  - **勾选时**：同时展示 3D 空间发光卫星球体与天球表面 3D 运动星轨；
+  - **取消勾选时**：画面极为纯净清爽，仅显示 3D 瞬时发光卫星球与天穹网格；
+  - 切换复选框时实时即刻重绘 3D 画布；
+- [x] **全量专项测试与回归测试**：	est_3d_checkbox.py 100% 通过；
+- [x] **PyInstaller 重新编译与部署**：已重新打包并覆盖交付至 F:\TestTools\pos_handling\dist\GNSS_Precision_Tool_1.0.9.exe。
 
 ---
 
 ## 3. 当前任务
-- 无（3D 立体天球穹顶功能开发、测试与交付全部圆满完成）
+- 无（3D 星轨复选开关开发与发布完成）
 
 ---
 
 ## 4. 关键设计决策
-- **ENU 空间球面数学模型**：$X=\cos(\text{Elev})\sin(\text{Azim})$ (East)，$Y=\cos(\text{Elev})\cos(\text{Azim})$ (North)，$Z=\sin(\text{Elev})$ (Zenith)；
-- **2D/3D 双视图无缝切换**：同一画布内支持极坐标子图（`projection='polar'`）与三维子图（`projection='3d'`）的高性能动态重构，记忆用户拖拽调整的观察视角。
+- **按需动态控件显示**：cb_sky_3d_tracks 仅在 skyplot_mode == '3d' 时显示，切换到 2D 极坐标快照或星轨模式时自动隐藏，避免界面杂乱。
 
 ---
 
 ## 5. 修改记录
-- `plots/skyplot_canvas.py`
-- `main.py`
-- `handoff.md`
+- plots/skyplot_canvas.py
+- main.py
+- handoff.md
 
 ---
 
@@ -47,9 +45,7 @@
 ---
 
 ## 8. 测试状态
-- **3D 坐标变换与网格生成测试**：PASS
-- **2D 极坐标与 3D 天穹无缝切换测试**：PASS
-- **3D 动态播放与时间滑块联动测试**：PASS
+- **3D 星轨复选开关响应与画布刷新测试**：PASS
 - **PyInstaller 编译与可执行程序部署**：PASS
 
 ---

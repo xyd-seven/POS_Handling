@@ -222,7 +222,7 @@ class SkyPlotCanvas(QWidget):
         self.ax.set_title("全时段卫星运动星轨图 (Sky Tracks)", color='#F8FAFC', fontsize=12, fontweight='bold', pad=18)
         self.canvas.draw_idle()
 
-    def render_3d_skydome(self, sats_dict, dop_dict=None, sat_tracks_dict=None, title_prefix=""):
+    def render_3d_skydome(self, sats_dict, dop_dict=None, sat_tracks_dict=None, title_prefix="", show_tracks=True):
         """
         渲染 3D 空间半透明立体天球穹顶 (3D SkyDome)
         """
@@ -270,7 +270,7 @@ class SkyPlotCanvas(QWidget):
         self.ax.text(0, 0, 1.08, "Zenith (90°)", color='#94A3B8', fontsize=8.5, fontweight='bold', ha='center', va='bottom')
 
         # 2. 如果提供了全时段星轨，绘制 3D 空间立体星轨
-        if sat_tracks_dict:
+        if sat_tracks_dict and show_tracks:
             for sat_key, raw_track in sat_tracks_dict.items():
                 if not raw_track:
                     continue

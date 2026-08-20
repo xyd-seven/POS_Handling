@@ -1785,6 +1785,14 @@ class MainWindow(QMainWindow):
         self.cmb_sky_mode.addItems(["单时刻探伤 (Snapshot)", "全时段星轨 (Sky Tracks)", "3D 立体天穹 (3D SkyDome)"])
         self.cmb_sky_mode.currentIndexChanged.connect(self.on_skyplot_mode_changed)
         mode_box_layout.addWidget(self.cmb_sky_mode)
+
+        self.cb_sky_3d_tracks = QCheckBox("显示 3D 星轨")
+        self.cb_sky_3d_tracks.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: bold;")
+        self.cb_sky_3d_tracks.setChecked(True)
+        self.cb_sky_3d_tracks.hide()
+        self.cb_sky_3d_tracks.stateChanged.connect(self.on_sky_3d_tracks_changed)
+        mode_box_layout.addWidget(self.cb_sky_3d_tracks)
+
         sky_side_layout.addWidget(grp_sky_mode)
 
         sky_side_layout.addStretch()
@@ -3738,10 +3746,17 @@ class MainWindow(QMainWindow):
             self.skyplot_mode = '3d'
 
         self.bar_sky_time.setVisible(self.skyplot_mode in ['snapshot', '3d'])
+        if hasattr(self, 'cb_sky_3d_tracks'):
+            self.cb_sky_3d_tracks.setVisible(self.skyplot_mode == '3d')
+
         if self.skyplot_mode == 'tracks':
             if self.skyplot_is_playing:
                 self.toggle_skyplot_playback()
         self.refresh_skyplot()
+
+    def on_sky_3d_tracks_changed(self, state):
+        if self.skyplot_mode == '3d':
+            self.refresh_skyplot()
 
     def toggle_skyplot_playback(self):
         if not self.skyplot_model.time_list:
@@ -3825,15 +3840,16 @@ class MainWindow(QMainWindow):
             self.lbl_sky_used.setText(f"总计 {len(tracks)} 颗星轨")
         elif self.skyplot_mode == '3d':
             tracks = self.skyplot_model.get_all_tracks()
+            show_3d_t = self.cb_sky_3d_tracks.isChecked() if hasattr(self, 'cb_sky_3d_tracks') else True
             if not self.skyplot_model.time_list:
-                self.canvas_skyplot.render_3d_skydome({}, {}, tracks)
+                self.canvas_skyplot.render_3d_skydome({}, {}, tracks, show_tracks=show_3d_t)
                 self.update_skyplot_side_panel({}, {})
                 return
             idx = self.slider_skyplot.value()
             idx = max(0, min(len(self.skyplot_model.time_list) - 1, idx))
             t_sec = self.skyplot_model.time_list[idx]
             sats, dop = self.skyplot_model.get_snapshot_at_time(t_sec)
-            self.canvas_skyplot.render_3d_skydome(sats, dop, tracks, title_prefix=seconds_to_time_str(t_sec % 86400))
+            self.canvas_skyplot.render_3d_skydome(sats, dop, tracks, title_prefix=seconds_to_time_str(t_sec % 86400), show_tracks=show_3d_t)
             self.update_skyplot_side_panel(sats, dop)
         else:
             if not self.skyplot_model.time_list:
@@ -3850,7 +3866,8 @@ class MainWindow(QMainWindow):
         time_str = seconds_to_time_str(t_sec % 86400)
         if self.skyplot_mode == '3d':
             tracks = self.skyplot_model.get_all_tracks()
-            self.canvas_skyplot.render_3d_skydome(sats, dop, tracks, title_prefix=time_str)
+            show_3d_t = self.cb_sky_3d_tracks.isChecked() if hasattr(self, 'cb_sky_3d_tracks') else True
+            self.canvas_skyplot.render_3d_skydome(sats, dop, tracks, title_prefix=time_str, show_tracks=show_3d_t)
         else:
             self.canvas_skyplot.render_snapshot(sats, dop, title_prefix=time_str)
         self.update_skyplot_side_panel(sats, dop)
@@ -5200,7 +5217,8 @@ class MainWindow(QMainWindow):
                 'vdop': getattr(self, 'latest_vdop', 1.0)
             }
             if self.skyplot_mode == '3d':
-                self.canvas_skyplot.render_3d_skydome(live_sats, dop_info, title_prefix="实时")
+                show_3d_t = self.cb_sky_3d_tracks.isChecked() if hasattr(self, 'cb_sky_3d_tracks') else True
+                self.canvas_skyplot.render_3d_skydome(live_sats, dop_info, title_prefix="实时", show_tracks=show_3d_t)
             else:
                 self.canvas_skyplot.render_snapshot(live_sats, dop_info, title_prefix="实时")
             self.update_skyplot_side_panel(live_sats, dop_info)
