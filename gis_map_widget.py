@@ -83,17 +83,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 maxZoom: 18,
                 isGcj: true
             },
+            'google_sat': {
+                url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                subdomains: ['0','1','2','3'],
+                maxZoom: 20,
+                isGcj: true
+            },
             'tdt_sat': {
-                url: 'https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=b43521bb2a8435d6eb0fcdaec48a0dd3',
+                url: 'https://t{s}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=16e3c80a229a437f8842e61a6c4b2a8d',
                 subdomains: ['0','1','2','3','4','5','6','7'],
-                annotUrl: 'https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=b43521bb2a8435d6eb0fcdaec48a0dd3',
+                annotUrl: 'https://t{s}.tianditu.gov.cn/DataServer?T=cia_w&x={x}&y={y}&l={z}&tk=16e3c80a229a437f8842e61a6c4b2a8d',
                 maxZoom: 18,
                 isGcj: false
             },
             'tdt_vec': {
-                url: 'https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=b43521bb2a8435d6eb0fcdaec48a0dd3',
+                url: 'https://t{s}.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk=16e3c80a229a437f8842e61a6c4b2a8d',
                 subdomains: ['0','1','2','3','4','5','6','7'],
-                annotUrl: 'https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=b43521bb2a8435d6eb0fcdaec48a0dd3',
+                annotUrl: 'https://t{s}.tianditu.gov.cn/DataServer?T=cva_w&x={x}&y={y}&l={z}&tk=16e3c80a229a437f8842e61a6c4b2a8d',
                 maxZoom: 18,
                 isGcj: false
             },
@@ -250,6 +256,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         function fitBoundsNow() {
             if (window.rawTrajectoryData) {
                 renderTrajectories(Object.assign({}, window.rawTrajectoryData, {autoFit: true}));
+            } else if (map) {
+                map.invalidateSize(true);
             }
         }
 
@@ -329,10 +337,11 @@ class GISMapWidget(QWidget):
 
         tb_layout.addWidget(QLabel("底图图源:"))
         self.combo_map_type = QComboBox()
-        self.combo_map_type.addItem("高德矢量路网 (免Key)", "amap_vec")
-        self.combo_map_type.addItem("高德高清卫星 (免Key)", "amap_sat")
-        self.combo_map_type.addItem("天地图高清卫星 (官方推荐)", "tdt_sat")
-        self.combo_map_type.addItem("天地图矢量路网 (官方推荐)", "tdt_vec")
+        self.combo_map_type.addItem("高德矢量路网 (免Key/推荐)", "amap_vec")
+        self.combo_map_type.addItem("高德高清卫星 (免Key/推荐)", "amap_sat")
+        self.combo_map_type.addItem("谷歌混合卫星 (免Key/高清)", "google_sat")
+        self.combo_map_type.addItem("天地图官方卫星 (DataServer)", "tdt_sat")
+        self.combo_map_type.addItem("天地图官方路网 (DataServer)", "tdt_vec")
         self.combo_map_type.addItem("OpenStreetMap (开源)", "osm")
         self.combo_map_type.addItem("CartoDB 暗黑底图", "carto_dark")
         self.combo_map_type.currentIndexChanged.connect(self.on_map_type_changed)
@@ -380,9 +389,12 @@ class GISMapWidget(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if getattr(self, 'cached_segments', None) is not None:
+            self.render_trajectories(self.cached_segments, self.cached_truth, auto_fit=True)
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(100, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(); fitBoundsNow(); }"))
-        QTimer.singleShot(300, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(); fitBoundsNow(); }"))
+        QTimer.singleShot(50, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
+        QTimer.singleShot(200, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
+        QTimer.singleShot(500, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
