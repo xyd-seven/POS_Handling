@@ -1,37 +1,33 @@
 # Hand Off - VCOM定位精度分析工具交接文档
 
 ## 1. 项目目标
-基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、3D 空间立体天球穹顶 (3D SkyDome)、载噪比柱状图及 Word 报告导出。当前阶段已采用官方原生 QtWebEngine 工业级架构并完成深度依赖剪枝，彻底解决导入日志卡死问题。
+基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、3D 空间立体天球穹顶 (3D SkyDome)、载噪比柱状图及 Word 报告导出。当前阶段已完成定位解状态占比甜甜圈环形饼图升级。
 
 ---
 
 ## 2. 当前状态
-- [x] **采用官方原生 QtWebEngine 工业级架构**：
-  - 彻底杜绝 Windows Forms / COM 消息泵与 Qt 模态对话框的死锁冲突；
-  - 导入日志、多文件批处理、大文件加载 100% 流畅丝滑、0 假死；
-- [x] **深度依赖剪枝（瘦身超 41MB）**：
-  - 剔除 QtQuick/QtQml/Qt3D/QtVirtualKeyboard/scipy/pandas 等 20+ 个大型冗余库，体积由 245MB 优化至 203.8MB；
-- [x] **GIS 地图与全量功能 100% 完好**：
-  - 高德矢量/高德卫星/谷歌纯卫星/天地图WMTS 自由切换，支持瓦片异常防黑屏保护；
-  - RTK 分段着色、参考真值对比、全局多图时间双向联动、双模无缝切换；
+- [x] **定位质量 Tab 现代甜甜圈环形饼图升级**：
+  - 替换原条形图为现代甜甜圈环形饼图（Donut Pie Chart）；
+  - 中心醒目呈现固定解率 KPI（如 98.6% 固定解率）；
+  - 严格契合 GNSS 状态标准色彩（绿/黄/蓝/灰/红）；
+  - 极小扇区防拥挤重叠保护 + 右侧结构化历元与占比统计卡；
+  - 支持多分段自动并排子图矩阵排布；
 - [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 F:\\TestTools\\pos_handling\\dist\\。
 
 ---
 
 ## 3. 当前任务
-- 无（官方原生架构加固与深度剪枝已全面交付上线）
+- 无（定位质量占比饼图升级已全面交付上线）
 
 ---
 
 ## 4. 关键设计决策
-- 采用 PySide6 官方原生集成的 QWebEngineView + QWebChannel；
-- main.spec 精准 excludes 依赖裁剪 + optimize=0 保障 NumPy 稳定。
+- 基于 Matplotlib draw_status 现代环形饼图 + 极小比例外部图例防重叠设计。
 
 ---
 
 ## 5. 修改记录
-- gis_map_widget.py
-- main.spec
+- plot_widget.py
 - walkthrough.md
 - handoff.md
 
@@ -49,7 +45,7 @@
 ---
 
 ## 8. 测试状态
-- 日志导入与解析死锁防范测试：PASS
+- 单分段/多分段甜甜圈饼图渲染测试：PASS
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
 - PyInstaller 编译与部署：PASS

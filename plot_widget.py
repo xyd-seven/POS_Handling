@@ -612,58 +612,125 @@ class PlotWidget(FigureCanvas):
             self.ax.set_xticks([])
             self.ax.set_yticks([])
             return
-            
+
         quality_map = {
-            4: ('RTK固定解(4)', '#10B981'),
-            5: ('RTK浮点解(5)', '#F59E0B'),
-            2: ('差分解(2)', '#3B82F6'),
-            1: ('单点解(1)', '#94A3B8'),
-            0: ('无效解(0)', '#EF4444')
+            4: ('RTK固定解 (4)', '#10B981'),
+            5: ('RTK浮点解 (5)', '#F59E0B'),
+            2: ('伪距差分 (2)', '#3B82F6'),
+            1: ('单点定位 (1)', '#94A3B8'),
+            0: ('无效解 (0)', '#EF4444')
         }
-        
-        y_labels = [seg['name'] for seg in active_segments]
-        y_pos = np.arange(len(active_segments))
-        
         quality_keys = [4, 5, 2, 1, 0]
-        percentages_dict = {k: [] for k in quality_keys}
+
+        num_segs = len(active_segments)
         
-        for seg in active_segments:
-            qualities = np.array([ep['quality'] for ep in seg['epochs']])
-            total = len(qualities)
-            counts = {}
-            for k in quality_keys:
-                if k == 0:
-                    counts[0] = np.sum(~np.isin(qualities, quality_keys[:-1]))
-                else:
-                    counts[k] = np.sum(qualities == k)
+        # 针对多分段场景动态分配子图
+        if num_segs > 1:
+            self.fig.clear()
+            cols = min(num_segs, 3)
+            rows = (num_segs + cols - 1) // cols
             
-            for k in quality_keys:
-                pct = (counts[k] / total) * 100 if total > 0 else 0.0
-                percentages_dict[k].append(pct)
+            for idx, seg in enumerate(active_segments):
+                ax_sub = self.fig.add_subplot(rows, cols, idx + 1)
+                ax_sub.set_facecolor('#FFFFFF')
+                self._draw_single_status_pie(ax_sub, seg, quality_map, quality_keys, is_multi=True)
                 
-        left = np.zeros(len(active_segments))
-        
+            self.fig.subplots_adjust(left=0.05, right=0.95, top=0.90, bottom=0.10, wspace=0.3, hspace=0.35)
+        else:
+            # 单分段呈现大号甜甜圈饼图与右侧统计面板
+            self.ax.clear()
+            self.ax.set_facecolor('#FFFFFF')
+            seg = active_segments[0]
+            self._draw_single_status_pie(self.ax, seg, quality_map, quality_keys, is_multi=False)
+            self.fig.subplots_adjust(left=0.08, right=0.95, top=0.92, bottom=0.08)
+
+    def _draw_single_status_pie(self, ax, seg, quality_map, quality_keys, is_multi=False):
+        qualities = np.array([ep.get('quality', 0) for ep in seg['epochs']])
+        total = len(qualities)
+        if total == 0:
+            ax.text(0.5, 0.5, f"{seg['name']}\n暂无历元数据", ha='center', va='center', fontsize=11, color='#64748B')
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            return
+
+        counts = {}
         for k in quality_keys:
-            label, color = quality_map[k]
-            p_vals = np.array(percentages_dict[k])
-            
-            if np.any(p_vals > 0):
-                bars = self.ax.barh(y_pos, p_vals, left=left, color=color, label=label, edgecolor='white', height=0.4)
-                for idx, (bar, val) in enumerate(zip(bars, p_vals)):
-                    if val > 6:
-                        tx = left[idx] + val / 2.0
-                        self.ax.text(tx, y_pos[idx], f"{val:.1f}%", ha='center', va='center', color='white', fontsize=10, fontweight='bold')
-                left += p_vals
-                
-        self.ax.set_yticks(y_pos)
-        self.ax.set_yticklabels(y_labels, fontsize=11, fontweight='bold', color='#0F172A')
-        self.ax.tick_params(axis='x', labelsize=10)
-        self.ax.set_xlabel("比例 (%)", fontsize=11)
-        self.ax.set_xlim(0, 100)
-        self.ax.grid(True, axis='x', color='#CBD5E1', linestyle='--', linewidth=0.5)
-        
-        self.ax.set_title("定位解状态比例分布对比图", fontsize=14, fontweight='bold', pad=10)
-        self.ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=5, fontsize=10, frameon=True, facecolor='#FFFFFF', edgecolor='#CBD5E1')
+            if k == 0:
+                counts[0] = np.sum(~np.isin(qualities, quality_keys[:-1]))
+            else:
+                counts[k] = np.sum(qualities == k)
+
+        sizes = []
+        colors = []
+        labels = []
+        legend_labels = []
+
+        for k in quality_keys:
+            cnt = counts[k]
+            pct = (cnt / total) * 100.0 if total > 0 else 0.0
+            name, color = quality_map[k]
+            if cnt > 0:
+                sizes.append(cnt)
+                colors.append(color)
+                # 只有占比大于 4% 才在扇区内显示文字，防止拥挤
+                labels.append(f"{pct:.1f}%" if pct >= 4.0 else "")
+                legend_labels.append(f"{name}: {cnt:,} ({pct:.2f}%)")
+
+        fix_cnt = counts.get(4, 0)
+        fix_rate = (fix_cnt / total) * 100.0 if total > 0 else 0.0
+
+        # 绘制甜甜圈环形饼图
+        wedges, texts = ax.pie(
+            sizes,
+            labels=labels,
+            labeldistance=0.72,
+            colors=colors,
+            startangle=90,
+            counterclock=False,
+            wedgeprops=dict(width=0.42, edgecolor='white', linewidth=2.0),
+            textprops=dict(color='white', fontsize=10 if not is_multi else 8, fontweight='bold')
+        )
+
+        # 中心 KPI 文本
+        kpi_color = '#10B981' if fix_rate >= 90.0 else ('#F59E0B' if fix_rate >= 70.0 else '#EF4444')
+        main_fs = 20 if not is_multi else 14
+        sub_fs = 10 if not is_multi else 8
+        ax.text(0, 0.08, f"{fix_rate:.1f}%", ha='center', va='center', fontsize=main_fs, fontweight='bold', color=kpi_color)
+        ax.text(0, -0.12, "固定解率", ha='center', va='center', fontsize=sub_fs, fontweight='600', color='#64748B')
+
+        ax.set_aspect('equal')
+        title_fs = 13 if not is_multi else 11
+        seg_name = seg.get('name', '待测分段')
+        ax.set_title(f"{seg_name} 定位解状态占比分布", fontsize=title_fs, fontweight='bold', pad=12, color='#0F172A')
+
+        if not is_multi:
+            # 单图模式下在右侧绘制高级图例卡
+            ax.legend(
+                wedges,
+                legend_labels,
+                title=f"历元统计汇总: {total:,} pts",
+                title_fontsize=11,
+                loc='center left',
+                bbox_to_anchor=(1.05, 0.5),
+                fontsize=10,
+                frameon=True,
+                facecolor='#F8FAFC',
+                edgecolor='#CBD5E1',
+                borderpad=1.0,
+                labelspacing=0.8
+            )
+        else:
+            ax.legend(
+                wedges,
+                legend_labels,
+                loc='upper center',
+                bbox_to_anchor=(0.5, -0.05),
+                fontsize=8,
+                ncol=2,
+                frameon=False
+            )
 
     def draw_epoch_horizontal(self, segments, time_zone='UTC', show_extrema=True, x_axis_mode='历元数', show_sats=False):
         """
