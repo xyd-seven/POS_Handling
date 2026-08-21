@@ -1,29 +1,34 @@
 # -*- coding: utf-8 -*-
 """
-Interactive GIS Map Trajectory Widget (Windows Native Edge WebView2 Engine)
-Built on top of Windows Native Microsoft Edge WebView2 and Leaflet.js.
-Zero-bundled-Chromium architecture for ultra-compact ~50MB executable size.
+Interactive GIS Map Trajectory Widget (Official QtWebEngine Architecture)
+Built on top of PySide6.QtWebEngineWidgets and Leaflet.js.
 Supports multiple online base maps (AMap, Tianditu, OSM, CartoDB), auto GCJ-02 correction,
 RTK status trajectory rendering, fit bounds, and bi-directional time sync.
+100% thread-safe and immune to modal dialog deadlocks.
 """
 
 import json
 import os
-import ctypes
-from PySide6.QtCore import QObject, Signal, Slot, QTimer
+from PySide6.QtCore import QObject, Signal, Slot, QUrl, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QCheckBox, QPushButton, QLabel, QFrame
 )
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineCore import QWebEngineSettings
+from PySide6.QtWebChannel import QWebChannel
 
 from coord_transform import wgs84_to_gcj02
 
-# 动态加载 Windows 原生 Edge WebView2 引擎
-import webview.platforms.winforms as wf
-clr = wf.clr
-clr.AddReference("System.Windows.Forms")
-from System.Windows.Forms import Form, FormBorderStyle, DockStyle
-from Microsoft.Web.WebView2.WinForms import WebView2
-from System.Drawing import Size
+
+class MapBridge(QObject):
+    """
+    Bridge object exposed to JavaScript for bi-directional communication.
+    """
+    point_clicked = Signal(float)  # Sends epoch TOW to Python
+
+    @Slot(float)
+    def onPointClicked(self, tow):
+        self.point_clicked.emit(tow)
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -34,6 +39,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <style>
         html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; background: #0F172A; }
         .leaflet-control-attribution { display: none !important; }
@@ -72,7 +78,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         var currentBaseLayer = null;
         var currentAnnotLayer = null;
         var currentMapType = 'amap_vec';
+        var pyBridge = null;
         window.isMapReady = true;
+
+        if (typeof QWebChannel !== 'undefined') {
+            new QWebChannel(qt.webChannelTransport, function(channel) {
+                pyBridge = channel.objects.pyBridge;
+            });
+        }
 
         // Base Layer Definitions
         var baseLayers = {
@@ -141,7 +154,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     maxZoom: cfg.maxZoom || 18
                 }).addTo(map);
             }
-            // Re-render trajectories if map coordinate system changes
             if (window.rawTrajectoryData) {
                 renderTrajectories(window.rawTrajectoryData);
             }
@@ -221,9 +233,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                 {sticky: true}
                             );
                             poly.on('click', function(e) {
-                                if (window.chrome && window.chrome.webview) {
-                                    window.chrome.webview.postMessage(JSON.stringify({event: 'map_clicked'}));
-                                }
+                                if (pyBridge) pyBridge.onPointClicked(0);
                             });
                         })(seg.name, {label: lineData.label, color: lineData.color});
 
@@ -247,7 +257,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         function setVehicleCursor(lat, lon, popupHtml, autoPan) {
             if (!map) return;
-            var isGcj = (baseLayers[currentMapType] && baseLayers[currentMapType].isGcj);
             var renderLat = lat;
             var renderLon = lon;
 
@@ -301,6 +310,9 @@ class GISMapWidget(QWidget):
         self.cached_segments = None
         self.cached_truth = None
         self.raw_payload = None
+
+        self.bridge = MapBridge()
+        self.bridge.point_clicked.connect(self.sig_time_clicked)
 
         self.init_ui()
 
@@ -393,84 +405,46 @@ class GISMapWidget(QWidget):
 
         layout.addWidget(toolbar, 0)
 
-        # Windows 原生 Edge WebView2 嵌入容器
-        self.form = Form()
-        self.form.FormBorderStyle = getattr(FormBorderStyle, 'None')
-        self.form.TopLevel = False
-        self.form.Visible = True
+        # 官方原生 QWebEngineView 容器
+        self.web_view = QWebEngineView(self)
+        settings = self.web_view.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
 
-        parent_hwnd = int(self.winId())
-        child_hwnd = self.form.Handle.ToInt64()
-        user32 = ctypes.windll.user32
-        user32.SetParent(child_hwnd, parent_hwnd)
-        GWL_STYLE = -16
-        WS_CHILD = 0x40000000
-        WS_VISIBLE = 0x10000000
-        user32.SetWindowLongPtrW(child_hwnd, GWL_STYLE, WS_CHILD | WS_VISIBLE)
+        self.channel = QWebChannel(self)
+        self.channel.registerObject('pyBridge', self.bridge)
+        self.web_view.page().setWebChannel(self.channel)
 
-        self.browser = WebView2()
-        self.browser.Dock = DockStyle.Fill
-        self.form.Controls.Add(self.browser)
+        self.web_view.page().loadFinished.connect(self.on_load_finished)
+        self.web_view.setHtml(HTML_TEMPLATE, QUrl("http://127.0.0.1/"))
 
-        self.browser.CoreWebView2InitializationCompleted += self._on_webview2_initialized
-        self.browser.EnsureCoreWebView2Async()
+        layout.addWidget(self.web_view, 1)
 
-        # 添加占位以撑满剩余空间
-        self.container_widget = QWidget(self)
-        self.container_widget.setStyleSheet("background: #0F172A;")
-        layout.addWidget(self.container_widget, 1)
-
-    def _on_webview2_initialized(self, sender, args):
+    def on_load_finished(self, ok):
         self.is_page_loaded = True
-        self.browser.CoreWebView2.WebMessageReceived += self._on_web_message_received
-        self.browser.CoreWebView2.NavigateToString(HTML_TEMPLATE)
         if self.cached_segments is not None:
             self.render_trajectories(self.cached_segments, self.cached_truth, auto_fit=True)
 
-    def _on_web_message_received(self, sender, args):
-        try:
-            msg = args.TryGetWebMessageAsString()
-            if msg:
-                data = json.loads(msg)
-                if data.get('event') == 'point_clicked' and 'tow' in data:
-                    self.sig_time_clicked.emit(float(data['tow']))
-        except Exception:
-            pass
-
-    def run_javascript(self, js_code):
-        if hasattr(self, 'browser') and self.browser.CoreWebView2 is not None:
-            self.browser.CoreWebView2.ExecuteScriptAsync(js_code)
-
     def showEvent(self, event):
         super().showEvent(event)
-        self._sync_container_size()
         if getattr(self, 'cached_segments', None) is not None:
             self.render_trajectories(self.cached_segments, self.cached_truth, auto_fit=True)
-        QTimer.singleShot(50, lambda: self.run_javascript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
-        QTimer.singleShot(200, lambda: self.run_javascript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
-        QTimer.singleShot(500, lambda: self.run_javascript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
+        QTimer.singleShot(50, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
+        QTimer.singleShot(200, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
+        QTimer.singleShot(500, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._sync_container_size()
-        self.run_javascript("if (window.map) { map.invalidateSize(); }")
-
-    def _sync_container_size(self):
-        if hasattr(self, 'form') and hasattr(self, 'container_widget'):
-            w = self.container_widget.width()
-            h = self.container_widget.height()
-            if w > 10 and h > 10:
-                pos = self.container_widget.mapTo(self, self.container_widget.rect().topLeft())
-                self.form.Size = Size(w, h)
-                user32 = ctypes.windll.user32
-                user32.MoveWindow(self.form.Handle.ToInt64(), pos.x(), pos.y(), w, h, True)
+        if getattr(self, 'is_page_loaded', False):
+            self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(); }")
 
     def on_map_type_changed(self):
         map_type = self.combo_map_type.currentData()
-        self.run_javascript(f"switchBaseMap('{map_type}');")
+        self.web_view.page().runJavaScript(f"switchBaseMap('{map_type}');")
 
     def fit_bounds(self):
-        self.run_javascript("fitBoundsNow();")
+        self.web_view.page().runJavaScript("fitBoundsNow();")
 
     def render_trajectories(self, segments, truth=None, auto_fit=True):
         self.cached_segments = segments
@@ -499,7 +473,7 @@ class GISMapWidget(QWidget):
                         'gcj_lat': g_lat, 'gcj_lon': g_lon
                     })
 
-        # 2. 转换各待测分段 (按 RTK 状态智能切分子线段)
+        # 2. 转换各待测分段
         status_colors = {
             4: ("#10B981", "RTK固定(4)"),
             5: ("#F59E0B", "RTK浮点(5)"),
@@ -582,7 +556,7 @@ class GISMapWidget(QWidget):
             tryExecute();
         }})();
         """
-        self.run_javascript(js_wrapper)
+        self.web_view.page().runJavaScript(js_wrapper)
 
     def set_cursor_time(self, tow, segments):
         if tow is None or not segments:
@@ -631,7 +605,7 @@ class GISMapWidget(QWidget):
             </div>
             """
             popup_json = json.dumps(popup_html, ensure_ascii=False)
-            self.run_javascript(f"setVehicleCursor({render_lat}, {render_lon}, {popup_json}, false);")
+            self.web_view.page().runJavaScript(f"setVehicleCursor({render_lat}, {render_lon}, {popup_json}, false);")
 
     def update_map_display(self):
         if self.cached_segments is not None:
