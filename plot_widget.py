@@ -635,9 +635,9 @@ class PlotWidget(FigureCanvas):
                 ax_sub.set_facecolor('#FFFFFF')
                 self._draw_single_status_pie(ax_sub, seg, quality_map, quality_keys, is_multi=True)
                 
-            self.fig.subplots_adjust(left=0.05, right=0.95, top=0.90, bottom=0.10, wspace=0.3, hspace=0.35)
+            self.fig.subplots_adjust(left=0.03, right=0.97, top=0.91, bottom=0.18, wspace=0.15, hspace=0.30)
         else:
-            # 单分段呈现大号甜甜圈饼图与右侧统计面板
+            # 单分段呈现大号实心饼图与右侧统计面板
             self.ax.clear()
             self.ax.set_facecolor('#FFFFFF')
             seg = active_segments[0]
@@ -648,7 +648,7 @@ class PlotWidget(FigureCanvas):
         qualities = np.array([ep.get('quality', 0) for ep in seg['epochs']])
         total = len(qualities)
         if total == 0:
-            ax.text(0.5, 0.5, f"{seg['name']}\n暂无历元数据", ha='center', va='center', fontsize=11, color='#64748B')
+            ax.text(0.5, 0.5, f"{seg['name']}\n暂无历元数据", ha='center', va='center', fontsize=12, color='#64748B')
             for spine in ax.spines.values():
                 spine.set_visible(False)
             ax.set_xticks([])
@@ -678,43 +678,33 @@ class PlotWidget(FigureCanvas):
                 labels.append(f"{pct:.1f}%" if pct >= 4.0 else "")
                 legend_labels.append(f"{name}: {cnt:,} ({pct:.2f}%)")
 
-        fix_cnt = counts.get(4, 0)
-        fix_rate = (fix_cnt / total) * 100.0 if total > 0 else 0.0
-
-        # 绘制甜甜圈环形饼图
+        # 绘制完整实心圆形饼图 (Full Solid Pie Chart)
         wedges, texts = ax.pie(
             sizes,
             labels=labels,
-            labeldistance=0.72,
+            labeldistance=0.62,
             colors=colors,
             startangle=90,
             counterclock=False,
-            wedgeprops=dict(width=0.42, edgecolor='white', linewidth=2.0),
-            textprops=dict(color='white', fontsize=10 if not is_multi else 8, fontweight='bold')
+            wedgeprops=dict(edgecolor='white', linewidth=1.5),
+            textprops=dict(color='white', fontsize=11 if not is_multi else 10, fontweight='bold')
         )
 
-        # 中心 KPI 文本
-        kpi_color = '#10B981' if fix_rate >= 90.0 else ('#F59E0B' if fix_rate >= 70.0 else '#EF4444')
-        main_fs = 20 if not is_multi else 14
-        sub_fs = 10 if not is_multi else 8
-        ax.text(0, 0.08, f"{fix_rate:.1f}%", ha='center', va='center', fontsize=main_fs, fontweight='bold', color=kpi_color)
-        ax.text(0, -0.12, "固定解率", ha='center', va='center', fontsize=sub_fs, fontweight='600', color='#64748B')
-
         ax.set_aspect('equal')
-        title_fs = 13 if not is_multi else 11
+        title_fs = 13 if not is_multi else 12
         seg_name = seg.get('name', '待测分段')
         ax.set_title(f"{seg_name} 定位解状态占比分布", fontsize=title_fs, fontweight='bold', pad=12, color='#0F172A')
 
         if not is_multi:
-            # 单图模式下在右侧绘制高级图例卡
+            # 单图模式下在右侧绘制详细统计卡片
             ax.legend(
                 wedges,
                 legend_labels,
                 title=f"历元统计汇总: {total:,} pts",
-                title_fontsize=11,
+                title_fontsize=12,
                 loc='center left',
                 bbox_to_anchor=(1.05, 0.5),
-                fontsize=10,
+                fontsize=11,
                 frameon=True,
                 facecolor='#F8FAFC',
                 edgecolor='#CBD5E1',
@@ -722,14 +712,21 @@ class PlotWidget(FigureCanvas):
                 labelspacing=0.8
             )
         else:
+            # 多图模式下在下方绘制清晰放大的统计卡片
             ax.legend(
                 wedges,
                 legend_labels,
+                title=f"总历元数: {total:,} pts",
+                title_fontsize=11,
                 loc='upper center',
-                bbox_to_anchor=(0.5, -0.05),
-                fontsize=8,
-                ncol=2,
-                frameon=False
+                bbox_to_anchor=(0.5, -0.06),
+                fontsize=10.5,
+                ncol=2 if len(legend_labels) > 2 else 1,
+                frameon=True,
+                facecolor='#F8FAFC',
+                edgecolor='#E2E8F0',
+                borderpad=0.6,
+                labelspacing=0.5
             )
 
     def draw_epoch_horizontal(self, segments, time_zone='UTC', show_extrema=True, x_axis_mode='历元数', show_sats=False):
