@@ -143,7 +143,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 url: tileUrl,
                 subdomains: '',
                 minZoom: minZoom || 0,
-                maxZoom: maxZoom || 22,
+                maxNativeZoom: maxZoom || 18,
+                maxZoom: 22,
                 isGcj: false
             };
             switchBaseMap('mbtiles_offline');
@@ -158,7 +159,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             currentBaseLayer = L.tileLayer(cfg.url, {
                 subdomains: cfg.subdomains || 'abc',
                 minZoom: cfg.minZoom || 0,
-                maxZoom: cfg.maxZoom || 18,
+                maxNativeZoom: cfg.maxNativeZoom || cfg.maxZoom || 18,
+                maxZoom: 22,
                 errorTileUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" style="background:%230F172A"><text x="50%25" y="50%25" fill="%2364748B" font-size="12" text-anchor="middle" dominant-baseline="middle">图源不可用(可切换底图)</text></svg>'
             }).addTo(map);
 
