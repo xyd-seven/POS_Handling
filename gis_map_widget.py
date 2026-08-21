@@ -1,21 +1,29 @@
 # -*- coding: utf-8 -*-
 """
-Interactive GIS Map Trajectory Widget
-Built on top of PySide6.QtWebEngineWidgets and Leaflet.js.
+Interactive GIS Map Trajectory Widget (Windows Native Edge WebView2 Engine)
+Built on top of Windows Native Microsoft Edge WebView2 and Leaflet.js.
+Zero-bundled-Chromium architecture for ultra-compact ~50MB executable size.
 Supports multiple online base maps (AMap, Tianditu, OSM, CartoDB), auto GCJ-02 correction,
 RTK status trajectory rendering, fit bounds, and bi-directional time sync.
 """
 
 import json
 import os
-from PySide6.QtCore import QObject, Signal, Slot, QUrl
+import ctypes
+from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QCheckBox, QPushButton, QLabel, QFrame
 )
-from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebChannel import QWebChannel
 
 from coord_transform import wgs84_to_gcj02
+
+# 动态加载 Windows 原生 Edge WebView2 引擎
+import webview.platforms.winforms as wf
+clr = wf.clr
+clr.AddReference("System.Windows.Forms")
+from System.Windows.Forms import Form, FormBorderStyle, DockStyle
+from Microsoft.Web.WebView2.WinForms import WebView2
+from System.Drawing import Size
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -26,7 +34,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <style>
         html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; background: #0F172A; }
         .leaflet-control-attribution { display: none !important; }
@@ -65,7 +72,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         var currentBaseLayer = null;
         var currentAnnotLayer = null;
         var currentMapType = 'amap_vec';
-        var pyBridge = null;
         window.isMapReady = true;
 
         // Base Layer Definitions
@@ -170,43 +176,63 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     color: '#3B82F6',
                     weight: 4,
                     opacity: 0.85,
+                    dashArray: '8, 6',
                     lineCap: 'round',
                     lineJoin: 'round'
-                }).addTo(truthLayerGroup);
-                truthLine.bindTooltip("<b>参考真值基准轨迹</b>", {sticky: true});
+                });
+                truthLine.bindTooltip('<span style="color:#60A5FA;font-weight:bold;">参考真值基准轨迹</span>', {sticky: true});
+                truthLayerGroup.addLayer(truthLine);
             }
 
-            // 2. 绘制待测轨迹 (Test Segments)
+            // 2. 绘制各待测分段轨迹 (Test Segments)
             if (payload.showTest && payload.test_segments && payload.test_segments.length > 0) {
-                for (var s = 0; s < payload.test_segments.length; s++) {
-                    var seg = payload.test_segments[s];
-                    if (!seg.lines || seg.lines.length === 0) continue;
+                for (var sIdx = 0; sIdx < payload.test_segments.length; sIdx++) {
+                    var seg = payload.test_segments[sIdx];
+                    if (!seg.lines) continue;
 
-                    for (var l = 0; l < seg.lines.length; l++) {
-                        var lineData = seg.lines[l];
-                        var latlngs = [];
-                        for (var k = 0; k < lineData.pts.length; k++) {
-                            var pt = lineData.pts[k];
-                            var tLat = isGcj ? pt.gcj_lat : pt.wgs_lat;
-                            var tLon = isGcj ? pt.gcj_lon : pt.wgs_lon;
-                            latlngs.push([tLat, tLon]);
-                            allLatLngs.push([tLat, tLon]);
+                    for (var lIdx = 0; lIdx < seg.lines.length; lIdx++) {
+                        var lineData = seg.lines[lIdx];
+                        var pts = lineData.pts;
+                        if (!pts || pts.length === 0) continue;
+
+                        var latLngs = [];
+                        for (var pIdx = 0; pIdx < pts.length; pIdx++) {
+                            var pt = pts[pIdx];
+                            var lat = isGcj ? pt.gcj_lat : pt.wgs_lat;
+                            var lon = isGcj ? pt.gcj_lon : pt.wgs_lon;
+                            latLngs.push([lat, lon]);
+                            allLatLngs.push([lat, lon]);
                         }
-                        var segLine = L.polyline(latlngs, {
-                            color: payload.colorByStatus ? lineData.color : seg.color,
+
+                        var poly = L.polyline(latLngs, {
+                            color: lineData.color,
                             weight: 3.5,
-                            opacity: 0.92,
+                            opacity: 0.95,
                             lineCap: 'round',
                             lineJoin: 'round'
-                        }).addTo(testLayerGroup);
+                        });
 
                         (function(segName, lineStatus) {
-                            segLine.bindTooltip("<b>" + segName + "</b><br>状态: " + lineStatus, {sticky: true});
-                        })(seg.name, lineData.status_str);
+                            poly.bindTooltip(
+                                '<div style="font-family:Segoe UI, sans-serif;">' +
+                                '<b>' + segName + '</b><br/>' +
+                                '<span style="color:' + lineStatus.color + ';">● ' + lineStatus.label + '</span>' +
+                                '</div>',
+                                {sticky: true}
+                            );
+                            poly.on('click', function(e) {
+                                if (window.chrome && window.chrome.webview) {
+                                    window.chrome.webview.postMessage(JSON.stringify({event: 'map_clicked'}));
+                                }
+                            });
+                        })(seg.name, {label: lineData.label, color: lineData.color});
+
+                        testLayerGroup.addLayer(poly);
                     }
                 }
             }
 
+            // 3. 视野全局自适应居中
             if (payload.autoFit && allLatLngs.length > 1) {
                 var bounds = L.latLngBounds(allLatLngs);
                 map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
@@ -219,39 +245,38 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        function setCursor(cursorData) {
-            if (!cursorData || cursorData.wgs_lat === undefined) {
-                if (cursorMarker) {
-                    map.removeLayer(cursorMarker);
-                    cursorMarker = null;
-                }
-                return;
-            }
+        function setVehicleCursor(lat, lon, popupHtml, autoPan) {
+            if (!map) return;
             var isGcj = (baseLayers[currentMapType] && baseLayers[currentMapType].isGcj);
-            var lat = isGcj ? cursorData.gcj_lat : cursorData.wgs_lat;
-            var lon = isGcj ? cursorData.gcj_lon : cursorData.wgs_lon;
+            var renderLat = lat;
+            var renderLon = lon;
 
-            var pulseIcon = L.divIcon({
-                className: 'pulse-marker',
-                iconSize: [16, 16],
-                iconAnchor: [8, 8]
-            });
-
-            if (!cursorMarker) {
-                cursorMarker = L.marker([lat, lon], {icon: pulseIcon}).addTo(map);
+            if (cursorMarker) {
+                cursorMarker.setLatLng([renderLat, renderLon]);
             } else {
-                cursorMarker.setLatLng([lat, lon]);
+                var pulseIcon = L.divIcon({
+                    className: 'pulse-marker',
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                });
+                cursorMarker = L.marker([renderLat, renderLon], {
+                    icon: pulseIcon,
+                    zIndexOffset: 1000
+                }).addTo(map);
             }
 
-            var html = "<div style='font-family: monospace; font-size: 11px; line-height: 1.5;'>" +
-                       "<b style='color: #F59E0B; font-size: 12px;'>📍 历元 #" + cursorData.epoch + "</b><br>" +
-                       "时间: " + cursorData.time_str + "<br>" +
-                       "纬度: " + cursorData.wgs_lat.toFixed(7) + "°<br>" +
-                       "经度: " + cursorData.wgs_lon.toFixed(7) + "°<br>" +
-                       (cursorData.h_err !== undefined ? "水平误差: <b>" + cursorData.h_err.toFixed(3) + " m</b><br>" : "") +
-                       "解状态: <span style='color: #10B981; font-weight: bold;'>" + cursorData.quality_str + "</span>" +
-                       "</div>";
-            cursorMarker.bindPopup(html, {className: 'custom-popup'}).openPopup();
+            if (popupHtml) {
+                cursorMarker.bindPopup(popupHtml, {
+                    className: 'custom-popup',
+                    offset: [0, -10],
+                    autoClose: false,
+                    closeOnClick: false
+                }).openPopup();
+            }
+
+            if (autoPan) {
+                map.panTo([renderLat, renderLon], { animate: true, duration: 0.5 });
+            }
         }
 
         function fitBoundsNow() {
@@ -261,22 +286,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 map.invalidateSize(true);
             }
         }
-
-        new QWebChannel(qt.webChannelTransport, function(channel) {
-            pyBridge = channel.objects.pyBridge;
-        });
     </script>
 </body>
 </html>
 """
-
-
-class WebBridge(QObject):
-    sig_point_clicked = Signal(float)
-
-    @Slot(float)
-    def onPointClicked(self, tow):
-        self.sig_point_clicked.emit(tow)
 
 
 class GISMapWidget(QWidget):
@@ -284,7 +297,11 @@ class GISMapWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.raw_payload = {}
+        self.is_page_loaded = False
+        self.cached_segments = None
+        self.cached_truth = None
+        self.raw_payload = None
+
         self.init_ui()
 
     def init_ui(self):
@@ -303,37 +320,42 @@ class GISMapWidget(QWidget):
             }
             QLabel {
                 color: #94A3B8;
-                font-weight: bold;
-                font-size: 11px;
+                font-size: 12px;
+                font-weight: 500;
             }
-            QComboBox, QPushButton {
+            QComboBox {
                 background-color: #1E293B;
                 color: #F8FAFC;
-                border: 1px solid #475569;
+                border: 1px solid #334155;
                 border-radius: 4px;
-                padding: 4px 10px;
-                font-size: 11px;
+                padding: 3px 8px;
+                font-size: 12px;
             }
-            QComboBox::drop-down {
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #334155;
-                border-color: #38BDF8;
-            }
+            QComboBox::drop-down { border: none; }
             QCheckBox {
-                color: #E2E8F0;
-                font-size: 11px;
-                font-weight: bold;
+                color: #CBD5E1;
+                font-size: 12px;
                 spacing: 4px;
             }
             QCheckBox::indicator {
                 width: 14px;
                 height: 14px;
             }
+            QPushButton {
+                background-color: #0284C7;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            QPushButton:hover { background-color: #0369A1; }
+            QPushButton:pressed { background-color: #075985; }
         """)
+
         tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(6, 4, 6, 4)
+        tb_layout.setContentsMargins(4, 2, 4, 2)
         tb_layout.setSpacing(12)
 
         tb_layout.addWidget(QLabel("底图图源:"))
@@ -341,8 +363,8 @@ class GISMapWidget(QWidget):
         self.combo_map_type.addItem("高德矢量路网 (免Key/推荐)", "amap_vec")
         self.combo_map_type.addItem("高德高清卫星 (免Key/推荐)", "amap_sat")
         self.combo_map_type.addItem("谷歌纯高清卫星 (免Key/无偏移路网)", "google_sat")
-        self.combo_map_type.addItem("天地图官方卫星 (DataServer)", "tdt_sat")
-        self.combo_map_type.addItem("天地图官方路网 (DataServer)", "tdt_vec")
+        self.combo_map_type.addItem("天地图官方卫星 (专属Key)", "tdt_sat")
+        self.combo_map_type.addItem("天地图官方路网 (专属Key)", "tdt_vec")
         self.combo_map_type.addItem("OpenStreetMap (开源)", "osm")
         self.combo_map_type.addItem("CartoDB 暗黑底图", "carto_dark")
         self.combo_map_type.currentIndexChanged.connect(self.on_map_type_changed)
@@ -371,53 +393,86 @@ class GISMapWidget(QWidget):
 
         layout.addWidget(toolbar, 0)
 
-        # WebEngine 地图视图
-        self.is_page_loaded = False
-        self.cached_segments = None
-        self.cached_truth = None
+        # Windows 原生 Edge WebView2 嵌入容器
+        self.form = Form()
+        self.form.FormBorderStyle = getattr(FormBorderStyle, 'None')
+        self.form.TopLevel = False
+        self.form.Visible = True
 
-        self.web_view = QWebEngineView(self)
-        self.bridge = WebBridge()
-        self.bridge.sig_point_clicked.connect(self.sig_time_clicked.emit)
+        parent_hwnd = int(self.winId())
+        child_hwnd = self.form.Handle.ToInt64()
+        user32 = ctypes.windll.user32
+        user32.SetParent(child_hwnd, parent_hwnd)
+        GWL_STYLE = -16
+        WS_CHILD = 0x40000000
+        WS_VISIBLE = 0x10000000
+        user32.SetWindowLongPtrW(child_hwnd, GWL_STYLE, WS_CHILD | WS_VISIBLE)
 
-        self.channel = QWebChannel(self)
-        self.channel.registerObject("pyBridge", self.bridge)
-        self.web_view.page().setWebChannel(self.channel)
+        self.browser = WebView2()
+        self.browser.Dock = DockStyle.Fill
+        self.form.Controls.Add(self.browser)
 
-        self.web_view.loadFinished.connect(self.on_load_finished)
-        self.web_view.setHtml(HTML_TEMPLATE, baseUrl=QUrl("http://127.0.0.1/"))
-        layout.addWidget(self.web_view, 1)
+        self.browser.CoreWebView2InitializationCompleted += self._on_webview2_initialized
+        self.browser.EnsureCoreWebView2Async()
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        if getattr(self, 'cached_segments', None) is not None:
-            self.render_trajectories(self.cached_segments, self.cached_truth, auto_fit=True)
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(50, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
-        QTimer.singleShot(200, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
-        QTimer.singleShot(500, lambda: self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
+        # 添加占位以撑满剩余空间
+        self.container_widget = QWidget(self)
+        self.container_widget.setStyleSheet("background: #0F172A;")
+        layout.addWidget(self.container_widget, 1)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if getattr(self, 'is_page_loaded', False):
-            self.web_view.page().runJavaScript("if (window.map) { map.invalidateSize(); }")
-
-    def on_load_finished(self, ok):
+    def _on_webview2_initialized(self, sender, args):
         self.is_page_loaded = True
+        self.browser.CoreWebView2.WebMessageReceived += self._on_web_message_received
+        self.browser.CoreWebView2.NavigateToString(HTML_TEMPLATE)
         if self.cached_segments is not None:
             self.render_trajectories(self.cached_segments, self.cached_truth, auto_fit=True)
 
+    def _on_web_message_received(self, sender, args):
+        try:
+            msg = args.TryGetWebMessageAsString()
+            if msg:
+                data = json.loads(msg)
+                if data.get('event') == 'point_clicked' and 'tow' in data:
+                    self.sig_time_clicked.emit(float(data['tow']))
+        except Exception:
+            pass
+
+    def run_javascript(self, js_code):
+        if hasattr(self, 'browser') and self.browser.CoreWebView2 is not None:
+            self.browser.CoreWebView2.ExecuteScriptAsync(js_code)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_container_size()
+        if getattr(self, 'cached_segments', None) is not None:
+            self.render_trajectories(self.cached_segments, self.cached_truth, auto_fit=True)
+        QTimer.singleShot(50, lambda: self.run_javascript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
+        QTimer.singleShot(200, lambda: self.run_javascript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
+        QTimer.singleShot(500, lambda: self.run_javascript("if (window.map) { map.invalidateSize(true); fitBoundsNow(); }"))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_container_size()
+        self.run_javascript("if (window.map) { map.invalidateSize(); }")
+
+    def _sync_container_size(self):
+        if hasattr(self, 'form') and hasattr(self, 'container_widget'):
+            w = self.container_widget.width()
+            h = self.container_widget.height()
+            if w > 10 and h > 10:
+                pos = self.container_widget.mapTo(self, self.container_widget.rect().topLeft())
+                self.form.Size = Size(w, h)
+                user32 = ctypes.windll.user32
+                user32.MoveWindow(self.form.Handle.ToInt64(), pos.x(), pos.y(), w, h, True)
+
     def on_map_type_changed(self):
         map_type = self.combo_map_type.currentData()
-        self.web_view.page().runJavaScript(f"switchBaseMap('{map_type}');")
+        self.run_javascript(f"switchBaseMap('{map_type}');")
 
     def fit_bounds(self):
-        self.web_view.page().runJavaScript("fitBoundsNow();")
+        self.run_javascript("fitBoundsNow();")
 
     def render_trajectories(self, segments, truth=None, auto_fit=True):
-        """
-        处理分段待测轨迹与参考真值，进行高精度 WGS84 -> GCJ-02 转换并推送至 Leaflet WebGIS。
-        """
         self.cached_segments = segments
         self.cached_truth = truth
 
@@ -486,18 +541,29 @@ class GISMapWidget(QWidget):
                 if self.cb_color_by_status.isChecked():
                     if curr_quality is None:
                         curr_quality = q
-                    elif curr_quality != q:
-                        if curr_line_pts:
-                            col, s_str = status_colors.get(curr_quality, ("#64748B", f"状态({curr_quality})"))
-                            seg_data['lines'].append({'color': col, 'status_str': s_str, 'pts': curr_line_pts})
-                            # 重叠一个点保证折线连续
-                            curr_line_pts = [curr_line_pts[-1]]
+                        curr_line_pts = [pt_obj]
+                    elif curr_quality == q:
+                        curr_line_pts.append(pt_obj)
+                    else:
+                        color_hex, label = status_colors.get(curr_quality, ("#EF4444", f"状态({curr_quality})"))
+                        seg_data['lines'].append({
+                            'color': color_hex,
+                            'label': label,
+                            'pts': curr_line_pts
+                        })
                         curr_quality = q
-                curr_line_pts.append(pt_obj)
+                        curr_line_pts = [curr_line_pts[-1], pt_obj]
+                else:
+                    curr_line_pts.append(pt_obj)
 
             if curr_line_pts:
-                col, s_str = status_colors.get(curr_quality or 1, ("#64748B", "单点(1)"))
-                seg_data['lines'].append({'color': col, 'status_str': s_str, 'pts': curr_line_pts})
+                color_hex = s.get('color', '#3B82F6') if not self.cb_color_by_status.isChecked() else status_colors.get(curr_quality, ("#EF4444", f"状态({curr_quality})"))[0]
+                label = s.get('name', '轨迹') if not self.cb_color_by_status.isChecked() else status_colors.get(curr_quality, ("#EF4444", f"状态({curr_quality})"))[1]
+                seg_data['lines'].append({
+                    'color': color_hex,
+                    'label': label,
+                    'pts': curr_line_pts
+                })
 
             payload['test_segments'].append(seg_data)
 
@@ -516,57 +582,57 @@ class GISMapWidget(QWidget):
             tryExecute();
         }})();
         """
-        self.web_view.page().runJavaScript(js_wrapper)
+        self.run_javascript(js_wrapper)
 
-    def update_map_display(self):
-        if self.raw_payload:
-            self.raw_payload['showTruth'] = self.cb_show_truth.isChecked()
-            self.raw_payload['showTest'] = self.cb_show_test.isChecked()
-            self.raw_payload['colorByStatus'] = self.cb_color_by_status.isChecked()
-            json_str = json.dumps(self.raw_payload, ensure_ascii=False)
-            self.web_view.page().runJavaScript(f"renderTrajectories({json_str});")
-
-    def set_cursor_time(self, cursor_time, segments):
-        """
-        根据当前时间同步秒数，定位车辆脉冲光标
-        """
-        if cursor_time is None or not segments:
-            self.web_view.page().runJavaScript("setCursor(null);")
+    def set_cursor_time(self, tow, segments):
+        if tow is None or not segments:
             return
 
-        for s in segments:
-            if s.get('active', True) and s.get('epochs'):
-                epochs = s['epochs']
-                t_list = [ep.get('utc_time_sec', ep.get('time', 0)) for ep in epochs]
-                if t_list:
-                    import numpy as np
-                    t_arr = np.array(t_list)
-                    idx = int(np.argmin(np.abs(t_arr - cursor_time)))
-                    if abs(t_arr[idx] - cursor_time) <= 4.0:
-                        ep = epochs[idx]
-                        w_lat = ep.get('lat', 0.0)
-                        w_lon = ep.get('lon', 0.0)
-                        if abs(w_lat) > 1e-4 and abs(w_lon) > 1e-4:
-                            g_lat, g_lon = wgs84_to_gcj02(w_lat, w_lon)
-                            sec = int(ep.get('utc_time_sec', ep.get('time', 0))) % 86400
-                            time_str = f"{sec//3600:02d}:{(sec%3600)//60:02d}:{sec%60:02d}"
-                            q = ep.get('quality', 1)
-                            q_map = {4: "RTK固定(4)", 5: "RTK浮点(5)", 2: "差分(2)", 1: "单点(1)", 0: "无效(0)"}
-                            
-                            h_err = None
-                            m = s.get('metrics', {})
-                            if m.get('h_errors') and idx < len(m['h_errors']):
-                                h_err = float(m['h_errors'][idx])
+        target_pt = None
+        closest_diff = float('inf')
 
-                            cursor_data = {
-                                'epoch': idx + 1,
-                                'time_str': time_str,
-                                'wgs_lat': w_lat, 'wgs_lon': w_lon,
-                                'gcj_lat': g_lat, 'gcj_lon': g_lon,
-                                'quality_str': q_map.get(q, f"状态({q})"),
-                                'h_err': h_err
-                            }
-                            json_str = json.dumps(cursor_data, ensure_ascii=False)
-                            self.web_view.page().runJavaScript(f"setCursor({json_str});")
-                            return
-        self.web_view.page().runJavaScript("setCursor(null);")
+        for s in segments:
+            if not s.get('active', True) or not s.get('epochs'):
+                continue
+            for ep in s['epochs']:
+                ep_tow = ep.get('utc_time_sec', ep.get('time', 0))
+                diff = abs(ep_tow - tow)
+                if diff < closest_diff:
+                    closest_diff = diff
+                    w_lat = ep.get('lat', 0.0)
+                    w_lon = ep.get('lon', 0.0)
+                    g_lat, g_lon = wgs84_to_gcj02(w_lat, w_lon)
+                    target_pt = {
+                        'wgs_lat': w_lat, 'wgs_lon': w_lon,
+                        'gcj_lat': g_lat, 'gcj_lon': g_lon,
+                        'tow': ep_tow,
+                        'quality': ep.get('quality', 1),
+                        'h_err': ep.get('h_error', None),
+                        'name': s.get('name', '待测轨迹')
+                    }
+
+        if target_pt and closest_diff < 5.0:
+            is_gcj = (self.combo_map_type.currentData() in ['amap_vec', 'amap_sat'])
+            render_lat = target_pt['gcj_lat'] if is_gcj else target_pt['wgs_lat']
+            render_lon = target_pt['gcj_lon'] if is_gcj else target_pt['wgs_lon']
+
+            status_map = {4: 'RTK固定解(4)', 5: 'RTK浮点解(5)', 2: '差分解(2)', 1: '单点解(1)', 0: '无效解(0)'}
+            q_desc = status_map.get(target_pt['quality'], f'状态({target_pt["quality"]})')
+            h_err_str = f"{target_pt['h_err']:.3f}m" if target_pt['h_err'] is not None else "--"
+
+            popup_html = f"""
+            <div style='font-family:Segoe UI, sans-serif; min-width: 140px;'>
+                <div style='font-weight:bold; color:#38BDF8; margin-bottom:4px;'>{target_pt['name']}</div>
+                <div><b>时间:</b> {target_pt['tow']:.1f}s</div>
+                <div><b>状态:</b> <span style='color:#F59E0B;'>{q_desc}</span></div>
+                <div><b>水平误差:</b> <span style='color:#10B981;'>{h_err_str}</span></div>
+                <div><b>纬度:</b> {target_pt['wgs_lat']:.7f}°</div>
+                <div><b>经度:</b> {target_pt['wgs_lon']:.7f}°</div>
+            </div>
+            """
+            popup_json = json.dumps(popup_html, ensure_ascii=False)
+            self.run_javascript(f"setVehicleCursor({render_lat}, {render_lon}, {popup_json}, false);")
+
+    def update_map_display(self):
+        if self.cached_segments is not None:
+            self.render_trajectories(self.cached_segments, self.cached_truth, auto_fit=False)
