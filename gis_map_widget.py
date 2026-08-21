@@ -3,21 +3,23 @@
 Interactive GIS Map Trajectory Widget (Official QtWebEngine Architecture)
 Built on top of PySide6.QtWebEngineWidgets and Leaflet.js.
 Supports multiple online base maps (AMap, Tianditu, OSM, CartoDB), auto GCJ-02 correction,
-RTK status trajectory rendering, fit bounds, and bi-directional time sync.
+offline MBTiles drag-and-drop loading, RTK status trajectory rendering, fit bounds, and bi-directional time sync.
 100% thread-safe and immune to modal dialog deadlocks.
 """
 
 import json
 import os
-from PySide6.QtCore import QObject, Signal, Slot, QUrl, QTimer
+from PySide6.QtCore import QObject, Signal, Slot, QUrl, QTimer, Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QCheckBox, QPushButton, QLabel, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QCheckBox, QPushButton, QLabel, QFrame,
+    QFileDialog, QMessageBox
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
 
 from coord_transform import wgs84_to_gcj02
+from mbtiles_server import MBTilesServer
 
 
 class MapBridge(QObject):
@@ -136,6 +138,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         };
 
+        function registerOfflineMap(tileUrl, minZoom, maxZoom) {
+            baseLayers['mbtiles_offline'] = {
+                url: tileUrl,
+                subdomains: '',
+                minZoom: minZoom || 0,
+                maxZoom: maxZoom || 22,
+                isGcj: false
+            };
+            switchBaseMap('mbtiles_offline');
+        }
+
         function switchBaseMap(type) {
             currentMapType = type;
             if (currentBaseLayer) map.removeLayer(currentBaseLayer);
@@ -144,6 +157,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             var cfg = baseLayers[type] || baseLayers['amap_vec'];
             currentBaseLayer = L.tileLayer(cfg.url, {
                 subdomains: cfg.subdomains || 'abc',
+                minZoom: cfg.minZoom || 0,
                 maxZoom: cfg.maxZoom || 18,
                 errorTileUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" style="background:%230F172A"><text x="50%25" y="50%25" fill="%2364748B" font-size="12" text-anchor="middle" dominant-baseline="middle">图源不可用(可切换底图)</text></svg>'
             }).addTo(map);
@@ -295,6 +309,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 map.invalidateSize(true);
             }
         }
+
+        function fitMapBounds(minLat, minLon, maxLat, maxLon) {
+            if (map) {
+                map.fitBounds([[minLat, minLon], [maxLat, maxLon]], { padding: [40, 40] });
+            }
+        }
     </script>
 </body>
 </html>
@@ -306,6 +326,7 @@ class GISMapWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAcceptDrops(True)
         self.is_page_loaded = False
         self.cached_segments = None
         self.cached_truth = None
@@ -313,6 +334,9 @@ class GISMapWidget(QWidget):
 
         self.bridge = MapBridge()
         self.bridge.point_clicked.connect(self.sig_time_clicked)
+
+        # 启动内置极轻量离线 MBTiles 服务器 (0 额外依赖)
+        self.mbtiles_server = MBTilesServer()
 
         self.init_ui()
 
@@ -368,7 +392,7 @@ class GISMapWidget(QWidget):
 
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(4, 2, 4, 2)
-        tb_layout.setSpacing(12)
+        tb_layout.setSpacing(10)
 
         tb_layout.addWidget(QLabel("底图图源:"))
         self.combo_map_type = QComboBox()
@@ -381,6 +405,18 @@ class GISMapWidget(QWidget):
         self.combo_map_type.addItem("CartoDB 暗黑底图", "carto_dark")
         self.combo_map_type.currentIndexChanged.connect(self.on_map_type_changed)
         tb_layout.addWidget(self.combo_map_type)
+
+        self.btn_load_mbtiles = QPushButton("📦 载入离线MBTiles")
+        self.btn_load_mbtiles.setStyleSheet("""
+            QPushButton {
+                background-color: #0D9488;
+                color: #FFFFFF;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #0F766E; }
+        """)
+        self.btn_load_mbtiles.clicked.connect(self.on_browse_mbtiles)
+        tb_layout.addWidget(self.btn_load_mbtiles)
 
         self.cb_show_test = QCheckBox("待测轨迹")
         self.cb_show_test.setChecked(True)
@@ -420,6 +456,75 @@ class GISMapWidget(QWidget):
         self.web_view.setHtml(HTML_TEMPLATE, QUrl("http://127.0.0.1/"))
 
         layout.addWidget(self.web_view, 1)
+
+    def on_browse_mbtiles(self):
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "选择离线地图包 (MBTiles)", "", "MBTiles 离线包 (*.mbtiles *.sqlite *.db);;All Files (*.*)"
+        )
+        if filepath:
+            self.load_mbtiles_file(filepath)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.toLocalFile().lower().endswith(('.mbtiles', '.sqlite', '.db')):
+                    event.acceptProposedAction()
+                    return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.toLocalFile().lower().endswith(('.mbtiles', '.sqlite', '.db')):
+                    event.acceptProposedAction()
+                    return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                local_path = url.toLocalFile()
+                if local_path.lower().endswith(('.mbtiles', '.sqlite', '.db')):
+                    self.load_mbtiles_file(local_path)
+                    event.acceptProposedAction()
+                    return
+        super().dropEvent(event)
+
+    def load_mbtiles_file(self, filepath):
+        """
+        加载 MBTiles 离线文件并在地图中无缝渲染
+        """
+        if not self.mbtiles_server.load_mbtiles(filepath):
+            QMessageBox.warning(self, "错误", f"无法解析指定的 MBTiles 离线文件:\n{filepath}")
+            return False
+
+        meta = self.mbtiles_server.get_metadata()
+        tile_url = self.mbtiles_server.get_tile_url_template()
+        min_zoom = meta.get('minzoom', 0)
+        max_zoom = meta.get('maxzoom', 22)
+        base_name = os.path.basename(filepath)
+
+        # 检查下拉框是否已有离线项，若无则在第 0 位插入
+        idx = self.combo_map_type.findData("mbtiles_offline")
+        item_text = f"📦 离线: {base_name}"
+        if idx >= 0:
+            self.combo_map_type.setItemText(idx, item_text)
+            self.combo_map_type.setCurrentIndex(idx)
+        else:
+            self.combo_map_type.insertItem(0, item_text, "mbtiles_offline")
+            self.combo_map_type.setCurrentIndex(0)
+
+        # 动态注册至 Leaflet WebGIS
+        js_code = f"registerOfflineMap('{tile_url}', {min_zoom}, {max_zoom});"
+        self.web_view.page().runJavaScript(js_code)
+
+        # 若 MBTiles 内嵌覆盖边界，自动视野居中
+        if 'parsed_bounds' in meta:
+            b = meta['parsed_bounds']
+            fit_js = f"fitMapBounds({b['minLat']}, {b['minLon']}, {b['maxLat']}, {b['maxLon']});"
+            QTimer.singleShot(200, lambda: self.web_view.page().runJavaScript(fit_js))
+
+        return True
 
     def on_load_finished(self, ok):
         self.is_page_loaded = True
@@ -610,3 +715,8 @@ class GISMapWidget(QWidget):
     def update_map_display(self):
         if self.cached_segments is not None:
             self.render_trajectories(self.cached_segments, self.cached_truth, auto_fit=False)
+
+    def closeEvent(self, event):
+        if hasattr(self, 'mbtiles_server') and self.mbtiles_server:
+            self.mbtiles_server.close()
+        super().closeEvent(event)

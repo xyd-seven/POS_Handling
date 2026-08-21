@@ -614,11 +614,11 @@ class PlotWidget(FigureCanvas):
             return
 
         quality_map = {
-            4: ('RTK固定解 (4)', '#10B981'),
-            5: ('RTK浮点解 (5)', '#F59E0B'),
-            2: ('伪距差分 (2)', '#3B82F6'),
-            1: ('单点定位 (1)', '#94A3B8'),
-            0: ('无效解 (0)', '#EF4444')
+            4: ('RTK固定解 (4)', '#10B981', 'RTK固定'),
+            5: ('RTK浮点解 (5)', '#F59E0B', 'RTK浮点'),
+            2: ('伪距差分 (2)', '#3B82F6', '伪距差分'),
+            1: ('单点定位 (1)', '#94A3B8', '单点定位'),
+            0: ('无效解 (0)', '#EF4444', '无效解')
         }
         quality_keys = [4, 5, 2, 1, 0]
 
@@ -670,12 +670,17 @@ class PlotWidget(FigureCanvas):
         for k in quality_keys:
             cnt = counts[k]
             pct = (cnt / total) * 100.0 if total > 0 else 0.0
-            name, color = quality_map[k]
+            name, color, short_name = quality_map[k]
             if cnt > 0:
                 sizes.append(cnt)
                 colors.append(color)
-                # 只有占比大于 4% 才在扇区内显示文字，防止拥挤
-                labels.append(f"{pct:.1f}%" if pct >= 4.0 else "")
+                # 只有占比大于 4% 才在扇区内显示名称与百分比
+                if pct >= 5.0:
+                    labels.append(f"{short_name}\n{pct:.1f}%")
+                elif pct >= 3.0:
+                    labels.append(f"{pct:.1f}%")
+                else:
+                    labels.append("")
                 legend_labels.append(f"{name}: {cnt:,} ({pct:.2f}%)")
 
         # 绘制完整实心圆形饼图 (Full Solid Pie Chart)
