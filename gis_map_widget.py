@@ -90,16 +90,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 isGcj: false
             },
             'tdt_sat': {
-                url: 'https://t{s}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=16e3c80a229a437f8842e61a6c4b2a8d',
+                url: 'https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
                 subdomains: ['0','1','2','3','4','5','6','7'],
-                annotUrl: 'https://t{s}.tianditu.gov.cn/DataServer?T=cia_w&x={x}&y={y}&l={z}&tk=16e3c80a229a437f8842e61a6c4b2a8d',
+                annotUrl: 'https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
                 maxZoom: 18,
                 isGcj: false
             },
             'tdt_vec': {
-                url: 'https://t{s}.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk=16e3c80a229a437f8842e61a6c4b2a8d',
+                url: 'https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
                 subdomains: ['0','1','2','3','4','5','6','7'],
-                annotUrl: 'https://t{s}.tianditu.gov.cn/DataServer?T=cva_w&x={x}&y={y}&l={z}&tk=16e3c80a229a437f8842e61a6c4b2a8d',
+                annotUrl: 'https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
                 maxZoom: 18,
                 isGcj: false
             },
@@ -384,7 +384,7 @@ class GISMapWidget(QWidget):
         self.web_view.page().setWebChannel(self.channel)
 
         self.web_view.loadFinished.connect(self.on_load_finished)
-        self.web_view.setHtml(HTML_TEMPLATE)
+        self.web_view.setHtml(HTML_TEMPLATE, baseUrl=QUrl("http://127.0.0.1/"))
         layout.addWidget(self.web_view, 1)
 
     def showEvent(self, event):
