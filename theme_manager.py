@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Theme Manager & Design System Hub (Single Source of Truth)
-Provides semantic design tokens, template-based QSS generation,
+Provides semantic design tokens, comprehensive template-based QSS generation,
 and reactive observer pattern (sig_theme_changed) for dark/light theme switching.
 """
 
@@ -9,14 +9,14 @@ from PySide6.QtCore import QObject, Signal
 
 # 1. 语义化设计调色板 (Design Tokens)
 DARK_TOKENS = {
-    # 全局背景与容器
     "name": "dark",
+    # 全局背景与容器
     "bg_app": "#0B0F19",          # 主窗口全局背景 (深空玄青)
     "bg_card": "#111827",         # 卡片/图表/面板容器背景 (曜石深灰)
     "bg_subtle": "#1E293B",       # 次级容器/表头/工具栏底色
     "bg_hover": "#334155",        # 悬停高亮背景
     "bg_active": "#1E3A8A",       # 选中激活背景
-    "bg_input": "#0F172A",        # 输入框/下拉框背景
+    "bg_input": "#0F172A",        # 输入框/下拉框/终端背景
     
     # 边框与分割线
     "border_default": "#1F2937",  # 默认边框
@@ -37,7 +37,7 @@ DARK_TOKENS = {
     "color_danger": "#EF4444",    # 危险/单点/无效 (玫瑰红)
     "color_info": "#3B82F6",      # 提示/差分解 (天空蓝)
     
-    # Matplotlib 图表专用配色
+    # 图表画布专用配色
     "plot_fig_bg": "#111827",
     "plot_ax_bg": "#0F172A",
     "plot_grid": "#1E293B",
@@ -49,24 +49,24 @@ DARK_TOKENS = {
 }
 
 LIGHT_TOKENS = {
-    # 全局背景与容器
     "name": "light",
+    # 全局背景与容器 (室外强光高对比清爽白)
     "bg_app": "#F1F5F9",          # 主窗口全局背景 (清爽云灰)
     "bg_card": "#FFFFFF",         # 卡片/图表/面板容器背景 (纯白高光)
     "bg_subtle": "#F8FAFC",       # 次级容器/表头/工具栏底色
     "bg_hover": "#E2E8F0",        # 悬停高亮背景
     "bg_active": "#DBEAFE",       # 选中激活背景
-    "bg_input": "#FFFFFF",        # 输入框/下拉框背景
+    "bg_input": "#FFFFFF",        # 输入框/下拉框/终端背景 (纯白)
     
     # 边框与分割线
-    "border_default": "#E2E8F0",  # 默认边框
-    "border_subtle": "#CBD5E1",   # 次级分割线
+    "border_default": "#CBD5E1",  # 默认边框 (清晰中灰)
+    "border_subtle": "#E2E8F0",   # 次级分割线
     "border_focus": "#0284C7",    # 聚焦高亮边框
     
-    # 文字与图标
+    # 文字与图标 (深邃墨黑，确保强光下无反光、清晰可见)
     "text_primary": "#0F172A",    # 主标题/核心读数 (深邃墨黑)
-    "text_secondary": "#475569",  # 辅助说明/标签文字 (中灰石)
-    "text_muted": "#94A3B8",      # 弱化提示文字
+    "text_secondary": "#334155",  # 辅助说明/标签文字 (加深板岩灰)
+    "text_muted": "#64748B",      # 弱化提示文字
     "text_inverse": "#FFFFFF",    # 反色文字
     
     # 品牌与状态强调色
@@ -77,19 +77,19 @@ LIGHT_TOKENS = {
     "color_danger": "#DC2626",    # 危险/单点/无效 (鲜红)
     "color_info": "#2563EB",      # 提示/差分解 (宝蓝)
     
-    # Matplotlib 图表专用配色
+    # 图表画布专用配色
     "plot_fig_bg": "#FFFFFF",
     "plot_ax_bg": "#FFFFFF",
     "plot_grid": "#E2E8F0",
-    "plot_spine": "#CBD5E1",
+    "plot_spine": "#94A3B8",
     "plot_text": "#0F172A",
-    "plot_subtext": "#475569",
+    "plot_subtext": "#334155",
     "plot_legend_bg": "#F8FAFC",
     "plot_legend_border": "#CBD5E1",
 }
 
 
-# 2. 模板化全局 QSS 样式表模板
+# 2. 全覆盖、无死角模板化 QSS
 QSS_TEMPLATE = """
 /* 全局主窗口与基础控件 */
 QMainWindow, QWidget#centralwidget {{
@@ -100,6 +100,12 @@ QMainWindow, QWidget#centralwidget {{
 QWidget {{
     font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
     color: {text_primary};
+}}
+
+/* 侧边栏整体容器 */
+QWidget#sidebar_container {{
+    background-color: {bg_app};
+    border-left: 1px solid {border_default};
 }}
 
 /* 菜单栏与状态栏 */
@@ -147,7 +153,8 @@ QTabBar::tab {{
     border-top-right-radius: 6px;
     border: 1px solid {border_default};
     border-bottom: none;
-    font-weight: 500;
+    font-weight: bold;
+    font-size: 12px;
 }}
 QTabBar::tab:selected {{
     background-color: {bg_card};
@@ -162,28 +169,38 @@ QTabBar::tab:hover:!selected {{
 /* 卡片与分组框 GroupBox */
 QGroupBox {{
     font-weight: bold;
+    font-size: 12px;
     border: 1px solid {border_default};
     border-radius: 8px;
-    margin-top: 10px;
-    padding-top: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
     background-color: {bg_card};
     color: {text_primary};
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
+    left: 10px;
+    top: 0px;
     padding: 0 6px;
+    color: {brand_primary};
+}}
+
+/* 文本标签 */
+QLabel {{
     color: {text_primary};
+    font-size: 12px;
 }}
 
 /* 按钮 PushButton */
 QPushButton {{
     background-color: {bg_subtle};
     color: {text_primary};
-    border: 1px solid {border_subtle};
+    border: 1px solid {border_default};
     border-radius: 6px;
     padding: 6px 14px;
-    font-weight: 500;
+    font-weight: bold;
+    font-size: 12px;
 }}
 QPushButton:hover {{
     background-color: {bg_hover};
@@ -195,20 +212,44 @@ QPushButton:pressed {{
 QPushButton:disabled {{
     background-color: {bg_app};
     color: {text_muted};
-    border-color: {border_default};
+    border-color: {border_subtle};
+}}
+
+/* 侧边栏 Auto/Manual 切换模式专用按钮 */
+QPushButton#btn_ref_auto, QPushButton#btn_ref_manual, QPushButton#btn_ref_dynamic {{
+    border: 1px solid {border_default};
+    background-color: {bg_subtle};
+    color: {text_secondary};
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 11px;
+}}
+QPushButton#btn_ref_auto[active="true"], QPushButton#btn_ref_manual[active="true"], QPushButton#btn_ref_dynamic[active="true"] {{
+    background-color: {bg_active};
+    color: {brand_primary};
+    font-weight: bold;
+    border: 1px solid {brand_primary};
 }}
 
 /* 输入框与下拉框 */
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
     background-color: {bg_input};
     color: {text_primary};
-    border: 1px solid {border_subtle};
+    border: 1px solid {border_default};
     border-radius: 4px;
-    padding: 4px 8px;
+    padding: 5px 8px;
+    font-size: 12px;
     selection-background-color: {brand_primary};
+    selection-color: #FFFFFF;
 }}
 QLineEdit:focus, QComboBox:focus {{
     border-color: {border_focus};
+}}
+QLineEdit:disabled, QComboBox:disabled {{
+    background-color: {bg_subtle};
+    color: {text_muted};
+    border-color: {border_subtle};
 }}
 QComboBox::drop-down {{
     border: none;
@@ -217,7 +258,19 @@ QComboBox::drop-down {{
 QComboBox QAbstractItemView {{
     background-color: {bg_card};
     color: {text_primary};
-    border: 1px solid {border_subtle};
+    border: 1px solid {border_default};
+    selection-background-color: {brand_primary};
+    selection-color: #FFFFFF;
+}}
+
+/* 串口终端 Console 与多行文本框 */
+QPlainTextEdit, QTextEdit {{
+    background-color: {bg_input};
+    color: {text_primary};
+    border: 1px solid {border_default};
+    border-radius: 6px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
     selection-background-color: {brand_primary};
     selection-color: #FFFFFF;
 }}
@@ -239,6 +292,26 @@ QListWidget::item:hover:!selected {{
     border-radius: 4px;
 }}
 
+/* 表格 QTableWidget */
+QTableWidget {{
+    background-color: {bg_card};
+    color: {text_primary};
+    gridline-color: {border_subtle};
+    border: 1px solid {border_default};
+    border-radius: 6px;
+    font-size: 13px;
+}}
+QTableWidget::item {{
+    color: {text_primary};
+}}
+QHeaderView::section {{
+    background-color: {bg_subtle};
+    color: {text_primary};
+    font-weight: bold;
+    padding: 6px;
+    border: 1px solid {border_default};
+}}
+
 /* 滚动条 ScrollBar */
 QScrollBar:vertical {{
     background-color: {bg_app};
@@ -246,7 +319,7 @@ QScrollBar:vertical {{
     margin: 0px;
 }}
 QScrollBar::handle:vertical {{
-    background-color: {border_subtle};
+    background-color: {border_default};
     border-radius: 4px;
     min-height: 20px;
 }}
@@ -280,7 +353,7 @@ QToolButton:hover {{
 
 # 3. 统一主题单例中枢 (ThemeManager)
 class ThemeManager(QObject):
-    sig_theme_changed = Signal(dict)  # 全局主题变更广播信号 (传递当前 tokens 字典)
+    sig_theme_changed = Signal(dict)
     _instance = None
 
     def __new__(cls):
@@ -327,5 +400,4 @@ class ThemeManager(QObject):
         return next_theme
 
     def register_theme(self, name, tokens_dict):
-        """可扩展：支持未来注册任意自定义主题 (如户外强光高反差模式)"""
         self._themes[name] = tokens_dict

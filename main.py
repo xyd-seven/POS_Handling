@@ -256,6 +256,21 @@ class CNoPlotCanvas(QWidget):
         
         # 绑定鼠标移动事件以展示悬浮气泡
         self.plot_widget.scene().sigMouseMoved.connect(self.on_mouse_moved)
+        ThemeManager().sig_theme_changed.connect(self.apply_theme)
+        self.apply_theme(ThemeManager().get_tokens())
+
+    def apply_theme(self, tokens=None):
+        import pyqtgraph as pg
+        if tokens is None:
+            tokens = ThemeManager().get_tokens()
+        self.plot_widget.setBackground(tokens['plot_fig_bg'])
+        left_axis = self.plot_item.getAxis('left')
+        bottom_axis = self.plot_item.getAxis('bottom')
+        left_axis.setPen(pg.mkPen(tokens['plot_spine']))
+        left_axis.setTextPen(tokens['text_secondary'])
+        bottom_axis.setPen(pg.mkPen(tokens['plot_spine']))
+        bottom_axis.setTextPen(tokens['text_primary'])
+        self.plot_item.setLabel('left', "载噪比 C/No (dB-Hz)", color=tokens['text_secondary'])
 
     def reposition_flags(self):
         # 动态根据当前排版调整国旗的位置
@@ -3117,8 +3132,42 @@ class MainWindow(QMainWindow):
                 }}
             """)
 
-        # 刷新所有图表画布
-        for canvas in [getattr(self, 'canvas_scatter', None), getattr(self, 'canvas_epoch_h', None), getattr(self, 'canvas_epoch_v', None), getattr(self, 'canvas_epoch_enu', None), getattr(self, 'canvas_speed', None), getattr(self, 'canvas_cdf', None), getattr(self, 'canvas_status', None), getattr(self, 'canvas_2d', None)]:
+        # 刷新串口文本终端 Console 样式 (保证室外强光下黑白分明)
+        if hasattr(self, 'txt_console'):
+            if theme_name == "dark":
+                self.txt_console.setStyleSheet("""
+                    background-color: #0B1120;
+                    color: #10B981;
+                    font-family: 'Consolas', 'Courier New', monospace;
+                    font-size: 11px;
+                    border: 1px solid #1E293B;
+                    border-radius: 6px;
+                    padding: 4px;
+                """)
+            else:
+                self.txt_console.setStyleSheet("""
+                    background-color: #FFFFFF;
+                    color: #0F172A;
+                    font-family: 'Consolas', 'Courier New', monospace;
+                    font-size: 11px;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 6px;
+                    padding: 4px;
+                """)
+
+        # 刷新星空图播放控制栏与时间指示
+        if hasattr(self, 'bar_sky_time'):
+            self.bar_sky_time.setStyleSheet(f"background-color: {tokens['bg_card']}; border-radius: 4px;")
+        if hasattr(self, 'lbl_skyplot_time'):
+            self.lbl_skyplot_time.setStyleSheet(f"color: {tokens['text_primary']}; font-family: Consolas; font-weight: bold; font-size: 12px;")
+        if hasattr(self, 'btn_sky_reset'):
+            if theme_name == 'dark':
+                self.btn_sky_reset.setStyleSheet("background-color: #1E293B; border: 1px solid #334155; color: #F8FAFC; border-radius: 4px; font-size: 11px;")
+            else:
+                self.btn_sky_reset.setStyleSheet("background-color: #F1F5F9; border: 1px solid #CBD5E1; color: #0F172A; border-radius: 4px; font-size: 11px; font-weight: bold;")
+
+        # 刷新所有图表画布 (含星空图 Canvas 与 载噪比 CNo)
+        for canvas in [getattr(self, 'canvas_scatter', None), getattr(self, 'canvas_epoch_h', None), getattr(self, 'canvas_epoch_v', None), getattr(self, 'canvas_epoch_enu', None), getattr(self, 'canvas_speed', None), getattr(self, 'canvas_cdf', None), getattr(self, 'canvas_status', None), getattr(self, 'canvas_2d', None), getattr(self, 'canvas_skyplot', None), getattr(self, 'canvas_cno', None)]:
             if canvas and hasattr(canvas, 'apply_theme'):
                 canvas.apply_theme(tokens)
 

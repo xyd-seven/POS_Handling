@@ -1,36 +1,35 @@
 # Hand Off - VCOM定位精度分析工具交接文档
 
 ## 1. 项目目标
-基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、3D 空间立体天球穹顶 (3D SkyDome)、载噪比柱状图及 Word 报告导出。当前阶段已完成深色与浅色双主题无缝切换系统的全面架构设计与交付。
+基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、3D 空间立体天球穹顶 (3D SkyDome)、载噪比柱状图及 Word 报告导出。当前阶段已完成星空图与实时串口室外高对比度浅色模式全面交付。
 
 ---
 
 ## 2. 当前状态
-- [x] **深色与浅色双主题无缝切换系统全面交付**：
-  - 建立 theme_manager.py 集中式 Design Tokens 语义调色板与模板化 QSS 引擎；
-  - 观察者模式 sig_theme_changed 广播解耦，PlotWidget、GISMapWidget 自主响应换肤；
-  - 菜单栏右上角提供 ☀️ 浅色 / 🌙 深色 一键切换胶囊；
-  - WCAG AA 级高对比度（文本、图标、网格、图例清晰锐利），画布原地更新无数据重载闪烁；
-  - 主题偏好持久化至 EXE 同级目录 vcom_config.json；
+- [x] **卫星星空图（SkyPlot 2D/3D）室外高对比度浅色模式上线**：
+  - 极坐标同心圆与画布在浅色下为 #FFFFFF 纯白底色，刻度线为 #CBD5E1，方位文字为 #0F172A 深墨黑；
+  - 卫星散点与星座加深描边，3D 天穹自适应白底水晶微光；
+- [x] **实时串口与控制台全面浅色化上线**：
+  - 串口文本终端 Console 在浅色下为 #FFFFFF 白底 + #0F172A 黑字；
+  - 载噪比 CNo PyQtGraph 同步刷新为白底深灰轴；
+  - 侧边栏与全部 GroupBox 统一无死角浅色化；
 - [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 F:\\TestTools\\pos_handling\\dist\\。
 
 ---
 
 ## 3. 当前任务
-- 无（深浅双主题切换系统已全面交付上线）
+- 无（室外高对比度浅色模式已全面交付上线）
 
 ---
 
 ## 4. 关键设计决策
-- Design Tokens 单一真实来源 + 观察者发布-订阅解耦架构；
-- 画布原地 apply_theme 属性注入实现 <50ms 无损秒切。
+- theme_manager.py 全覆盖 QSS 模板 + SkyPlot/CNo 观察者自适应刷新。
 
 ---
 
 ## 5. 修改记录
+- plots/skyplot_canvas.py
 - theme_manager.py
-- plot_widget.py
-- gis_map_widget.py
 - main.py
 - walkthrough.md
 - handoff.md
@@ -50,9 +49,8 @@
 ---
 
 ## 8. 测试状态
-- ThemeManager 单例与双向 toggle 测试：PASS
-- 图表与表格深浅色渲染测试：PASS
-- 配置持久化测试：PASS
+- 星空图 2D/3D 浅色模式测试：PASS
+- 串口终端与载噪比浅色模式测试：PASS
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
 - PyInstaller 编译与部署：PASS
