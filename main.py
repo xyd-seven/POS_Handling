@@ -5801,6 +5801,8 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 if __name__ == "__main__":
+    from PySide6.QtCore import Qt
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

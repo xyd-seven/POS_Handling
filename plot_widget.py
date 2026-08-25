@@ -48,27 +48,9 @@ class PlotWidget(FigureCanvas):
         self.max_downsample_points = 50000
 
     def resizeEvent(self, event):
-        from PySide6.QtCore import QTimer
-        QWidget.resizeEvent(self, event)
-        self._pending_width = event.size().width()
-        self._pending_height = event.size().height()
-        if not hasattr(self, '_resize_timer'):
-            self._resize_timer = QTimer(self)
-            self._resize_timer.setSingleShot(True)
-            self._resize_timer.timeout.connect(self._handle_delayed_resize)
-        self._resize_timer.start(100)
-
-    def _handle_delayed_resize(self):
-        if hasattr(self, '_pending_width') and hasattr(self, '_pending_height'):
-            dpival = self.figure.dpi
-            winch = self._pending_width / dpival
-            hinch = self._pending_height / dpival
-            self.figure.set_size_inches(winch, hinch, forward=False)
-            if getattr(self, 'cursor_time', None) is not None and self.ax is not None:
-                try:
-                    self.ax.axvline(x=self.cursor_time, color='#F59E0B', linestyle='--', linewidth=1.5, alpha=0.9, zorder=10)
-                except Exception:
-                    pass
+        # 必须调用 FigureCanvasQTAgg 的原生 resizeEvent，以正确适配 Windows 高分屏 (150%/200% DPI 缩放)
+        super().resizeEvent(event)
+        if getattr(self, 'cursor_time', None) is not None and getattr(self, 'ax', None) is not None:
             self.draw_idle()
         
     def on_mouse_move(self, event):
@@ -600,7 +582,8 @@ class PlotWidget(FigureCanvas):
         self.ax.grid(False)
         if active_segments:
             self.ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
-        self.ax.set_aspect('equal')
+        self.ax.set_aspect('equal', adjustable='box', anchor='C')
+        self.ax.set_anchor('C')
 
     def draw_status(self, segments):
         active_segments = [s for s in segments if s.get('active', True) and s.get('epochs')]
