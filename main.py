@@ -3040,8 +3040,37 @@ class MainWindow(QMainWindow):
         self.recompute_all()
 
     # --- 配置存储与坐标历史管理逻辑 ---
+    def get_app_config_file_path(self, filename="vcom_config.json"):
+        """
+        获取配置文件的持久化绝对路径：
+        1. 打包成单文件 EXE 后：定位到 EXE 所在真实目录 (os.path.dirname(sys.executable))
+        2. 开发运行环境：定位到当前源码所在目录 (__file__)
+        3. 权限安全回退：若 EXE 目录无写入权限，安全回退到 %APPDATA%/GNSS_Precision_Tool/
+        """
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        config_path = os.path.join(base_dir, filename)
+
+        # 预先进行写入权限测试
+        try:
+            test_file = os.path.join(base_dir, '.perm_test_cfg')
+            with open(test_file, 'w') as f:
+                f.write('1')
+            os.remove(test_file)
+            return config_path
+        except Exception:
+            app_data = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'GNSS_Precision_Tool')
+            try:
+                os.makedirs(app_data, exist_ok=True)
+                return os.path.join(app_data, filename)
+            except Exception:
+                return config_path
+
     def load_config(self):
-        CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vcom_config.json")
+        CONFIG_FILE = self.get_app_config_file_path("vcom_config.json")
         self.coordinate_history = []
         self.last_record_dir = ""
         if os.path.exists(CONFIG_FILE):
@@ -3133,7 +3162,7 @@ class MainWindow(QMainWindow):
         }
 
     def save_config(self):
-        CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vcom_config.json")
+        CONFIG_FILE = self.get_app_config_file_path("vcom_config.json")
         self.app_config.update({
             "time_zone": self.time_zone,
             "show_absolute_alt": self.show_absolute_alt,
@@ -3252,7 +3281,15 @@ class MainWindow(QMainWindow):
         self.recompute_all()
 
     def on_seg_delete_clicked(self, seg_id):
+        deleted_seg = next((s for s in self.segments if s['id'] == seg_id), None)
         self.segments = [s for s in self.segments if s['id'] != seg_id]
+
+        # 若删除的是串口实时分段，彻底清空底层缓存队列与历史映射
+        if deleted_seg and deleted_seg.get('file_id') == "COM_REALTIME":
+            if hasattr(self, 'realtime_raw_epochs'):
+                self.realtime_raw_epochs.clear()
+            self.file_epochs_map.pop("COM_REALTIME", None)
+            self.parsed_epochs = [ep for ep in self.parsed_epochs if ep.get('file_id') != "COM_REALTIME"]
 
         for i in range(self.list_segments.count()):
             item = self.list_segments.item(i)
