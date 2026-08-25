@@ -733,7 +733,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("VCOM定位精度分析工具")
         self.setWindowIcon(create_app_icon())
         self.resize(1180, 720)
-        self.setStyleSheet(QSS_STYLE)
+        self.setStyleSheet(ThemeManager().get_stylesheet())
 
         self.app_config = {}
         self.master_sync_time = None
@@ -1181,7 +1181,7 @@ class MainWindow(QMainWindow):
         layout_trajectory.setSpacing(0)
 
         self.card_trajectory = QWidget()
-        self.card_trajectory.setStyleSheet("background-color: #0F172A; border: 1px solid #334155; border-radius: 8px;")
+        self.card_trajectory.setObjectName("card_trajectory")
         card_layout_trajectory = QVBoxLayout(self.card_trajectory)
         card_layout_trajectory.setContentsMargins(0, 0, 0, 0)
         card_layout_trajectory.setSpacing(0)
@@ -3165,6 +3165,61 @@ class MainWindow(QMainWindow):
                 self.btn_sky_reset.setStyleSheet("background-color: #1E293B; border: 1px solid #334155; color: #F8FAFC; border-radius: 4px; font-size: 11px;")
             else:
                 self.btn_sky_reset.setStyleSheet("background-color: #F1F5F9; border: 1px solid #CBD5E1; color: #0F172A; border-radius: 4px; font-size: 11px; font-weight: bold;")
+
+        # 刷新主窗口与全局样式
+        self.setStyleSheet(ThemeManager().get_stylesheet(theme_name))
+
+        # 刷新串口嵌套 Tab (串口连接/数据回放)
+        if hasattr(self, 'mode_tab'):
+            self.mode_tab.setStyleSheet(f"""
+                QTabWidget::pane {{
+                    border: 1px solid {tokens['border_default']};
+                    background-color: {tokens['bg_card']};
+                    border-radius: 6px;
+                }}
+                QTabBar::tab {{
+                    background-color: {tokens['bg_subtle']};
+                    color: {tokens['text_secondary']};
+                    padding: 6px 12px;
+                    border: 1px solid {tokens['border_default']};
+                    border-bottom: none;
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }}
+                QTabBar::tab:selected {{
+                    background-color: {tokens['bg_card']};
+                    color: {tokens['brand_primary']};
+                    border-bottom: 2px solid {tokens['brand_primary']};
+                }}
+            """)
+
+        # 刷新定位状态嵌套 Tab (定位基本状态/组合惯导参数/快捷指令)
+        if hasattr(self, 'dashboard_tab'):
+            self.dashboard_tab.setStyleSheet(f"""
+                QTabWidget::pane {{
+                    border: 1px solid {tokens['border_default']};
+                    background-color: {tokens['bg_card']};
+                    border-radius: 6px;
+                }}
+                QTabBar::tab {{
+                    background-color: {tokens['bg_subtle']};
+                    color: {tokens['text_secondary']};
+                    padding: 6px 12px;
+                    border: 1px solid {tokens['border_default']};
+                    border-bottom: none;
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }}
+                QTabBar::tab:selected {{
+                    background-color: {tokens['bg_card']};
+                    color: {tokens['brand_primary']};
+                    border-bottom: 2px solid {tokens['brand_primary']};
+                }}
+            """)
 
         # 刷新所有图表画布 (含星空图 Canvas 与 载噪比 CNo)
         for canvas in [getattr(self, 'canvas_scatter', None), getattr(self, 'canvas_epoch_h', None), getattr(self, 'canvas_epoch_v', None), getattr(self, 'canvas_epoch_enu', None), getattr(self, 'canvas_speed', None), getattr(self, 'canvas_cdf', None), getattr(self, 'canvas_status', None), getattr(self, 'canvas_2d', None), getattr(self, 'canvas_skyplot', None), getattr(self, 'canvas_cno', None)]:

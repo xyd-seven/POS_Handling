@@ -1,3 +1,4 @@
+from theme_manager import ThemeManager
 # -*- coding: utf-8 -*-
 """
 VCOM Qt 界面布局与 QSS 样式表定义
