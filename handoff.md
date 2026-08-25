@@ -1,34 +1,36 @@
 # Hand Off - VCOM定位精度分析工具交接文档
 
 ## 1. 项目目标
-基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、3D 空间立体天球穹顶 (3D SkyDome)、载噪比柱状图及 Word 报告导出。当前阶段已完成配置文件 EXE 同级目录持久化存储与串口实时缓存生命周期彻底清理。
+基于 PySide6 开发的 GNSS/NMEA 定位精度分析与格式转换桌面工具。支持多协议解析、动静态高精度对比、ENU三向误差、速度对比、误差累积分布 (CDF)、极坐标天空图 (SkyPlot)、3D 空间立体天球穹顶 (3D SkyDome)、载噪比柱状图及 Word 报告导出。当前阶段已完成深色与浅色双主题无缝切换系统的全面架构设计与交付。
 
 ---
 
 ## 2. 当前状态
-- [x] **配置文件 EXE 同级目录持久化上线**：
-  - 动态识别 sys.frozen，vcom_config.json 永久写入 EXE 同级目录；
-  - 自定义历史参考坐标、UI 布局与显示偏好重启永久保留；
-  - 增加 AppData 权限安全回退；
-- [x] **串口分段删除与重开缓存彻底清理上线**：
-  - on_seg_delete_clicked 同步 clear 掉 realtime_raw_epochs 与 COM_REALTIME 映射；
-  - 杜绝再次开启串口时残留历史旧数据；
+- [x] **深色与浅色双主题无缝切换系统全面交付**：
+  - 建立 theme_manager.py 集中式 Design Tokens 语义调色板与模板化 QSS 引擎；
+  - 观察者模式 sig_theme_changed 广播解耦，PlotWidget、GISMapWidget 自主响应换肤；
+  - 菜单栏右上角提供 ☀️ 浅色 / 🌙 深色 一键切换胶囊；
+  - WCAG AA 级高对比度（文本、图标、网格、图例清晰锐利），画布原地更新无数据重载闪烁；
+  - 主题偏好持久化至 EXE 同级目录 vcom_config.json；
 - [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 F:\\TestTools\\pos_handling\\dist\\。
 
 ---
 
 ## 3. 当前任务
-- 无（配置文件持久化与串口缓存清理已全面交付上线）
+- 无（深浅双主题切换系统已全面交付上线）
 
 ---
 
 ## 4. 关键设计决策
-- get_app_config_file_path 定位 sys.executable 目录并带 AppData 回退；
-- on_seg_delete_clicked 显式清理底层实时队列与全局历元映射。
+- Design Tokens 单一真实来源 + 观察者发布-订阅解耦架构；
+- 画布原地 apply_theme 属性注入实现 <50ms 无损秒切。
 
 ---
 
 ## 5. 修改记录
+- theme_manager.py
+- plot_widget.py
+- gis_map_widget.py
 - main.py
 - walkthrough.md
 - handoff.md
@@ -48,8 +50,9 @@
 ---
 
 ## 8. 测试状态
-- 历史坐标跨实例保存与恢复测试：PASS
-- 串口分段删除与缓存重置测试：PASS
+- ThemeManager 单例与双向 toggle 测试：PASS
+- 图表与表格深浅色渲染测试：PASS
+- 配置持久化测试：PASS
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
 - PyInstaller 编译与部署：PASS

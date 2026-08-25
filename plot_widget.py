@@ -1,3 +1,4 @@
+from theme_manager import ThemeManager
 # -*- coding: utf-8 -*-
 """
 Matplotlib 嵌入 Qt(PySide6) 的图表展示组件 (双向自适应格网与Tab拆分版)
@@ -46,6 +47,8 @@ class PlotWidget(FigureCanvas):
         self.downsample_threshold = 100000
         self.min_downsample_points = 2000
         self.max_downsample_points = 50000
+        self.theme_manager = ThemeManager()
+        self.theme_manager.sig_theme_changed.connect(self.apply_theme)
 
     def resizeEvent(self, event):
         # 必须调用 FigureCanvasQTAgg 的原生 resizeEvent，以正确适配 Windows 高分屏 (150%/200% DPI 缩放)
@@ -77,6 +80,33 @@ class PlotWidget(FigureCanvas):
             self.update_cursor_overlay(t_sec)
             # 2. 发射信号广播给其它 Tab 和天空图
             self.sig_click_time.emit(t_sec)
+
+
+    def apply_theme(self, tokens=None):
+        if tokens is None:
+            tokens = ThemeManager().get_tokens()
+        self.fig.patch.set_facecolor(tokens['plot_fig_bg'])
+        for ax in self.fig.axes:
+            if ax is not None:
+                ax.set_facecolor(tokens['plot_ax_bg'])
+                ax.tick_params(colors=tokens['plot_text'], labelcolor=tokens['plot_text'])
+                for spine in ax.spines.values():
+                    spine.set_color(tokens['plot_spine'])
+                if hasattr(ax, 'title') and ax.title:
+                    ax.title.set_color(tokens['plot_text'])
+                if hasattr(ax, 'xaxis') and ax.xaxis.label:
+                    ax.xaxis.label.set_color(tokens['plot_text'])
+                if hasattr(ax, 'yaxis') and ax.yaxis.label:
+                    ax.yaxis.label.set_color(tokens['plot_text'])
+                leg = ax.get_legend()
+                if leg:
+                    leg.get_frame().set_facecolor(tokens['plot_legend_bg'])
+                    leg.get_frame().set_edgecolor(tokens['plot_legend_border'])
+                    for text in leg.get_texts():
+                        text.set_color(tokens['plot_text'])
+                    if leg.get_title():
+                        leg.get_title().set_color(tokens['plot_text'])
+        self.draw_idle()
 
     def clear_canvas(self):
         self.fig.clear()
@@ -382,6 +412,7 @@ class PlotWidget(FigureCanvas):
                 self.fig.subplots_adjust(left=0.1, right=0.88, top=0.92, bottom=0.12, hspace=0.35)
             else:
                 self.fig.subplots_adjust(left=0.1, right=0.95, top=0.92, bottom=0.15)
+        self.apply_theme()
         self.draw()
 
     def draw_trajectory_2d(self, segments, truth):

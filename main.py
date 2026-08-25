@@ -1,3 +1,4 @@
+from theme_manager import ThemeManager
 from core.statistics_calculator import compute_accuracy_metrics
 # -*- coding: utf-8 -*-
 """
@@ -825,6 +826,7 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.setAcceptDrops(True)
         self.load_config()
+        self.update_theme_ui(ThemeManager().current_theme_name)
         self.refresh_serial_ports()
         self.pending_parse_queue = []
         self.total_queue_count = 0
@@ -845,6 +847,11 @@ class MainWindow(QMainWindow):
         settings_menu = self.menu_bar.addMenu("设置")
         settings_menu.addAction("首选项...", self.on_settings_clicked)
         self.menu_bar.addMenu("帮助")
+
+        # 顶部右上角一键主题切换胶囊按钮
+        self.btn_toggle_theme = QPushButton("☀️ 浅色模式" if ThemeManager().current_theme_name == "dark" else "🌙 深色模式")
+        self.btn_toggle_theme.clicked.connect(self.on_toggle_theme_clicked)
+        self.menu_bar.setCornerWidget(self.btn_toggle_theme, Qt.TopRightCorner)
 
         # 主中央分割窗
         self.main_splitter = QSplitter(Qt.Horizontal)
@@ -3069,6 +3076,52 @@ class MainWindow(QMainWindow):
             except Exception:
                 return config_path
 
+
+    def on_toggle_theme_clicked(self):
+        new_theme = ThemeManager().toggle_theme()
+        self.update_theme_ui(new_theme)
+        self.save_config()
+
+    def update_theme_ui(self, theme_name):
+        tokens = ThemeManager().get_tokens(theme_name)
+        if theme_name == "dark":
+            self.btn_toggle_theme.setText("☀️ 浅色模式")
+            self.btn_toggle_theme.setStyleSheet("QPushButton { background-color: #0284C7; color: #FFFFFF; font-weight: bold; font-size: 11px; border-radius: 4px; padding: 3px 10px; margin-right: 8px; } QPushButton:hover { background-color: #0369A1; }")
+        else:
+            self.btn_toggle_theme.setText("🌙 深色模式")
+            self.btn_toggle_theme.setStyleSheet("QPushButton { background-color: #1E293B; color: #F8FAFC; font-weight: bold; font-size: 11px; border-radius: 4px; padding: 3px 10px; margin-right: 8px; border: 1px solid #CBD5E1; } QPushButton:hover { background-color: #334155; }")
+
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(ThemeManager().get_stylesheet(theme_name))
+
+        if hasattr(self, 'table_metrics'):
+            self.table_metrics.setStyleSheet(f"""
+                QTableWidget {{
+                    background-color: {tokens['bg_card']};
+                    color: {tokens['text_primary']};
+                    gridline-color: {tokens['border_subtle']};
+                    border: 1px solid {tokens['border_default']};
+                    border-radius: 4px;
+                    font-size: 13px;
+                }}
+                QTableWidget::item {{
+                    color: {tokens['text_primary']};
+                }}
+                QHeaderView::section {{
+                    background-color: {tokens['bg_subtle']};
+                    color: {tokens['text_primary']};
+                    font-weight: bold;
+                    padding: 6px;
+                    border: 1px solid {tokens['border_default']};
+                }}
+            """)
+
+        # 刷新所有图表画布
+        for canvas in [getattr(self, 'canvas_scatter', None), getattr(self, 'canvas_epoch_h', None), getattr(self, 'canvas_epoch_v', None), getattr(self, 'canvas_epoch_enu', None), getattr(self, 'canvas_speed', None), getattr(self, 'canvas_cdf', None), getattr(self, 'canvas_status', None), getattr(self, 'canvas_2d', None)]:
+            if canvas and hasattr(canvas, 'apply_theme'):
+                canvas.apply_theme(tokens)
+
     def load_config(self):
         CONFIG_FILE = self.get_app_config_file_path("vcom_config.json")
         self.coordinate_history = []
@@ -3086,6 +3139,9 @@ class MainWindow(QMainWindow):
                 self.x_axis_mode = self.app_config.get("x_axis_mode", "历元数")
                 self.truth_mode = self.app_config.get("truth_mode", "auto")
                 self.last_record_dir = self.app_config.get("last_record_dir", "")
+                saved_theme = self.app_config.get("theme", "dark")
+                ThemeManager().set_theme(saved_theme)
+                self.update_theme_ui(saved_theme)
 
                 # 坐标历史
                 self.coordinate_history = self.app_config.get("coordinate_history", [])
@@ -3173,6 +3229,7 @@ class MainWindow(QMainWindow):
             "leap_seconds": self.get_leap_seconds(),
             "coordinate_history": self.coordinate_history,
             "last_record_dir": getattr(self, 'last_record_dir', ""),
+            "theme": ThemeManager().current_theme_name,
             "view_visibility": self.collect_view_visibility_config()
         })
         try:

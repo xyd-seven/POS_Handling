@@ -20,6 +20,7 @@ from PySide6.QtWebChannel import QWebChannel
 
 from coord_transform import wgs84_to_gcj02
 from mbtiles_server import MBTilesServer
+from theme_manager import ThemeManager
 
 
 class MapBridge(QObject):
@@ -341,6 +342,37 @@ class GISMapWidget(QWidget):
         self.mbtiles_server = MBTilesServer()
 
         self.init_ui()
+        ThemeManager().sig_theme_changed.connect(self.apply_theme)
+        self.apply_theme(ThemeManager().get_tokens())
+
+    def apply_theme(self, tokens):
+        if not hasattr(self, 'toolbar') or not self.toolbar:
+            return
+        self.toolbar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {tokens['bg_card']};
+                border-bottom: 1px solid {tokens['border_default']};
+                padding: 0px 8px;
+            }}
+            QLabel {{
+                color: {tokens['text_secondary']};
+                font-size: 12px;
+                font-weight: 500;
+            }}
+            QComboBox {{
+                background-color: {tokens['bg_input']};
+                color: {tokens['text_primary']};
+                border: 1px solid {tokens['border_subtle']};
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-size: 12px;
+            }}
+            QCheckBox {{
+                color: {tokens['text_primary']};
+                font-size: 12px;
+                spacing: 4px;
+            }}
+        """)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -348,9 +380,9 @@ class GISMapWidget(QWidget):
         layout.setSpacing(0)
 
         # 顶部工具栏
-        toolbar = QFrame(self)
-        toolbar.setFixedHeight(38)
-        toolbar.setStyleSheet("""
+        self.toolbar = QFrame(self)
+        self.toolbar.setFixedHeight(38)
+        self.toolbar.setStyleSheet("""
             QFrame {
                 background-color: #0F172A;
                 border-bottom: 1px solid #334155;
@@ -392,7 +424,7 @@ class GISMapWidget(QWidget):
             QPushButton:pressed { background-color: #075985; }
         """)
 
-        tb_layout = QHBoxLayout(toolbar)
+        tb_layout = QHBoxLayout(self.toolbar)
         tb_layout.setContentsMargins(4, 2, 4, 2)
         tb_layout.setSpacing(10)
 
@@ -441,7 +473,7 @@ class GISMapWidget(QWidget):
         self.btn_fit_bounds.clicked.connect(self.fit_bounds)
         tb_layout.addWidget(self.btn_fit_bounds)
 
-        layout.addWidget(toolbar, 0)
+        layout.addWidget(self.toolbar, 0)
 
         # 官方原生 QWebEngineView 容器
         self.web_view = QWebEngineView(self)
