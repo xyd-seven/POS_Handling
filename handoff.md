@@ -6,34 +6,27 @@
 ---
 
 ## 2. 当前状态
-- [x] **4 项深度细节优化与高对比度界面升级交付**：
-  - 3D 天穹视距虚线仅对参与解算卫星 (is_used) 绘制半透明极细线，彻底根除蜘蛛网杂乱；
-  - 引入 SVG 矢量白色对号 (✓)，所有 QCheckBox 勾选时呈现清晰白对勾；
-  - 文件分段项 CheckBox indicator 补充 1.5px solid #94A3B8 边框，消除悬空勾；
-  - 全局边框由 #CBD5E1 加深为高强度中灰 #94A3B8 (深色模式 #334155)，GroupBox 边框升级为 1.5px；
-- [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 `F:\TestTools\pos_handling\dist\`。
+- [x] **图表字体粗体放大与载噪比浅色背景交付**：
+  - 误差图/分布图标题放大至 16px 粗体，XY 轴名称放大至 13px 粗体，刻度放大至 11.5px 加黑；
+  - 彻底修复 CNoPlotCanvas 浅色模式背景硬编码判定，统一呈现为浅云米白 (#F8FAFC)；
+- [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 `F:\TestTools\pos_handling\dist\main.exe`。
 
 ---
 
 ## 3. 当前任务
-- 无（4 项深度细节优化与高对比度升级已全面交付上线）
+- 无（图表字号放大与载噪比浅色背景已全面交付上线）
 
 ---
 
 ## 4. 关键设计决策
-- 3D 天穹只连接有效定位星，兼顾几何物理意义与画面清爽；
-- CheckBox 统一矢量 SVG 白对勾与清晰 1.5px 边框；
-- 全局边框中灰加深提升工业软件硬朗质感。
+- 图表字体层次（标题 16px -> 轴名 13px -> 刻度 11.5px）确保在各类分辨率下清晰醒目；
+- 载噪比柱状图遵循全局语义化 tokens['name'] == 'light' 分发。
 
 ---
 
 ## 5. 修改记录
-- icons/icon_checkbox_checked.svg
-- theme_manager.py
+- plot_widget.py
 - main.py
-- ui_main.py
-- plots/skyplot_canvas.py
-- main.spec
 - walkthrough.md
 - handoff.md
 
@@ -52,12 +45,11 @@
 ---
 
 ## 8. 测试状态
-- SVG 对勾与 QCheckBox 样式测试：PASS
-- 全局边框 #94A3B8 对比度测试：PASS
-- 3D 天穹视距过滤验证：PASS
+- 图表标题与坐标轴字号放大验证：PASS
+- 载噪比浅色模式 #F8FAFC 底色验证：PASS
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
-- PyInstaller 编译与部署：PASS
+- PyInstaller 编译与交付部署：PASS
 
 ---
 
