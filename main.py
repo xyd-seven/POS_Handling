@@ -2113,14 +2113,15 @@ class MainWindow(QMainWindow):
         self.cmb_history.setDisabled(True)
         self.cmb_history.currentIndexChanged.connect(self.on_history_coordinate_selected)
 
-        self.btn_del_coord = QPushButton("✖")
+        self.btn_del_coord = QPushButton("✕")
         self.btn_del_coord.setObjectName("btn_del_coord")
         self.btn_del_coord.setStyleSheet("""
             QPushButton#btn_del_coord {
-                background-color: rgba(239, 68, 68, 0.12);
+                background-color: #FEE2E2;
                 border: 1px solid #EF4444;
-                color: #EF4444;
-                font-size: 13px;
+                color: #DC2626;
+                font-family: Arial, sans-serif;
+                font-size: 14px;
                 font-weight: bold;
                 border-radius: 4px;
             }
@@ -2129,9 +2130,9 @@ class MainWindow(QMainWindow):
                 color: #FFFFFF;
             }
             QPushButton#btn_del_coord:disabled {
-                background-color: transparent;
+                background-color: #F1F5F9;
                 border: 1px solid #CBD5E1;
-                color: #94A3B8;
+                color: #64748B;
             }
         """)
         self.btn_del_coord.setFixedSize(28, 28)
@@ -3210,7 +3211,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'table_metrics'):
             self.table_metrics.setStyleSheet("""
                 QTableWidget {
-                    background-color: #FFFFFF;
+                    background-color: #F8FAFC;
                     color: #0F172A;
                     gridline-color: #E2E8F0;
                     border: 1px solid #CBD5E1;
@@ -3219,9 +3220,14 @@ class MainWindow(QMainWindow):
                 }
                 QTableWidget::item {
                     color: #0F172A;
+                    background-color: #F8FAFC;
+                }
+                QTableWidget::item:selected {
+                    background-color: #DBEAFE;
+                    color: #0284C7;
                 }
                 QHeaderView::section {
-                    background-color: #F1F5F9;
+                    background-color: #EDF2F7;
                     color: #0F172A;
                     font-weight: bold;
                     padding: 6px;

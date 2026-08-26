@@ -37,20 +37,20 @@ DARK_TOKENS = {
     "color_danger": "#EF4444",    # 危险/单点/无效 (玫瑰红)
     "color_info": "#3B82F6",      # 提示/差分解 (天空蓝)
     
-    # 图表画布专用配色 (深色模式下仍保持经典高对比纯白卡片底色)
-    "plot_fig_bg": "#FFFFFF",
-    "plot_ax_bg": "#FFFFFF",
+    # 图表画布专用配色 (深色模式下仍保持经典高对比护眼柔和卡片底色)
+    "plot_fig_bg": "#F8FAFC",
+    "plot_ax_bg": "#F8FAFC",
     "plot_grid": "#E2E8F0",
     "plot_spine": "#CBD5E1",
     "plot_text": "#0F172A",
     "plot_subtext": "#475569",
-    "plot_legend_bg": "#F8FAFC",
+    "plot_legend_bg": "#FFFFFF",
     "plot_legend_border": "#CBD5E1",
 }
 
 LIGHT_TOKENS = {
     "name": "light",
-    # 全局背景与容器 (室外强光高对比清爽白)
+    # 全局背景与容器 (室外强光高对比清爽且护眼柔和)
     "bg_app": "#F1F5F9",          # 主窗口全局背景 (清爽云灰)
     "bg_card": "#FFFFFF",         # 卡片/图表/面板容器背景 (纯白高光)
     "bg_subtle": "#F8FAFC",       # 次级容器/表头/工具栏底色
@@ -77,9 +77,9 @@ LIGHT_TOKENS = {
     "color_danger": "#DC2626",    # 危险/单点/无效 (鲜红)
     "color_info": "#2563EB",      # 提示/差分解 (宝蓝)
     
-    # 图表画布专用配色
-    "plot_fig_bg": "#FFFFFF",
-    "plot_ax_bg": "#FFFFFF",
+    # 图表画布专用配色 (柔和护眼浅米白底色)
+    "plot_fig_bg": "#F8FAFC",
+    "plot_ax_bg": "#F8FAFC",
     "plot_grid": "#E2E8F0",
     "plot_spine": "#94A3B8",
     "plot_text": "#0F172A",
