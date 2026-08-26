@@ -58,3 +58,12 @@
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
 - PyInstaller 编译与部署：PASS
+
+---
+
+## 9. 编译打包与交付规范 (Packaging & Delivery Convention)
+- **编译命令**：`py -m PyInstaller main.spec -y`
+- **交付目标路径**：直接复制生成的 `dist/main.exe` 至 `F:\TestTools\pos_handling\dist\main.exe`
+- **规则要求**：
+  1. **保持原名**：保持为 `main.exe`，无需重命名版本号；
+  2. **无需打包压缩包**：无需生成额外的绿色版 `.zip` 压缩文件。
