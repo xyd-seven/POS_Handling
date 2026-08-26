@@ -2113,28 +2113,8 @@ class MainWindow(QMainWindow):
         self.cmb_history.setDisabled(True)
         self.cmb_history.currentIndexChanged.connect(self.on_history_coordinate_selected)
 
-        self.btn_del_coord = QPushButton("✕")
+        self.btn_del_coord = QPushButton("✖")
         self.btn_del_coord.setObjectName("btn_del_coord")
-        self.btn_del_coord.setStyleSheet("""
-            QPushButton#btn_del_coord {
-                background-color: #FEE2E2;
-                border: 1px solid #EF4444;
-                color: #DC2626;
-                font-family: Arial, sans-serif;
-                font-size: 14px;
-                font-weight: bold;
-                border-radius: 4px;
-            }
-            QPushButton#btn_del_coord:hover {
-                background-color: #EF4444;
-                color: #FFFFFF;
-            }
-            QPushButton#btn_del_coord:disabled {
-                background-color: #F1F5F9;
-                border: 1px solid #CBD5E1;
-                color: #64748B;
-            }
-        """)
         self.btn_del_coord.setFixedSize(28, 28)
         self.btn_del_coord.setToolTip("删除当前选中的历史坐标预设")
         self.btn_del_coord.setDisabled(True)
@@ -2546,6 +2526,9 @@ class MainWindow(QMainWindow):
         self.txt_alt.setDisabled(True)
         self.txt_ref_name.setDisabled(True)
         self.cmb_history.setDisabled(True)
+        if hasattr(self, 'btn_del_coord'): self.btn_del_coord.setDisabled(True)
+        if hasattr(self, 'btn_save_coord'): self.btn_save_coord.setDisabled(True)
+        if hasattr(self, 'btn_apply_coord'): self.btn_apply_coord.setDisabled(True)
         self.set_avg_point_as_truth()
         self.save_config()
 
@@ -2571,7 +2554,7 @@ class MainWindow(QMainWindow):
         self.cmb_history.setEnabled(True)
         if hasattr(self, "btn_save_coord"): self.btn_save_coord.setEnabled(True)
         if hasattr(self, "btn_apply_coord"): self.btn_apply_coord.setEnabled(True)
-        self.btn_del_coord.setEnabled(self.cmb_history.currentIndex() > 0)
+        if hasattr(self, "btn_del_coord"): self.btn_del_coord.setEnabled(self.cmb_history.currentIndex() > 0)
         self.on_manual_truth_changed()
 
     def set_ref_mode_dynamic(self):
@@ -2588,6 +2571,9 @@ class MainWindow(QMainWindow):
         self.btn_ref_dynamic.style().polish(self.btn_ref_dynamic)
 
         self.inputs_widget.hide()
+        if hasattr(self, 'btn_del_coord'): self.btn_del_coord.setDisabled(True)
+        if hasattr(self, 'btn_save_coord'): self.btn_save_coord.setDisabled(True)
+        if hasattr(self, 'btn_apply_coord'): self.btn_apply_coord.setDisabled(True)
         self.dynamic_widget.show()
 
 

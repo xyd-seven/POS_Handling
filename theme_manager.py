@@ -232,6 +232,32 @@ QPushButton#btn_ref_auto[active="true"], QPushButton#btn_ref_manual[active="true
     border: 1px solid {brand_primary};
 }}
 
+/* 历史参考坐标删除专用按钮 */
+QPushButton#btn_del_coord {{
+    background-color: rgba(239, 68, 68, 0.12);
+    border: 1px solid #EF4444;
+    color: #EF4444;
+    font-family: 'Segoe UI Symbol', Arial, sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    border-radius: 4px;
+    padding: 0px;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
+}}
+QPushButton#btn_del_coord:hover {{
+    background-color: #EF4444;
+    color: #FFFFFF;
+}}
+QPushButton#btn_del_coord:disabled {{
+    background-color: {bg_subtle};
+    border: 1px solid {border_default};
+    color: {text_muted};
+    padding: 0px;
+}}
+
 /* 输入框与下拉框 */
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
     background-color: {bg_input};
