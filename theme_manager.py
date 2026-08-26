@@ -5,6 +5,8 @@ Provides semantic design tokens, comprehensive template-based QSS generation,
 and reactive observer pattern (sig_theme_changed) for dark/light theme switching.
 """
 
+import os
+import sys
 from PySide6.QtCore import QObject, Signal
 
 # 1. 语义化设计调色板 (Design Tokens)
