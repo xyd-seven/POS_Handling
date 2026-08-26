@@ -204,8 +204,11 @@ class CNoPlotCanvas(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # 创建 PlotWidget，设置背景色匹配主面板样式 #0B1120，解决 PyQtGraph 网格线遮挡立柱的问题
-        self.plot_widget = pg.PlotWidget(background='#0B1120')
+        # 创建 PlotWidget，根据当前主题动态初始化背景色
+        tokens = ThemeManager().get_tokens()
+        is_light = (tokens.get('name') == 'light') or (tokens.get('plot_fig_bg') in ['#F8FAFC', '#FFFFFF'])
+        init_bg = '#F8FAFC' if is_light else '#0B1120'
+        self.plot_widget = pg.PlotWidget(background=init_bg)
         self.plot_widget.setMouseEnabled(x=False, y=False) # 锁定缩放与拖拽
         self.plot_widget.setMenuEnabled(False)             # 禁用右键菜单
         layout.addWidget(self.plot_widget)
@@ -263,18 +266,22 @@ class CNoPlotCanvas(QWidget):
         import pyqtgraph as pg
         if tokens is None:
             tokens = ThemeManager().get_tokens()
-        bg_col = '#F1F5F9' if tokens['plot_fig_bg'] == '#FFFFFF' else '#0B1120'
+        is_light = (tokens.get('name') == 'light') or (tokens.get('plot_fig_bg') in ['#F8FAFC', '#FFFFFF'])
+        bg_col = '#F8FAFC' if is_light else '#0B1120'
         self.plot_widget.setBackground(bg_col)
         left_axis = self.plot_item.getAxis('left')
         bottom_axis = self.plot_item.getAxis('bottom')
-        spine_col = '#CBD5E1' if tokens['plot_fig_bg'] == '#FFFFFF' else '#1E293B'
-        txt_col = '#0F172A' if tokens['plot_fig_bg'] == '#FFFFFF' else '#F8FAFC'
-        sub_col = '#334155' if tokens['plot_fig_bg'] == '#FFFFFF' else '#94A3B8'
-        left_axis.setPen(pg.mkPen(spine_col, width=1.0))
+        spine_col = '#94A3B8' if is_light else '#334155'
+        txt_col = '#0F172A' if is_light else '#F8FAFC'
+        sub_col = '#0F172A' if is_light else '#94A3B8'
+        left_axis.setPen(pg.mkPen(spine_col, width=1.5))
         left_axis.setTextPen(sub_col)
-        bottom_axis.setPen(pg.mkPen(spine_col, width=1.0))
+        bottom_axis.setPen(pg.mkPen(spine_col, width=1.5))
         bottom_axis.setTextPen(txt_col)
-        self.plot_item.setLabel('left', "载噪比 C/No (dB-Hz)", color=sub_col)
+        self.plot_item.setLabel('left', "载噪比 C/No (dB-Hz)", color=sub_col, size='11pt')
+        self.plot_item.showGrid(x=False, y=True, alpha=0.35 if is_light else 0.25)
+        if hasattr(self, 'rendered_sats') and self.rendered_sats:
+            self.render_data(self.rendered_sats)
 
     def reposition_flags(self):
         # 动态根据当前排版调整国旗的位置
