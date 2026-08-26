@@ -55,7 +55,8 @@ class SkyPlotCanvas(QWidget):
             if self.ax:
                 self.ax.set_facecolor(tokens['plot_ax_bg'])
                 self.ax.spines['polar'].set_color(tokens['plot_spine'])
-                self.ax.grid(True, color=tokens['plot_grid'], linestyle='--', linewidth=0.8, alpha=0.8)
+                grid_c = '#94A3B8' if tokens['plot_fig_bg'] == '#F8FAFC' else tokens['plot_grid']
+                self.ax.grid(True, color=grid_c, linestyle='--', linewidth=1.0, alpha=0.9)
                 self.ax.tick_params(axis='y', colors=tokens['text_secondary'])
                 self.ax.set_yticklabels(['60°', '30°', '10°', '0°'], color=tokens['text_secondary'], fontsize=9, fontweight='bold')
                 self.ax.set_xticklabels(['N (0°)', '45°', 'E (90°)', '135°', 'S (180°)', '225°', 'W (270°)', '315°'], 
@@ -92,7 +93,8 @@ class SkyPlotCanvas(QWidget):
                                 color=tokens['text_primary'], fontsize=10, fontweight='bold')
 
         # 网格与边框美化
-        self.ax.grid(True, color=tokens['plot_grid'], linestyle='--', linewidth=0.8, alpha=0.8)
+        grid_c = '#94A3B8' if tokens['plot_fig_bg'] == '#F8FAFC' else tokens['plot_grid']
+        self.ax.grid(True, color=grid_c, linestyle='--', linewidth=1.0, alpha=0.9)
         self.ax.spines['polar'].set_color(tokens['plot_spine'])
         self.ax.spines['polar'].set_linewidth(1.5)
 
@@ -309,7 +311,8 @@ class SkyPlotCanvas(QWidget):
         self.ax.set_title("全时段卫星运动星轨图 (Sky Tracks)", color=tokens['text_primary'], fontsize=12, fontweight='bold', pad=18)
         self.canvas.draw_idle()
 
-    def render_3d_snapshot(self, sats_dict, dop_dict=None, sat_tracks_dict=None, show_tracks=True, title_prefix=""):
+    def render_3d_skydome(self, sats_dict, dop_dict=None, sat_tracks_dict=None, show_tracks=True, title_prefix=""):
+        self.render_3d_snapshot = self.render_3d_skydome
         tokens = ThemeManager().get_tokens()
         if self.current_mode != '3d' or self.ax is None:
             self.init_3d_axes()

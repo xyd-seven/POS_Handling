@@ -957,19 +957,20 @@ class MainWindow(QMainWindow):
         self.toolbar_scatter.addWidget(spacer_tb)
 
         self.cb_time_sync_scatter = QCheckBox("多图联动")
-        self.cb_time_sync_scatter.setStyleSheet("QCheckBox { color: #D97706; font-weight: bold; font-size: 12.5px; margin-right: 10px; } QCheckBox::indicator { width: 16px; height: 16px; }")
+        indicator_css = "QCheckBox::indicator { width: 15px; height: 15px; border: 1.5px solid #94A3B8; background: #FFFFFF; border-radius: 3px; } QCheckBox::indicator:checked { background: #0284C7; border-color: #0284C7; }"
+        self.cb_time_sync_scatter.setStyleSheet(f"QCheckBox {{ color: #D97706; font-weight: bold; font-size: 12.5px; margin-right: 10px; }} {indicator_css}")
         self.cb_time_sync_scatter.setChecked(False)
         self.cb_time_sync_scatter.stateChanged.connect(self.on_master_time_sync_toggled)
         self.toolbar_scatter.addWidget(self.cb_time_sync_scatter)
 
         self.cb_show_confidence_rings = QCheckBox("置信圆(50%/68%/95%)")
-        self.cb_show_confidence_rings.setStyleSheet("QCheckBox { color: #0284C7; font-weight: bold; font-size: 12.5px; margin-right: 10px; } QCheckBox::indicator { width: 16px; height: 16px; }")
+        self.cb_show_confidence_rings.setStyleSheet(f"QCheckBox {{ color: #0284C7; font-weight: bold; font-size: 12.5px; margin-right: 10px; }} {indicator_css}")
         self.cb_show_confidence_rings.setChecked(False)
         self.cb_show_confidence_rings.stateChanged.connect(self.on_confidence_rings_toggled)
         self.toolbar_scatter.addWidget(self.cb_show_confidence_rings)
 
         self.cb_show_accuracy_metrics = QCheckBox("定位精度指标")
-        self.cb_show_accuracy_metrics.setStyleSheet("QCheckBox { color: #059669; font-weight: bold; font-size: 12.5px; margin-right: 14px; } QCheckBox::indicator { width: 16px; height: 16px; }")
+        self.cb_show_accuracy_metrics.setStyleSheet(f"QCheckBox {{ color: #059669; font-weight: bold; font-size: 12.5px; margin-right: 14px; }} {indicator_css}")
         self.cb_show_accuracy_metrics.setChecked(False)
         self.cb_show_accuracy_metrics.stateChanged.connect(self.on_accuracy_metrics_toggled)
         self.toolbar_scatter.addWidget(self.cb_show_accuracy_metrics)

@@ -6,29 +6,31 @@
 ---
 
 ## 2. 当前状态
-- [x] **删除按钮排版内边距挤压根治与护眼色调交付**：
-  - 根除 QPushButton 默认 padding: 6px 14px 对 28px 微型删除按钮的挤压截断缺陷；
-  - 在 ThemeManager 全局样式中显式配置 QPushButton#btn_del_coord { padding: 0px; }；
-  - 禁用态显示清晰深灰 ✖，激活态显示高光红底红字 ✖；
-  - 误差图画布与精度统计表格统一换装为浅云米白 (#F8FAFC) 消除高光眩光；
+- [x] **4 项深度体验问题彻底修复交付**：
+  - QMessageBox 与 QDialog 全面接入 ThemeManager，解决浅色模式下弹窗黑底黑字问题；
+  - 靶心图 3 个开关复选框补充显式 1.5px solid #94A3B8 边框，消除空白框线问题；
+  - 文件分段项 SegmentListItemWidget 接入 ThemeManager 消除硬编码黑底；
+  - 卫星星空图 3D 立体天穹函数名修复 (render_3d_skydome)，恢复 3D 切换并加深 2D 标线；
 - [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 `F:\TestTools\pos_handling\dist\`。
 
 ---
 
 ## 3. 当前任务
-- 无（删除按钮可见性与护眼色调优化已全面交付上线）
+- 无（4 项深度体验问题已全面交付上线）
 
 ---
 
 ## 4. 关键设计决策
-- 微型正方形按钮必须设置 padding: 0px 避免文字裁剪；
-- 浅云米白 #F8FAFC 兼顾高对比度与长时间用眼舒适度。
+- 对话框与动态生成的列表项均需接入 ThemeManager 全局样式分发；
+- 3D 模式与极坐标 2D 模式统一接口与主题感知。
 
 ---
 
 ## 5. 修改记录
 - theme_manager.py
 - main.py
+- ui_main.py
+- plots/skyplot_canvas.py
 - walkthrough.md
 - handoff.md
 
@@ -47,8 +49,10 @@
 ---
 
 ## 8. 测试状态
-- 删除按钮 padding 0px 与文字防挤压测试：PASS
-- 护眼柔和底色 #F8FAFC 验证：PASS
+- 对话框主题样式验证：PASS
+- 复选框显式边框验证：PASS
+- 分段列表项动态换肤验证：PASS
+- 3D 天穹切换与极坐标标线加深验证：PASS
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
 - PyInstaller 编译与部署：PASS

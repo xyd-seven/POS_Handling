@@ -438,47 +438,53 @@ class SegmentListItemWidget(QWidget):
         
         # 设置整个 Item 容器的小边框
         self.setLayout(main_layout)
-        self.setStyleSheet("""
-            SegmentListItemWidget {
-                background-color: #172033;
-                border: 1px solid #1E293B;
+        ThemeManager().sig_theme_changed.connect(self.apply_theme)
+        self.apply_theme(ThemeManager().get_tokens())
+
+    def apply_theme(self, tokens=None):
+        if tokens is None:
+            tokens = ThemeManager().get_tokens()
+        self.setStyleSheet(f"""
+            SegmentListItemWidget {{
+                background-color: {tokens['bg_card']};
+                border: 1px solid {tokens['border_default']};
                 border-radius: 8px;
-            }
-            QLineEdit, QComboBox {
-                border: 1px solid #1E293B;
+            }}
+            QLineEdit, QComboBox {{
+                border: 1px solid {tokens['border_default']};
                 border-radius: 6px;
-                background-color: #0B1120;
+                background-color: {tokens['bg_input']};
                 font-size: 9pt;
-                color: #E2E8F0;
+                color: {tokens['text_primary']};
                 padding: 4px 6px;
-            }
-            TimeLineEdit {
+            }}
+            TimeLineEdit {{
                 font-size: 8pt;
                 padding: 2px 4px;
-            }
-            QLineEdit[invalid="true"] {
+            }}
+            QLineEdit[invalid="true"] {{
                 border: 1px solid #F87171;
-                background-color: #3F1D1D;
-            }
-            QLabel {
+                background-color: #FEE2E2;
+            }}
+            QLabel {{
                 border: none;
                 background-color: transparent;
                 font-size: 12px;
-                color: #94A3B8;
-            }
-            QCheckBox {
+                color: {tokens['text_secondary']};
+            }}
+            QCheckBox {{
                 border: none;
                 background-color: transparent;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #0F172A;
-                color: #F8FAFC;
-                selection-background-color: #1E293B;
-                selection-color: #60A5FA;
-                border: 1px solid #334155;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {tokens['bg_card']};
+                color: {tokens['text_primary']};
+                selection-background-color: {tokens['bg_hover']};
+                selection-color: {tokens['brand_primary']};
+                border: 1px solid {tokens['border_default']};
                 border-radius: 4px;
                 font-size: 9pt;
-            }
+            }}
         """)
 
     def update_color_button_style(self, color_hex):

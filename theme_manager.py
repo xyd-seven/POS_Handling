@@ -108,6 +108,24 @@ QWidget#sidebar_container {{
     border-left: 1px solid {border_default};
 }}
 
+/* 弹窗与对话框 QMessageBox & QDialog */
+QDialog, QMessageBox {{
+    background-color: {bg_card};
+    color: {text_primary};
+    border: 1px solid {border_default};
+    border-radius: 8px;
+}}
+QMessageBox QLabel {{
+    color: {text_primary};
+    background: transparent;
+    font-size: 13px;
+    font-weight: normal;
+}}
+QMessageBox QPushButton {{
+    min-width: 70px;
+    padding: 6px 14px;
+}}
+
 /* 菜单栏与状态栏 */
 QMenuBar {{
     background-color: {bg_card};
