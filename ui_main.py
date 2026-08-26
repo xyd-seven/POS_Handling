@@ -476,6 +476,21 @@ class SegmentListItemWidget(QWidget):
                 border: none;
                 background-color: transparent;
             }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1.5px solid {tokens['border_default']};
+                background-color: {tokens['bg_input']};
+                border-radius: 3px;
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {tokens['brand_primary']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {tokens['brand_primary']};
+                border-color: {tokens['brand_primary']};
+                image: url({tokens['icon_check_url']});
+            }}
             QComboBox QAbstractItemView {{
                 background-color: {tokens['bg_card']};
                 color: {tokens['text_primary']};

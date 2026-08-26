@@ -19,8 +19,8 @@ DARK_TOKENS = {
     "bg_input": "#0F172A",        # 输入框/下拉框/终端背景
     
     # 边框与分割线
-    "border_default": "#1F2937",  # 默认边框
-    "border_subtle": "#334155",   # 次级分割线
+    "border_default": "#334155",  # 默认边框
+    "border_subtle": "#475569",   # 次级分割线
     "border_focus": "#38BDF8",    # 聚焦高亮边框 (天青蓝)
     
     # 文字与图标
@@ -59,8 +59,8 @@ LIGHT_TOKENS = {
     "bg_input": "#FFFFFF",        # 输入框/下拉框/终端背景 (纯白)
     
     # 边框与分割线
-    "border_default": "#CBD5E1",  # 默认边框 (清晰中灰)
-    "border_subtle": "#E2E8F0",   # 次级分割线
+    "border_default": "#94A3B8",  # 默认边框 (清晰中灰)
+    "border_subtle": "#CBD5E1",   # 次级分割线
     "border_focus": "#0284C7",    # 聚焦高亮边框
     
     # 文字与图标 (深邃墨黑，确保强光下无反光、清晰可见)
@@ -112,7 +112,7 @@ QWidget#sidebar_container {{
 QDialog, QMessageBox {{
     background-color: {bg_card};
     color: {text_primary};
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     border-radius: 8px;
 }}
 QMessageBox QLabel {{
@@ -158,7 +158,7 @@ QStatusBar {{
 
 /* 选项卡 TabWidget */
 QTabWidget::pane {{
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     background-color: {bg_card};
     border-radius: 6px;
 }}
@@ -169,7 +169,7 @@ QTabBar::tab {{
     margin-right: 2px;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     border-bottom: none;
     font-weight: bold;
     font-size: 12px;
@@ -188,7 +188,7 @@ QTabBar::tab:hover:!selected {{
 QGroupBox {{
     font-weight: bold;
     font-size: 12px;
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     border-radius: 8px;
     margin-top: 16px;
     padding-top: 16px;
@@ -204,6 +204,33 @@ QGroupBox::title {{
     color: {brand_primary};
 }}
 
+
+/* 复选框 CheckBox 全局加固 */
+QCheckBox {{
+    color: {text_primary};
+    font-size: 12px;
+    spacing: 6px;
+}}
+QCheckBox::indicator {{
+    width: 15px;
+    height: 15px;
+    border: 1.5px solid {border_default};
+    background-color: {bg_input};
+    border-radius: 3px;
+}}
+QCheckBox::indicator:hover {{
+    border-color: {brand_primary};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {brand_primary};
+    border-color: {brand_primary};
+    image: url({icon_check_url});
+}}
+QCheckBox::indicator:disabled {{
+    background-color: {bg_subtle};
+    border-color: {border_subtle};
+}}
+
 /* 文本标签 */
 QLabel {{
     color: {text_primary};
@@ -214,7 +241,7 @@ QLabel {{
 QPushButton {{
     background-color: {bg_subtle};
     color: {text_primary};
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     border-radius: 6px;
     padding: 6px 14px;
     font-weight: bold;
@@ -235,7 +262,7 @@ QPushButton:disabled {{
 
 /* 侧边栏 Auto/Manual 切换模式专用按钮 */
 QPushButton#btn_ref_auto, QPushButton#btn_ref_manual, QPushButton#btn_ref_dynamic {{
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     background-color: {bg_subtle};
     color: {text_secondary};
     padding: 6px 10px;
@@ -271,7 +298,7 @@ QPushButton#btn_del_coord:hover {{
 }}
 QPushButton#btn_del_coord:disabled {{
     background-color: {bg_subtle};
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     color: {text_muted};
     padding: 0px;
 }}
@@ -280,7 +307,7 @@ QPushButton#btn_del_coord:disabled {{
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
     background-color: {bg_input};
     color: {text_primary};
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     border-radius: 4px;
     padding: 5px 8px;
     font-size: 12px;
@@ -302,7 +329,7 @@ QComboBox::drop-down {{
 QComboBox QAbstractItemView {{
     background-color: {bg_card};
     color: {text_primary};
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     selection-background-color: {brand_primary};
     selection-color: #FFFFFF;
 }}
@@ -311,7 +338,7 @@ QComboBox QAbstractItemView {{
 QPlainTextEdit, QTextEdit {{
     background-color: {bg_input};
     color: {text_primary};
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     border-radius: 6px;
     font-family: 'Consolas', 'Courier New', monospace;
     font-size: 12px;
@@ -322,7 +349,7 @@ QPlainTextEdit, QTextEdit {{
 /* 列表 QListWidget */
 QListWidget {{
     background-color: {bg_input};
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     border-radius: 6px;
     color: {text_primary};
 }}
@@ -341,7 +368,7 @@ QTableWidget {{
     background-color: {bg_card};
     color: {text_primary};
     gridline-color: {border_subtle};
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
     border-radius: 6px;
     font-size: 13px;
 }}
@@ -353,7 +380,7 @@ QHeaderView::section {{
     color: {text_primary};
     font-weight: bold;
     padding: 6px;
-    border: 1px solid {border_default};
+    border: 1.5px solid {border_default};
 }}
 
 /* 滚动条 ScrollBar */
@@ -423,7 +450,14 @@ class ThemeManager(QObject):
 
     def get_tokens(self, theme_name=None):
         name = theme_name or self._current_theme_name
-        return self._themes.get(name, DARK_TOKENS)
+        tokens = self._themes.get(name, DARK_TOKENS).copy()
+        import sys
+        base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        check_p = os.path.join(base_path, 'icons', 'icon_checkbox_checked.svg')
+        if not os.path.exists(check_p):
+            check_p = os.path.join(os.path.abspath('.'), 'icons', 'icon_checkbox_checked.svg')
+        tokens['icon_check_url'] = check_p.replace('\\', '/')
+        return tokens
 
     def get_stylesheet(self, theme_name=None):
         tokens = self.get_tokens(theme_name)

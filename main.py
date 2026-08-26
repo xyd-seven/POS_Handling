@@ -957,7 +957,8 @@ class MainWindow(QMainWindow):
         self.toolbar_scatter.addWidget(spacer_tb)
 
         self.cb_time_sync_scatter = QCheckBox("多图联动")
-        indicator_css = "QCheckBox::indicator { width: 15px; height: 15px; border: 1.5px solid #94A3B8; background: #FFFFFF; border-radius: 3px; } QCheckBox::indicator:checked { background: #0284C7; border-color: #0284C7; }"
+        chk_icon_url = ThemeManager().get_tokens()['icon_check_url']
+        indicator_css = f"QCheckBox::indicator {{ width: 15px; height: 15px; border: 1.5px solid #94A3B8; background: #FFFFFF; border-radius: 3px; }} QCheckBox::indicator:checked {{ background: #0284C7; border-color: #0284C7; image: url({chk_icon_url}); }}"
         self.cb_time_sync_scatter.setStyleSheet(f"QCheckBox {{ color: #D97706; font-weight: bold; font-size: 12.5px; margin-right: 10px; }} {indicator_css}")
         self.cb_time_sync_scatter.setChecked(False)
         self.cb_time_sync_scatter.stateChanged.connect(self.on_master_time_sync_toggled)

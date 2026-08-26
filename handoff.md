@@ -6,31 +6,34 @@
 ---
 
 ## 2. 当前状态
-- [x] **4 项深度体验问题彻底修复交付**：
-  - QMessageBox 与 QDialog 全面接入 ThemeManager，解决浅色模式下弹窗黑底黑字问题；
-  - 靶心图 3 个开关复选框补充显式 1.5px solid #94A3B8 边框，消除空白框线问题；
-  - 文件分段项 SegmentListItemWidget 接入 ThemeManager 消除硬编码黑底；
-  - 卫星星空图 3D 立体天穹函数名修复 (render_3d_skydome)，恢复 3D 切换并加深 2D 标线；
+- [x] **4 项深度细节优化与高对比度界面升级交付**：
+  - 3D 天穹视距虚线仅对参与解算卫星 (is_used) 绘制半透明极细线，彻底根除蜘蛛网杂乱；
+  - 引入 SVG 矢量白色对号 (✓)，所有 QCheckBox 勾选时呈现清晰白对勾；
+  - 文件分段项 CheckBox indicator 补充 1.5px solid #94A3B8 边框，消除悬空勾；
+  - 全局边框由 #CBD5E1 加深为高强度中灰 #94A3B8 (深色模式 #334155)，GroupBox 边框升级为 1.5px；
 - [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 `F:\TestTools\pos_handling\dist\`。
 
 ---
 
 ## 3. 当前任务
-- 无（4 项深度体验问题已全面交付上线）
+- 无（4 项深度细节优化与高对比度升级已全面交付上线）
 
 ---
 
 ## 4. 关键设计决策
-- 对话框与动态生成的列表项均需接入 ThemeManager 全局样式分发；
-- 3D 模式与极坐标 2D 模式统一接口与主题感知。
+- 3D 天穹只连接有效定位星，兼顾几何物理意义与画面清爽；
+- CheckBox 统一矢量 SVG 白对勾与清晰 1.5px 边框；
+- 全局边框中灰加深提升工业软件硬朗质感。
 
 ---
 
 ## 5. 修改记录
+- icons/icon_checkbox_checked.svg
 - theme_manager.py
 - main.py
 - ui_main.py
 - plots/skyplot_canvas.py
+- main.spec
 - walkthrough.md
 - handoff.md
 
@@ -49,10 +52,9 @@
 ---
 
 ## 8. 测试状态
-- 对话框主题样式验证：PASS
-- 复选框显式边框验证：PASS
-- 分段列表项动态换肤验证：PASS
-- 3D 天穹切换与极坐标标线加深验证：PASS
+- SVG 对勾与 QCheckBox 样式测试：PASS
+- 全局边框 #94A3B8 对比度测试：PASS
+- 3D 天穹视距过滤验证：PASS
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
 - PyInstaller 编译与部署：PASS
