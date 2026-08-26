@@ -6,28 +6,28 @@
 ---
 
 ## 2. 当前状态
-- [x] **全界面 100% 浅色模式（零残留暗黑块）交付**：
-  - 根除主窗口 self.setStyleSheet(QSS_STYLE) 对全局样式的阻断拦截；
-  - 串口与回放配置面板 (mode_tab)、定位状态面板 (dashboard_tab) 深度适配纯白高光卡片 (#FFFFFF)；
-  - 右侧属性侧边栏 (sidebar_container) 与分段项 (SegmentListItemWidget) 全面同步白底黑字 (#FFFFFF / #0F172A)；
-  - 彻底消除黑白拼贴，室外强光下黑白分明、清晰可读；
-- [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 F:\\TestTools\\pos_handling\\dist\\。
+- [x] **自定义坐标显式存储与删除管理上线**：
+  - 解除输入框 editingFinished 自动存库逻辑，实现输入即重算、点击才保存；
+  - 增加“💾 保存为预设”按钮，带全零坐标拦截与 [-90,90] / [-180,180] 范围校验；
+  - 历史坐标下拉框右侧增加“🗑️”删除按钮，支持单条确认删除并同步写入 vcom_config.json；
+  - 启动时自动清洗以往遗留的全零脏数据；
+- [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 `F:\TestTools\pos_handling\dist\`。
 
 ---
 
 ## 3. 当前任务
-- 无（全界面 100% 浅色化已全面交付上线）
+- 无（自定义坐标管理系统已全面交付上线）
 
 ---
 
 ## 4. 关键设计决策
-- ThemeManager 全局统领 QSS 与子组件样式，阻断旧版 QSS_STYLE 局部冲突。
+- 显式保存按钮 + 合法性拦截杜绝误存；
+- 下拉选择联动不再自动把选择项置顶并重复写配置。
 
 ---
 
 ## 5. 修改记录
 - main.py
-- ui_main.py
 - walkthrough.md
 - handoff.md
 
@@ -46,8 +46,10 @@
 ---
 
 ## 8. 测试状态
-- 全界面 100% 浅色模式覆盖测试：PASS
-- 串口与定位状态面板浅色模式测试：PASS
+- 非侵入式输入计算测试：PASS
+- 显式保存与合法性校验测试：PASS
+- 历史预设删除测试：PASS
+- 启动脏数据清洗测试：PASS
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
 - PyInstaller 编译与部署：PASS

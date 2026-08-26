@@ -2096,17 +2096,25 @@ class MainWindow(QMainWindow):
         switch_layout.addWidget(self.btn_ref_dynamic)
         ref_layout.addLayout(switch_layout)
 
-        # 历史输入坐标下拉框
+        # 历史输入坐标下拉框及删除按钮
         row_history = QHBoxLayout()
-        row_history.setSpacing(6)
-        lbl_history = QLabel("历史参考坐标：")
-        lbl_history.setStyleSheet("color:#94A3B8; font-size:12px; font-weight:bold;")
+        row_history.setSpacing(4)
+        lbl_history = QLabel("历史预设:")
+        lbl_history.setStyleSheet("font-size:12px; font-weight:bold;")
         self.cmb_history = QComboBox()
         self.cmb_history.setFixedHeight(28)
-        self.cmb_history.setDisabled(True)  # 默认Auto模式下禁用
+        self.cmb_history.setDisabled(True)
         self.cmb_history.currentIndexChanged.connect(self.on_history_coordinate_selected)
+
+        self.btn_del_coord = QPushButton("🗑️")
+        self.btn_del_coord.setFixedSize(28, 28)
+        self.btn_del_coord.setToolTip("删除当前选中的历史坐标预设")
+        self.btn_del_coord.setDisabled(True)
+        self.btn_del_coord.clicked.connect(self.on_del_coord_clicked)
+
         row_history.addWidget(lbl_history)
-        row_history.addWidget(self.cmb_history)
+        row_history.addWidget(self.cmb_history, 1)
+        row_history.addWidget(self.btn_del_coord)
         ref_layout.addLayout(row_history)
 
         # 经纬高输入框
@@ -2153,6 +2161,24 @@ class MainWindow(QMainWindow):
         self.txt_alt.editingFinished.connect(self.on_manual_truth_changed)
         row_alt.addWidget(self.txt_alt)
         self.inputs_layout.addLayout(row_alt)
+
+        # 显式保存与应用按钮行
+        row_coord_btns = QHBoxLayout()
+        row_coord_btns.setSpacing(6)
+        self.btn_save_coord = QPushButton("💾 保存为预设")
+        self.btn_save_coord.setToolTip("将当前输入的坐标与备注保存到历史预设库")
+        self.btn_save_coord.setDisabled(True)
+        self.btn_save_coord.clicked.connect(self.on_save_coord_clicked)
+
+        self.btn_apply_coord = QPushButton("⚡ 应用重算")
+        self.btn_apply_coord.setToolTip("使用当前输入框的坐标重新计算所有图表与精度指标")
+        self.btn_apply_coord.setDisabled(True)
+        self.btn_apply_coord.clicked.connect(self.on_manual_truth_changed)
+
+        row_coord_btns.addWidget(self.btn_save_coord, 1)
+        row_coord_btns.addWidget(self.btn_apply_coord, 1)
+        self.inputs_layout.addLayout(row_coord_btns)
+
         self.inputs_widget = QWidget()
         self.inputs_widget.setLayout(self.inputs_layout)
         ref_layout.addWidget(self.inputs_widget)
@@ -2515,6 +2541,9 @@ class MainWindow(QMainWindow):
         self.txt_alt.setEnabled(True)
         self.txt_ref_name.setEnabled(True)
         self.cmb_history.setEnabled(True)
+        if hasattr(self, "btn_save_coord"): self.btn_save_coord.setEnabled(True)
+        if hasattr(self, "btn_apply_coord"): self.btn_apply_coord.setEnabled(True)
+        self.btn_del_coord.setEnabled(self.cmb_history.currentIndex() > 0)
         self.on_manual_truth_changed()
 
     def set_ref_mode_dynamic(self):
@@ -2601,20 +2630,61 @@ class MainWindow(QMainWindow):
     def on_manual_truth_changed(self):
         if self.truth_mode == 'manual':
             try:
-                lat = float(self.txt_lat.text())
-                lon = float(self.txt_lon.text())
-                alt = float(self.txt_alt.text())
+                lat = float(self.txt_lat.text().strip())
+                lon = float(self.txt_lon.text().strip())
+                alt = float(self.txt_alt.text().strip())
                 name = self.txt_ref_name.text().strip()
 
                 self.truth['lat'] = lat
                 self.truth['lon'] = lon
                 self.truth['alt'] = alt
+                self.truth['name'] = name
 
-                # 记录有效坐标到历史中，会自动更新下拉框并保存配置
-                self.add_coordinate_to_history(lat, lon, alt, name)
                 self.recompute_all()
             except ValueError:
                 QMessageBox.warning(self, "输入错误", "请输入合法的经度、纬度或高程数值。")
+
+    def on_save_coord_clicked(self):
+        try:
+            lat = float(self.txt_lat.text().strip())
+            lon = float(self.txt_lon.text().strip())
+            alt = float(self.txt_alt.text().strip())
+            name = self.txt_ref_name.text().strip()
+
+            # 校验全零坐标与范围
+            if abs(lat) < 1e-7 and abs(lon) < 1e-7 and abs(alt) < 1e-3:
+                QMessageBox.warning(self, "保存失败", "全零坐标 (0, 0, 0) 为无效占位，无法保存为预设。")
+                return
+
+            if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
+                QMessageBox.warning(self, "保存失败", "经纬度超出有效地理范围 (纬度-90~90, 经度-180~180)。")
+                return
+
+            self.add_coordinate_to_history(lat, lon, alt, name)
+            self.on_manual_truth_changed()
+
+            # 提示保存成功并定位到第1项
+            self.cmb_history.setCurrentIndex(1)
+            QMessageBox.information(self, "保存成功", f"参考坐标已成功保存至预设库！\n[{name or '未命名'}] 纬:{lat:.8f}, 经:{lon:.8f}, 高:{alt:.3f}")
+        except ValueError:
+            QMessageBox.warning(self, "保存失败", "请输入合法的经度、纬度或高程数值后再进行保存。")
+
+    def on_del_coord_clicked(self):
+        index = self.cmb_history.currentIndex()
+        if index <= 0 or not self.coordinate_history:
+            return
+        
+        target_idx = index - 1
+        coord = self.coordinate_history[target_idx]
+        name_str = f"[{coord.get('name')}] " if coord.get('name') else ""
+        coord_desc = f"{name_str}纬:{coord['lat']:.8f}, 经:{coord['lon']:.8f}, 高:{coord['alt']:.3f}"
+
+        reply = QMessageBox.question(self, "确认删除", f"确定要从历史预设库中删除以下坐标吗？\n\n{coord_desc}", QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            del self.coordinate_history[target_idx]
+            self.update_history_combo()
+            self.save_config()
+            self.btn_del_coord.setDisabled(True)
     def cancel_parsing(self):
         self.pending_parse_queue.clear()
         if hasattr(self, 'parser_thread') and self.parser_thread:
@@ -3248,7 +3318,12 @@ class MainWindow(QMainWindow):
                 self.update_theme_ui(saved_theme)
 
                 # 坐标历史
-                self.coordinate_history = self.app_config.get("coordinate_history", [])
+                raw_hist = self.app_config.get("coordinate_history", [])
+                # 自动清洗全零脏数据与非法数据
+                self.coordinate_history = [
+                    item for item in raw_hist
+                    if isinstance(item, dict) and not (abs(item.get('lat', 0.0)) < 1e-7 and abs(item.get('lon', 0.0)) < 1e-7 and abs(item.get('alt', 0.0)) < 1e-3)
+                ]
 
                 # 应用配置到UI
                 if self.time_zone == 'Beijing':
@@ -3375,6 +3450,7 @@ class MainWindow(QMainWindow):
         self.cmb_history.blockSignals(False)
 
     def on_history_coordinate_selected(self, index):
+        self.btn_del_coord.setEnabled(index > 0)
         if index <= 0 or not self.coordinate_history:
             return
         # 下拉框第0个元素是提示，真实坐标索引为 index - 1
@@ -3387,10 +3463,8 @@ class MainWindow(QMainWindow):
         self.truth['lat'] = coord['lat']
         self.truth['lon'] = coord['lon']
         self.truth['alt'] = coord['alt']
+        self.truth['name'] = coord.get('name', '')
         self.recompute_all()
-
-        # 联动将所选坐标提到历史最前
-        self.add_coordinate_to_history(coord['lat'], coord['lon'], coord['alt'], coord.get('name', ''))
 
     def get_display_time(self, utc_time_str):
         """将内部存储的 UTC 时间字符串转为当前应显示的时间字符串"""
