@@ -263,14 +263,18 @@ class CNoPlotCanvas(QWidget):
         import pyqtgraph as pg
         if tokens is None:
             tokens = ThemeManager().get_tokens()
-        self.plot_widget.setBackground(tokens['plot_fig_bg'])
+        bg_col = '#F1F5F9' if tokens['plot_fig_bg'] == '#FFFFFF' else '#0B1120'
+        self.plot_widget.setBackground(bg_col)
         left_axis = self.plot_item.getAxis('left')
         bottom_axis = self.plot_item.getAxis('bottom')
-        left_axis.setPen(pg.mkPen(tokens['plot_spine']))
-        left_axis.setTextPen(tokens['text_secondary'])
-        bottom_axis.setPen(pg.mkPen(tokens['plot_spine']))
-        bottom_axis.setTextPen(tokens['text_primary'])
-        self.plot_item.setLabel('left', "载噪比 C/No (dB-Hz)", color=tokens['text_secondary'])
+        spine_col = '#CBD5E1' if tokens['plot_fig_bg'] == '#FFFFFF' else '#1E293B'
+        txt_col = '#0F172A' if tokens['plot_fig_bg'] == '#FFFFFF' else '#F8FAFC'
+        sub_col = '#334155' if tokens['plot_fig_bg'] == '#FFFFFF' else '#94A3B8'
+        left_axis.setPen(pg.mkPen(spine_col, width=1.0))
+        left_axis.setTextPen(sub_col)
+        bottom_axis.setPen(pg.mkPen(spine_col, width=1.0))
+        bottom_axis.setTextPen(txt_col)
+        self.plot_item.setLabel('left', "载噪比 C/No (dB-Hz)", color=sub_col)
 
     def reposition_flags(self):
         # 动态根据当前排版调整国旗的位置
@@ -424,20 +428,22 @@ class CNoPlotCanvas(QWidget):
                 is_used = (prefix, prn) in used_satellites
 
             color = QColor(color_hex)
+            txt_color = '#0F172A' if ThemeManager().get_tokens()['plot_fig_bg'] == '#FFFFFF' else '#FFFFFF'
+            txt_font = QFont('Consolas', 8, QFont.Bold)
             if is_used:
                 brushes.append(pg.mkBrush(color))
-                pens.append(pg.mkPen('#0B1120', width=0.5))
-                # 绘制数值标注
-                text_item = pg.TextItem(text=f"{int(val)}", color='#FFFFFF', anchor=(0.5, 1.0))
+                pens.append(pg.mkPen('#0F172A', width=0.5))
+                text_item = pg.TextItem(text=f"{int(val)}", color=txt_color, anchor=(0.5, 1.0))
+                text_item.setFont(txt_font)
                 text_item.setPos(x_c, val + 0.8)
                 self.plot_item.addItem(text_item)
             else:
-                color.setAlpha(64) # 25% 不透明度
+                color.setAlpha(64)
                 brushes.append(pg.mkBrush(color))
                 color.setAlpha(255)
                 pens.append(pg.mkPen(color, width=1.2))
-                # 未定位数值标注
-                text_item = pg.TextItem(text=f"{int(val)}", color='#94A3B8', anchor=(0.5, 1.0))
+                text_item = pg.TextItem(text=f"{int(val)}", color='#64748B', anchor=(0.5, 1.0))
+                text_item.setFont(txt_font)
                 text_item.setPos(x_c, val + 0.8)
                 self.plot_item.addItem(text_item)
 
@@ -454,7 +460,8 @@ class CNoPlotCanvas(QWidget):
 
         # 3. 绘制分界虚线网格
         for x_grid in range(1, N):
-            vline = pg.PlotCurveItem([x_grid, x_grid], [0, 55], pen=pg.mkPen('#1E293B', width=0.8, style=Qt.DashLine))
+            grid_c = '#CBD5E1' if ThemeManager().get_tokens()['plot_fig_bg'] == '#FFFFFF' else '#1E293B'
+            vline = pg.PlotCurveItem([x_grid, x_grid], [0, 55], pen=pg.mkPen(grid_c, width=0.8, style=Qt.DashLine))
             self.plot_item.addItem(vline)
 
         # 4. 批量绘制柱体
@@ -950,19 +957,19 @@ class MainWindow(QMainWindow):
         self.toolbar_scatter.addWidget(spacer_tb)
 
         self.cb_time_sync_scatter = QCheckBox("多图联动")
-        self.cb_time_sync_scatter.setStyleSheet("QCheckBox { color: #F59E0B; font-weight: bold; font-size: 11px; margin-right: 8px; }")
+        self.cb_time_sync_scatter.setStyleSheet("QCheckBox { color: #D97706; font-weight: bold; font-size: 12.5px; margin-right: 10px; } QCheckBox::indicator { width: 16px; height: 16px; }")
         self.cb_time_sync_scatter.setChecked(False)
         self.cb_time_sync_scatter.stateChanged.connect(self.on_master_time_sync_toggled)
         self.toolbar_scatter.addWidget(self.cb_time_sync_scatter)
 
         self.cb_show_confidence_rings = QCheckBox("置信圆(50%/68%/95%)")
-        self.cb_show_confidence_rings.setStyleSheet("QCheckBox { color: #38BDF8; font-weight: bold; font-size: 11px; margin-right: 8px; }")
+        self.cb_show_confidence_rings.setStyleSheet("QCheckBox { color: #0284C7; font-weight: bold; font-size: 12.5px; margin-right: 10px; } QCheckBox::indicator { width: 16px; height: 16px; }")
         self.cb_show_confidence_rings.setChecked(False)
         self.cb_show_confidence_rings.stateChanged.connect(self.on_confidence_rings_toggled)
         self.toolbar_scatter.addWidget(self.cb_show_confidence_rings)
 
         self.cb_show_accuracy_metrics = QCheckBox("定位精度指标")
-        self.cb_show_accuracy_metrics.setStyleSheet("QCheckBox { color: #10B981; font-weight: bold; font-size: 11px; margin-right: 12px; }")
+        self.cb_show_accuracy_metrics.setStyleSheet("QCheckBox { color: #059669; font-weight: bold; font-size: 12.5px; margin-right: 14px; } QCheckBox::indicator { width: 16px; height: 16px; }")
         self.cb_show_accuracy_metrics.setChecked(False)
         self.cb_show_accuracy_metrics.stateChanged.connect(self.on_accuracy_metrics_toggled)
         self.toolbar_scatter.addWidget(self.cb_show_accuracy_metrics)
@@ -2106,7 +2113,27 @@ class MainWindow(QMainWindow):
         self.cmb_history.setDisabled(True)
         self.cmb_history.currentIndexChanged.connect(self.on_history_coordinate_selected)
 
-        self.btn_del_coord = QPushButton("🗑️")
+        self.btn_del_coord = QPushButton("✖")
+        self.btn_del_coord.setObjectName("btn_del_coord")
+        self.btn_del_coord.setStyleSheet("""
+            QPushButton#btn_del_coord {
+                background-color: rgba(239, 68, 68, 0.12);
+                border: 1px solid #EF4444;
+                color: #EF4444;
+                font-size: 13px;
+                font-weight: bold;
+                border-radius: 4px;
+            }
+            QPushButton#btn_del_coord:hover {
+                background-color: #EF4444;
+                color: #FFFFFF;
+            }
+            QPushButton#btn_del_coord:disabled {
+                background-color: transparent;
+                border: 1px solid #CBD5E1;
+                color: #94A3B8;
+            }
+        """)
         self.btn_del_coord.setFixedSize(28, 28)
         self.btn_del_coord.setToolTip("删除当前选中的历史坐标预设")
         self.btn_del_coord.setDisabled(True)
@@ -3181,25 +3208,25 @@ class MainWindow(QMainWindow):
             app.setStyleSheet(ThemeManager().get_stylesheet(theme_name))
 
         if hasattr(self, 'table_metrics'):
-            self.table_metrics.setStyleSheet(f"""
-                QTableWidget {{
-                    background-color: {tokens['bg_card']};
-                    color: {tokens['text_primary']};
-                    gridline-color: {tokens['border_subtle']};
-                    border: 1px solid {tokens['border_default']};
-                    border-radius: 4px;
+            self.table_metrics.setStyleSheet("""
+                QTableWidget {
+                    background-color: #FFFFFF;
+                    color: #0F172A;
+                    gridline-color: #E2E8F0;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 6px;
                     font-size: 13px;
-                }}
-                QTableWidget::item {{
-                    color: {tokens['text_primary']};
-                }}
-                QHeaderView::section {{
-                    background-color: {tokens['bg_subtle']};
-                    color: {tokens['text_primary']};
+                }
+                QTableWidget::item {
+                    color: #0F172A;
+                }
+                QHeaderView::section {
+                    background-color: #F1F5F9;
+                    color: #0F172A;
                     font-weight: bold;
                     padding: 6px;
-                    border: 1px solid {tokens['border_default']};
-                }}
+                    border: 1px solid #CBD5E1;
+                }
             """)
 
         # 刷新串口文本终端 Console 样式 (保证室外强光下黑白分明)
