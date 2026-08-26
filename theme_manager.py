@@ -37,15 +37,15 @@ DARK_TOKENS = {
     "color_danger": "#EF4444",    # 危险/单点/无效 (玫瑰红)
     "color_info": "#3B82F6",      # 提示/差分解 (天空蓝)
     
-    # 图表画布专用配色
-    "plot_fig_bg": "#111827",
-    "plot_ax_bg": "#0F172A",
-    "plot_grid": "#1E293B",
-    "plot_spine": "#334155",
-    "plot_text": "#F8FAFC",
-    "plot_subtext": "#94A3B8",
-    "plot_legend_bg": "#1E293B",
-    "plot_legend_border": "#334155",
+    # 图表画布专用配色 (深色模式下仍保持经典高对比纯白卡片底色)
+    "plot_fig_bg": "#FFFFFF",
+    "plot_ax_bg": "#FFFFFF",
+    "plot_grid": "#E2E8F0",
+    "plot_spine": "#CBD5E1",
+    "plot_text": "#0F172A",
+    "plot_subtext": "#475569",
+    "plot_legend_bg": "#F8FAFC",
+    "plot_legend_border": "#CBD5E1",
 }
 
 LIGHT_TOKENS = {
