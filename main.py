@@ -471,8 +471,9 @@ class CNoPlotCanvas(QWidget):
             vline = pg.PlotCurveItem([x_grid, x_grid], [0, 55], pen=pg.mkPen(grid_c, width=0.8, style=Qt.DashLine))
             self.plot_item.addItem(vline)
 
-        # 4. 批量绘制柱体
+        # 4. 批量绘制柱体 (Z-Value 置顶，避免背景网格线穿透切断立柱)
         bar_item = pg.BarGraphItem(x=x_coords, height=heights, width=0.95, brushes=brushes, pens=pens)
+        bar_item.setZValue(20)
         self.plot_item.addItem(bar_item)
         
         self.plot_item.getAxis('bottom').setTicks([ticks])
