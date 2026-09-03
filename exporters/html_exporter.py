@@ -464,13 +464,13 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 </div>
                 <div class="top-controls">
                     <label>
-                        <input type="checkbox" id="chk-rtk-color" __CHECKED_RTK_COLOR__ onchange="updateMapDisplay()"> 按 RTK 状态着色
+                        <input type="checkbox" id="chk-rtk-color" onchange="updateMapDisplay()"> 按 RTK 状态着色
                     </label>
                     <label>
                         显示样式:
                         <select id="sel-map-mode" onchange="updateMapDisplay()">
-                            <option value="line_points" selected>点连线 (Line + Points)</option>
-                            <option value="line_only">纯线条 (Pure Line)</option>
+                            <option value="line_only" selected>纯线条 (Pure Line)</option>
+                            <option value="line_points">点连线 (Line + Points)</option>
                             <option value="points_only">纯散点 (Points Only)</option>
                         </select>
                     </label>
@@ -1291,7 +1291,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         html_content = html_content.replace('__H_95__', h_95_val)
         html_content = html_content.replace('__V_RMS__', v_rms_val)
         html_content = html_content.replace('__MAX_H_ERR__', max_h_val)
-        html_content = html_content.replace('__CHECKED_RTK_COLOR__', checked_rtk_attr)
         html_content = html_content.replace('__SELECT_EPOCH__', select_epoch_attr)
         html_content = html_content.replace('__SELECT_TIME__', select_time_attr)
         html_content = html_content.replace('__DEFAULT_XAXIS_MODE__', default_xaxis_mode)
