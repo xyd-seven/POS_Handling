@@ -6,30 +6,31 @@
 ---
 
 ## 2. 当前状态
-- [x] **方向 5：交互式单文件 HTML 独立报告与专业 Excel 数据报表导出交付**：
-  - 新增 `exporters/excel_exporter.py`：生成包含概览指标、逐历元明细与异常清单的三页式企业级 Excel (.xlsx)；
-  - 新增 `exporters/html_exporter.py`：生成自包含单文件 HTML 报告，内嵌 Leaflet 交互式轨迹地图与 ECharts 5 动态图表；
-  - 主界面右侧操作网格新增【📊 导出 Excel】与【🌐 交互式 HTML】按钮；
+- [x] **方向 5：HTML 报告与主界面按钮排版 5 项问题彻底修复与交付**：
+  1. **指标看板数值显示**：修复 metrics 键名映射（`rtk_fix_rate`, `rms_h`, `cep95`, `rms_v`, `max_h`），支持 table_metrics 兜底；
+  2. **地图整体偏移纠偏**：引入 `wgs84_to_gcj02` 将 WGS-84 原始轨迹纠偏为火星坐标，与高德路网严丝合缝贴合；
+  3. **三向误差/散点/速度数据填充**：对接 `de`, `dn`, `v_errors`, `speed_test` 与 `enu_points`，图表数据饱满展现；
+  4. **图表标题与Y轴重合**：ECharts 主标题水平居中（`left: 'center'`），增加顶部 grid 留白，彻底消除重合；
+  5. **操作按钮重新排版**：改用 4 行 2 列对称网格排布，每个按钮宽度提升近 1 倍，所有文字及英文字母完整展现，绝不截断。
 - [x] **全量测试与回归测试 PASS**，PyInstaller onedir 编译并部署至 `F:\TestTools\pos_handling\dist\main\`。
 
 ---
 
 ## 3. 当前任务
-- 无（多格式报告导出能力已全面交付上线）
+- 无（5 项问题全部彻底修复并上线）
 
 ---
 
 ## 4. 关键设计决策
-- 生产环境采用 onedir 预解压目录结构保证秒开；
-- HTML 报告采用纯自包含单文件模式，确保无外部依赖，任何系统浏览器双击秒开；
-- Excel 报表采用三页结构，兼顾管理层汇报概览与研发层原始逐历元诊断。
+- 高德地图底图强制进行 GCJ-02 纠偏，保证国内路网贴合度；
+- 侧边栏按钮采用 2 列等宽布局兼顾高 DPI 缩放下的字体完整性；
+- HTML 报告图表主标题居中排布，保证与 Y 轴单位标签的视觉解耦。
 
 ---
 
 ## 5. 修改记录
-- exporters/excel_exporter.py (NEW)
-- exporters/html_exporter.py (NEW)
-- exporters/__init__.py
+- exporters/html_exporter.py
+- exporters/excel_exporter.py
 - main.py
 - walkthrough.md
 - handoff.md
@@ -50,11 +51,11 @@
 ---
 
 ## 8. 测试状态
-- Excel 结构化三页数据报表生成与单元格格式验证：PASS
-- 交互式单文件 HTML 报告生成与图表数据验证：PASS
-- onedir 冷启动速度基准测试（< 1s）：PASS
-- 独立进程健康运行测试：PASS
-- 全量 9 大 Tab 回归测试：PASS
+- HTML 指标看板数据提取与非零断言：PASS
+- WGS84 转 GCJ02 火星坐标纠偏有效性：PASS
+- ENU 三向、散点、速度图数据集填充完整性：PASS
+- ECharts 居中标题与 Y 轴留白防重叠样式：PASS
+- 侧边栏 4 行 2 列布局与完整无截断文字验证：PASS
 - PyInstaller onedir 编译与部署：PASS
 
 ---

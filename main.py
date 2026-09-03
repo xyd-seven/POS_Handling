@@ -2268,9 +2268,9 @@ class MainWindow(QMainWindow):
         file_layout.setContentsMargins(8, 12, 8, 8)
         file_layout.setSpacing(6)
 
-        # 动作区分割与小图标化：采用网格布局，将按钮压缩成 3 列 2 行，提高横向空间利用率
+        # 动作区排版：采用 4 行 2 列对称网格布局，确保每个按钮拥有充足宽度，文字与图标完整展现
         actions_grid = QGridLayout()
-        actions_grid.setSpacing(4)
+        actions_grid.setSpacing(6)
         actions_grid.setContentsMargins(0, 4, 0, 4)
 
         self.btn_import = QPushButton("➕ 导入日志")
@@ -2286,22 +2286,12 @@ class MainWindow(QMainWindow):
         self.btn_export_raw = QPushButton("✂️ 数据截取")
         self.btn_export_raw.setToolTip("截取当前分析时段内的定位日志，并另存为新文件。")
         self.btn_export_raw.clicked.connect(self.on_export_raw_clicked)
-        actions_grid.addWidget(self.btn_export_raw, 0, 2)
+        actions_grid.addWidget(self.btn_export_raw, 1, 0)
 
         self.btn_export_gga = QPushButton("🌐 格式转换")
         self.btn_export_gga.setToolTip("将当前时段内的 POGOS 或 PODRS 格式数据转换并导出为标准的 GGA 语句文件。")
         self.btn_export_gga.clicked.connect(self.on_export_gga_clicked)
-        actions_grid.addWidget(self.btn_export_gga, 1, 0)
-
-        self.btn_export_kml = QPushButton("🧭 导出 KML")
-        self.btn_export_kml.setToolTip("根据当前时段的数据生成 KML 轨迹文件，可在 Google Earth 等地图中查看。")
-        self.btn_export_kml.clicked.connect(self.on_export_kml_clicked)
-        actions_grid.addWidget(self.btn_export_kml, 1, 1)
-
-        self.btn_export_report = QPushButton("📄 导出 Word")
-        self.btn_export_report.setToolTip("将当前时段的定位精度分析结果与图表自动生成为 Word 格式报告。")
-        self.btn_export_report.clicked.connect(self.on_export_report_clicked)
-        actions_grid.addWidget(self.btn_export_report, 1, 2)
+        actions_grid.addWidget(self.btn_export_gga, 1, 1)
 
         self.btn_export_excel = QPushButton("📊 导出 Excel")
         self.btn_export_excel.setToolTip("将当前时段的精度指标、逐历元明细与异常点导出为专业格式的 Excel 报表 (.xlsx)。")
@@ -2311,7 +2301,17 @@ class MainWindow(QMainWindow):
         self.btn_export_html = QPushButton("🌐 交互式 HTML")
         self.btn_export_html.setToolTip("导出自包含的交互式独立 HTML 评测报告，内置 Leaflet 卫星地图与可缩放 ECharts 动态曲线。")
         self.btn_export_html.clicked.connect(self.on_export_html_clicked)
-        actions_grid.addWidget(self.btn_export_html, 2, 1, 1, 2)
+        actions_grid.addWidget(self.btn_export_html, 2, 1)
+
+        self.btn_export_report = QPushButton("📄 导出 Word")
+        self.btn_export_report.setToolTip("将当前时段的定位精度分析结果与图表自动生成为 Word 格式报告。")
+        self.btn_export_report.clicked.connect(self.on_export_report_clicked)
+        actions_grid.addWidget(self.btn_export_report, 3, 0)
+
+        self.btn_export_kml = QPushButton("🧭 导出 KML")
+        self.btn_export_kml.setToolTip("根据当前时段的数据生成 KML 轨迹文件，可在 Google Earth 等地图中查看。")
+        self.btn_export_kml.clicked.connect(self.on_export_kml_clicked)
+        actions_grid.addWidget(self.btn_export_kml, 3, 1)
 
         file_layout.addLayout(actions_grid)
 

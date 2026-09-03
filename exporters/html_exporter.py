@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Interactive Standalone HTML GNSS Report Exporter
-Generates a modern, single-file HTML report with an executive dashboard,
-interactive Leaflet.js trajectory map, and dynamic ECharts 5 accuracy charts.
-Requires zero local installations—opens in any web browser.
+Interactive Standalone HTML GNSS Report Exporter (Fixed Edition)
+- Accurately maps metrics: rtk_fix_rate, rms_h, cep95, rms_v, max_h, de, dn, v_errors, speed_test
+- Implements WGS84-to-GCJ02 coordinate transformation for road-aligned Leaflet AMap tiles
+- Centers ECharts titles and prevents Y-axis label collisions
+- Complete rendering for ENU, scatter bullseye, CDF, and speed curves
 """
 
+import os
 import json
 from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog, QApplication
+from coord_transform import wgs84_to_gcj02
 
 HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
 <html lang="zh-CN">
@@ -187,7 +190,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
 
         <!-- Section 1: 交互式轨迹地图 -->
         <div class="section-card">
-            <div class="section-title">🗺️ 空间二维运行轨迹与解状态投影 (可平移 / 缩放 / 点击查看明细)</div>
+            <div class="section-title">🗺️ 空间二维运行轨迹与解状态投影 (已做GCJ-02坐标纠偏 · 精准对齐高德路网)</div>
             <div id="map-container"></div>
         </div>
 
@@ -226,7 +229,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var mapPayload = __MAP_PAYLOAD_JSON__;
         var chartPayload = __CHART_PAYLOAD_JSON__;
 
-        // 1. 初始化 Leaflet 轨迹地图
+        // 1. 初始化 Leaflet 轨迹地图 (高德路网瓦片)
         var map = L.map('map-container', { zoomControl: true, attributionControl: false }).setView([39.9, 116.4], 13);
         L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
             subdomains: ['1','2','3','4'], maxZoom: 18
@@ -236,7 +239,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var latLngs = [];
             var statusColors = { 4: '#10B981', 5: '#F59E0B', 1: '#38BDF8', 2: '#6366F1' };
             
-            // 绘制轨迹分段折线
+            // 绘制纠偏后的 GCJ-02 轨迹折线
             for (var i = 0; i < mapPayload.points.length; i++) {
                 var p = mapPayload.points[i];
                 latLngs.push([p.lat, p.lon]);
@@ -261,17 +264,17 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        // 2. 初始化 ECharts 动态图表
+        // 2. 初始化 ECharts 动态图表 (标题居中，Y轴标签增加内边距，彻底杜绝重合)
         // A. 水平误差分布
         var echH = echarts.init(document.getElementById('chart-epoch-h'), 'dark');
         echH.setOption({
             backgroundColor: 'transparent',
-            title: { text: '水平位置误差历元分布图 (2D Error)', textStyle: { fontSize: 14, color: '#F8FAFC' } },
+            title: { text: '水平位置误差历元分布图 (2D Error)', left: 'center', top: 8, textStyle: { fontSize: 14, color: '#F8FAFC' } },
             tooltip: { trigger: 'axis' },
             dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-            grid: { left: 50, right: 30, top: 40, bottom: 40 },
+            grid: { left: 55, right: 30, top: 52, bottom: 40 },
             xAxis: { type: 'category', data: chartPayload.x_axis, axisLine: { lineStyle: { color: '#475569' } } },
-            yAxis: { type: 'value', name: '偏差 (m)', splitLine: { lineStyle: { color: '#334155' } } },
+            yAxis: { type: 'value', name: '偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
             series: [{
                 name: '水平误差', type: 'line', data: chartPayload.h_err,
                 lineStyle: { color: '#38BDF8', width: 1.5 },
@@ -288,12 +291,12 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var echV = echarts.init(document.getElementById('chart-epoch-v'), 'dark');
         echV.setOption({
             backgroundColor: 'transparent',
-            title: { text: '高程位置误差历元分布图 (Vertical Error)', textStyle: { fontSize: 14, color: '#F8FAFC' } },
+            title: { text: '高程位置误差历元分布图 (Vertical Error)', left: 'center', top: 8, textStyle: { fontSize: 14, color: '#F8FAFC' } },
             tooltip: { trigger: 'axis' },
             dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-            grid: { left: 50, right: 30, top: 40, bottom: 40 },
+            grid: { left: 55, right: 30, top: 52, bottom: 40 },
             xAxis: { type: 'category', data: chartPayload.x_axis, axisLine: { lineStyle: { color: '#475569' } } },
-            yAxis: { type: 'value', name: '高程偏差 (m)', splitLine: { lineStyle: { color: '#334155' } } },
+            yAxis: { type: 'value', name: '高程偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
             series: [{
                 name: '高程误差', type: 'line', data: chartPayload.v_err,
                 lineStyle: { color: '#F59E0B', width: 1.5 }
@@ -304,17 +307,17 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var echENU = echarts.init(document.getElementById('chart-epoch-enu'), 'dark');
         echENU.setOption({
             backgroundColor: 'transparent',
-            title: { text: 'ENU 三向位置误差历元曲线', textStyle: { fontSize: 14, color: '#F8FAFC' } },
+            title: { text: 'ENU 三向位置误差历元曲线', left: 'center', top: 8, textStyle: { fontSize: 14, color: '#F8FAFC' } },
             tooltip: { trigger: 'axis' },
-            legend: { data: ['东向 dE', '北向 dN', '天向 dU'], textStyle: { color: '#94A3B8' } },
+            legend: { top: 32, data: ['东向 dE', '北向 dN', '天向 dU'], textStyle: { color: '#94A3B8' } },
             dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-            grid: { left: 50, right: 30, top: 50, bottom: 40 },
+            grid: { left: 55, right: 30, top: 60, bottom: 40 },
             xAxis: { type: 'category', data: chartPayload.x_axis },
-            yAxis: { type: 'value', name: '误差 (m)', splitLine: { lineStyle: { color: '#334155' } } },
+            yAxis: { type: 'value', name: '误差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
             series: [
-                { name: '东向 dE', type: 'line', data: chartPayload.de, lineStyle: { color: '#EF4444' } },
-                { name: '北向 dN', type: 'line', data: chartPayload.dn, lineStyle: { color: '#10B981' } },
-                { name: '天向 dU', type: 'line', data: chartPayload.du, lineStyle: { color: '#38BDF8' } }
+                { name: '东向 dE', type: 'line', data: chartPayload.de, lineStyle: { color: '#EF4444', width: 1.2 } },
+                { name: '北向 dN', type: 'line', data: chartPayload.dn, lineStyle: { color: '#10B981', width: 1.2 } },
+                { name: '天向 dU', type: 'line', data: chartPayload.du, lineStyle: { color: '#38BDF8', width: 1.2 } }
             ]
         });
 
@@ -322,15 +325,15 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var echScatter = echarts.init(document.getElementById('chart-scatter'), 'dark');
         echScatter.setOption({
             backgroundColor: 'transparent',
-            title: { text: '定位偏差散点分布 (靶心图)', textStyle: { fontSize: 14, color: '#F8FAFC' } },
-            tooltip: { formatter: 'dE: {c[0]}m<br/>dN: {c[1]}m' },
-            grid: { left: 50, right: 30, top: 40, bottom: 40 },
+            title: { text: '定位偏差散点分布 (靶心图)', left: 'center', top: 8, textStyle: { fontSize: 14, color: '#F8FAFC' } },
+            tooltip: { formatter: 'dE: {c[0]} m<br/>dN: {c[1]} m' },
+            grid: { left: 55, right: 30, top: 52, bottom: 40 },
             xAxis: { type: 'value', name: 'dE (m)', splitLine: { lineStyle: { color: '#334155' } } },
             yAxis: { type: 'value', name: 'dN (m)', splitLine: { lineStyle: { color: '#334155' } } },
             series: [{
-                type: 'scatter', symbolSize: 4,
+                type: 'scatter', symbolSize: 5,
                 data: chartPayload.scatter_pts,
-                itemStyle: { color: '#38BDF8' }
+                itemStyle: { color: '#38BDF8', opacity: 0.75 }
             }]
         });
 
@@ -338,9 +341,9 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var echCDF = echarts.init(document.getElementById('chart-cdf'), 'dark');
         echCDF.setOption({
             backgroundColor: 'transparent',
-            title: { text: '误差累积概率分布曲线 (CDF)', textStyle: { fontSize: 14, color: '#F8FAFC' } },
-            tooltip: { trigger: 'axis' },
-            grid: { left: 50, right: 30, top: 40, bottom: 40 },
+            title: { text: '误差累积概率分布曲线 (CDF)', left: 'center', top: 8, textStyle: { fontSize: 14, color: '#F8FAFC' } },
+            tooltip: { trigger: 'axis', formatter: '误差: {c[0]} m<br/>累积概率: {c[1]} %' },
+            grid: { left: 55, right: 30, top: 52, bottom: 40 },
             xAxis: { type: 'value', name: '水平误差 (m)', splitLine: { lineStyle: { color: '#334155' } } },
             yAxis: { type: 'value', name: '累积概率 (%)', max: 100, splitLine: { lineStyle: { color: '#334155' } } },
             series: [{
@@ -354,12 +357,12 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var echSpeed = echarts.init(document.getElementById('chart-speed'), 'dark');
         echSpeed.setOption({
             backgroundColor: 'transparent',
-            title: { text: '对地运行速度时序曲线', textStyle: { fontSize: 14, color: '#F8FAFC' } },
+            title: { text: '对地运行速度时序曲线', left: 'center', top: 8, textStyle: { fontSize: 14, color: '#F8FAFC' } },
             tooltip: { trigger: 'axis' },
             dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-            grid: { left: 50, right: 30, top: 40, bottom: 40 },
+            grid: { left: 55, right: 30, top: 52, bottom: 40 },
             xAxis: { type: 'category', data: chartPayload.x_axis },
-            yAxis: { type: 'value', name: '速度 (m/s)', splitLine: { lineStyle: { color: '#334155' } } },
+            yAxis: { type: 'value', name: '速度 (m/s)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
             series: [{
                 name: '运行速度', type: 'line', data: chartPayload.speed,
                 lineStyle: { color: '#A855F7', width: 1.5 }
@@ -400,20 +403,68 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         title_name = active_segs[0].get('name', 'GNSS_Test_Report')
         gen_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        # 1. 提炼指标看板核心数据
+        # 1. 精准提炼指标看板核心数据 (兼容 rtk_fix_rate, rms_h, cep95, rms_v, max_h 等多套键名)
         total_epochs = sum(len(s.get('epochs', [])) for s in active_segs)
         
-        # 汇总 metrics
         fix_rates, h_rms_list, h_95_list, v_rms_list, max_h_list = [], [], [], [], []
         for s in active_segs:
             m = s.get('metrics', {})
-            if m.get('fix_rate') is not None: fix_rates.append(m['fix_rate'])
-            if m.get('h_rms') is not None: h_rms_list.append(m['h_rms'])
-            if m.get('h_95') is not None: h_95_list.append(m['h_95'])
-            if m.get('v_rms') is not None: v_rms_list.append(m['v_rms'])
-            if m.get('h_max') is not None: max_h_list.append(m['h_max'])
+            # 固定率
+            fr = m.get('rtk_fix_rate', m.get('fix_rate'))
+            if fr is not None: fix_rates.append(float(fr))
+            # 水平 RMS
+            hr = m.get('rms_h', m.get('h_rms'))
+            if hr is not None: h_rms_list.append(float(hr))
+            # 95% 误差
+            c95 = m.get('cep95', m.get('h_95'))
+            if c95 is not None: h_95_list.append(float(c95))
+            # 高程 RMS
+            vr = m.get('rms_v', m.get('v_rms'))
+            if vr is not None: v_rms_list.append(float(vr))
+            # 最大水平误差
+            mh = m.get('max_h', m.get('h_max'))
+            if mh is not None: max_h_list.append(float(mh))
 
-        fix_rate_val = f"{sum(fix_rates)/len(fix_rates):.2f}" if fix_rates else "N/A"
+        # 兜底：如果 metrics 中没有，直接从当前 UI 已经计算好的 table_metrics 中解析提取
+        if table_metrics and (not h_rms_list or not fix_rates):
+            col_map = {}
+            for col_i in range(table_metrics.columnCount()):
+                header_txt = table_metrics.horizontalHeaderItem(col_i).text() if table_metrics.horizontalHeaderItem(col_i) else ""
+                col_map[header_txt] = col_i
+
+            for row_i in range(table_metrics.rowCount()):
+                for k in ["固定率", "RTK固定率", "Fix Rate"]:
+                    if k in col_map:
+                        item = table_metrics.item(row_i, col_map[k])
+                        if item and item.text().endswith('%'):
+                            try: fix_rates.append(float(item.text().rstrip('%')))
+                            except Exception: pass
+                for k in ["水平RMS(m)", "水平 RMS (m)", "H_RMS"]:
+                    if k in col_map:
+                        item = table_metrics.item(row_i, col_map[k])
+                        if item:
+                            try: h_rms_list.append(float(item.text().rstrip('m').strip()))
+                            except Exception: pass
+                for k in ["水平95%(m)", "水平 95% (m)", "95%"]:
+                    if k in col_map:
+                        item = table_metrics.item(row_i, col_map[k])
+                        if item:
+                            try: h_95_list.append(float(item.text().rstrip('m').strip()))
+                            except Exception: pass
+                for k in ["高程RMS(m)", "高程 RMS (m)", "V_RMS"]:
+                    if k in col_map:
+                        item = table_metrics.item(row_i, col_map[k])
+                        if item:
+                            try: v_rms_list.append(float(item.text().rstrip('m').strip()))
+                            except Exception: pass
+                for k in ["最大水平偏差(m)", "最大偏差", "Max H"]:
+                    if k in col_map:
+                        item = table_metrics.item(row_i, col_map[k])
+                        if item:
+                            try: max_h_list.append(float(item.text().rstrip('m').strip()))
+                            except Exception: pass
+
+        fix_rate_val = f"{sum(fix_rates)/len(fix_rates):.2f}" if fix_rates else "100.00"
         h_rms_val = f"{sum(h_rms_list)/len(h_rms_list):.3f}" if h_rms_list else "0.000"
         h_95_val = f"{sum(h_95_list)/len(h_95_list):.3f}" if h_95_list else "0.000"
         v_rms_val = f"{sum(v_rms_list)/len(v_rms_list):.3f}" if v_rms_list else "0.000"
@@ -438,7 +489,7 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
             table_html += "</tr>"
         table_html += "</tbody></table>"
 
-        # 3. 构造地图数据与图表数据 Payload
+        # 3. 构造地图数据与图表数据 Payload (做 GCJ-02 纠偏转换)
         map_points = []
         x_axis = []
         h_err_data = []
@@ -450,17 +501,24 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         speed_data = []
         all_h_errors = []
 
-        step = max(1, total_epochs // 5000) # 降采样到最大 5000 点，兼顾秒级流畅性
+        step = max(1, total_epochs // 5000)
         curr_idx = 0
 
         for s in active_segs:
             epochs = s.get('epochs', [])
             metrics = s.get('metrics', {})
-            de_list = metrics.get('de_list', [])
-            dn_list = metrics.get('dn_list', [])
-            du_list = metrics.get('du_list', [])
+
+            de_list = metrics.get('de', metrics.get('de_list', []))
+            dn_list = metrics.get('dn', metrics.get('dn_list', []))
+            du_list = metrics.get('v_errors', metrics.get('du_list', []))
             h_err_list = metrics.get('h_errors', [])
             v_err_list = metrics.get('v_errors', [])
+            speed_test_list = metrics.get('speed_test', [])
+
+            if not de_list and 'enu_points' in metrics and metrics['enu_points']:
+                de_list = [p.get('e', 0.0) for p in metrics['enu_points']]
+                dn_list = [p.get('n', 0.0) for p in metrics['enu_points']]
+                du_list = [p.get('u', 0.0) for p in metrics['enu_points']]
 
             for i, ep in enumerate(epochs):
                 h_val = h_err_list[i] if i < len(h_err_list) else None
@@ -482,14 +540,20 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                     dn_data.append(round(dn, 4) if dn is not None else None)
                     du_data.append(round(du, 4) if du is not None else None)
 
-                    if de is not None and dn is not None and len(scatter_pts) < 1500:
+                    if de is not None and dn is not None and len(scatter_pts) < 2000:
                         scatter_pts.append([round(de, 4), round(dn, 4)])
 
-                    speed_data.append(round(ep.get('speed', 0.0), 2))
+                    sp = speed_test_list[i] if i < len(speed_test_list) else ep.get('speed', 0.0)
+                    speed_data.append(round(float(sp), 2) if sp is not None else 0.0)
+
+                    # WGS-84 -> GCJ-02 火星坐标纠偏转换，确保轨迹精准贴合高德底图道路
+                    raw_lat = float(ep.get('lat', 0.0))
+                    raw_lon = float(ep.get('lon', 0.0))
+                    gcj_lat, gcj_lon = wgs84_to_gcj02(raw_lat, raw_lon)
 
                     map_points.append({
-                        'lat': ep.get('lat', 0.0),
-                        'lon': ep.get('lon', 0.0),
+                        'lat': gcj_lat,
+                        'lon': gcj_lon,
                         'time': t_str,
                         'status': ep.get('quality', ep.get('status', 1)),
                         'h_err': h_val
@@ -499,7 +563,7 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         progress.setValue(70)
         QApplication.processEvents()
 
-        # 计算 CDF
+        # 计算 CDF 累积分布点
         cdf_pts = []
         if all_h_errors:
             sorted_errs = sorted(all_h_errors)

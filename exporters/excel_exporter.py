@@ -145,10 +145,15 @@ def export_excel_report(parent_window, segments, truth, table_metrics, config=No
             seg_name = seg.get('name', '未命名分段')
             epochs = seg.get('epochs', [])
             metrics = seg.get('metrics', {})
-            de_list = metrics.get('de_list', [])
-            dn_list = metrics.get('dn_list', [])
-            du_list = metrics.get('du_list', [])
+            de_list = metrics.get('de', metrics.get('de_list', []))
+            dn_list = metrics.get('dn', metrics.get('dn_list', []))
+            du_list = metrics.get('v_errors', metrics.get('du_list', []))
             h_err_list = metrics.get('h_errors', [])
+
+            if not de_list and 'enu_points' in metrics and metrics['enu_points']:
+                de_list = [p.get('e', 0.0) for p in metrics['enu_points']]
+                dn_list = [p.get('n', 0.0) for p in metrics['enu_points']]
+                du_list = [p.get('u', 0.0) for p in metrics['enu_points']]
 
             for idx, ep in enumerate(epochs):
                 if progress.wasCanceled():
