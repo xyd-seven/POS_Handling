@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Interactive Standalone HTML GNSS Report Exporter (Pro Edition v5)
-- Supports double-click on ANY chart or map to maximize fullscreen, double-click again or press ESC to restore
-- Supports Epoch Alignment and Time Alignment dual-mode
-- Multi-segment overlay with software colors, map legend, and 1:1 circular bullseye
-- 1800px widescreen layout with rich tooltips and export options
+Interactive Standalone HTML GNSS Report Exporter (Pro Edition v6)
+- Fix bullseye chart concentric circles: uses mathematical coordinate series (x=r*cos, y=r*sin) anchored permanently to (0,0), eliminates any pixel offset during fullscreen zoom
+- Dark / Light Theme Toggle: full theme switching with CSS variables and ECharts palette adaptation
+- Multi-segment overlay with software colors, map legend, and double-click fullscreen
+- Epoch Alignment and Time Alignment dual-mode
 """
 
 import os
@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog, QApplic
 from coord_transform import wgs84_to_gcj02
 
 HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -26,19 +26,47 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        :root {
+        /* 主题调色板：默认深色模式 */
+        :root[data-theme="dark"] {
             --bg-main: #0B1120;
             --bg-card: #1E293B;
-            --bg-subtle: #334155;
-            --border: #475569;
+            --bg-subtle: #0F172A;
+            --border: #334155;
+            --border-hover: #38BDF8;
             --text-main: #F8FAFC;
             --text-sub: #94A3B8;
+            --text-muted: #64748B;
             --brand: #38BDF8;
             --success: #10B981;
             --warning: #F59E0B;
             --danger: #EF4444;
+            --chart-split: #1E293B;
+            --chart-axis: #475569;
+            --table-hover: rgba(56, 189, 248, 0.06);
+            --legend-bg: rgba(15, 23, 42, 0.88);
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        /* 浅色模式调色板 (Light Theme) */
+        :root[data-theme="light"] {
+            --bg-main: #F1F5F9;
+            --bg-card: #FFFFFF;
+            --bg-subtle: #F8FAFC;
+            --border: #E2E8F0;
+            --border-hover: #0284C7;
+            --text-main: #0F172A;
+            --text-sub: #475569;
+            --text-muted: #94A3B8;
+            --brand: #0284C7;
+            --success: #059669;
+            --warning: #D97706;
+            --danger: #DC2626;
+            --chart-split: #E2E8F0;
+            --chart-axis: #94A3B8;
+            --table-hover: rgba(2, 132, 199, 0.05);
+            --legend-bg: rgba(255, 255, 255, 0.92);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; transition: background-color 0.25s, color 0.25s, border-color 0.25s; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
             background-color: var(--bg-main);
@@ -58,16 +86,39 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             justify-content: space-between;
             align-items: center;
             padding: 20px 28px;
-            background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+            background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: 12px;
             margin-bottom: 20px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
         }
         .header-title h1 { font-size: 24px; color: var(--text-main); margin-bottom: 6px; }
         .header-title p { font-size: 13px; color: var(--text-sub); }
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .theme-toggle-btn {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 7px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            outline: none;
+        }
+        .theme-toggle-btn:hover {
+            border-color: var(--brand);
+            color: var(--brand);
+        }
         .header-badge {
-            background: rgba(56, 189, 248, 0.15);
+            background: rgba(56, 189, 248, 0.12);
             border: 1px solid var(--brand);
             color: var(--brand);
             padding: 6px 16px;
@@ -89,6 +140,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             border-radius: 10px;
             padding: 16px 20px;
             transition: transform 0.2s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
         }
         .kpi-card:hover { transform: translateY(-2px); }
         .kpi-label { font-size: 12px; color: var(--text-sub); margin-bottom: 8px; font-weight: 500; }
@@ -105,7 +157,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             border-radius: 12px;
             padding: 20px 24px;
             margin-bottom: 20px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.05);
         }
         .section-title {
             font-size: 17px;
@@ -115,7 +167,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             align-items: center;
             justify-content: space-between;
             gap: 8px;
-            border-bottom: 1px solid var(--bg-subtle);
+            border-bottom: 1px solid var(--border);
             padding-bottom: 12px;
             margin-bottom: 16px;
         }
@@ -139,7 +191,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             cursor: pointer;
         }
         .top-controls select {
-            background: #0F172A;
+            background: var(--bg-subtle);
             color: var(--text-main);
             border: 1px solid var(--border);
             padding: 5px 10px;
@@ -163,21 +215,21 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         #map-container {
             width: 100%;
             height: 100%;
-            background: #0F172A;
+            background: var(--bg-subtle);
         }
         .map-legend {
             position: absolute;
             bottom: 24px;
             left: 24px;
             z-index: 1000;
-            background: rgba(15, 23, 42, 0.88);
+            background: var(--legend-bg);
             backdrop-filter: blur(8px);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 10px 14px;
             font-size: 12px;
             color: var(--text-main);
-            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
             max-width: 360px;
             pointer-events: none;
         }
@@ -203,10 +255,10 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         /* Table */
         .table-responsive { width: 100%; overflow-x: auto; margin-top: 10px; }
         table { width: 100%; border-collapse: collapse; text-align: center; font-size: 13px; }
-        th { background: #0F172A; color: var(--brand); padding: 12px 10px; border: 1px solid var(--border); font-weight: 600; }
-        td { padding: 10px; border: 1px solid var(--border); font-family: "Consolas", monospace; }
-        tr:nth-child(even) { background: rgba(255,255,255,0.02); }
-        tr:hover { background: rgba(56, 189, 248, 0.05); }
+        th { background: var(--bg-subtle); color: var(--brand); padding: 12px 10px; border: 1px solid var(--border); font-weight: 600; }
+        td { padding: 10px; border: 1px solid var(--border); font-family: "Consolas", monospace; color: var(--text-main); }
+        tr:nth-child(even) { background: var(--bg-subtle); }
+        tr:hover { background: var(--table-hover); }
 
         /* Charts Layout */
         .charts-row-2col {
@@ -222,10 +274,9 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             margin-bottom: 20px;
         }
         
-        /* 可双击放大的图表卡片样式 */
         .chart-box {
             position: relative;
-            background: #0F172A;
+            background: var(--bg-subtle);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 12px;
@@ -246,7 +297,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             justify-content: center;
             align-items: center;
             height: 440px;
-            background: #0F172A;
+            background: var(--bg-subtle);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 12px;
@@ -258,15 +309,17 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
         }
         #chart-scatter {
-            width: 420px;
-            height: 420px;
+            width: 100%;
+            height: 100%;
+            max-width: 440px;
+            max-height: 440px;
         }
         .zoom-hint {
             position: absolute;
             top: 10px;
             right: 14px;
             font-size: 11px;
-            color: #64748B;
+            color: var(--text-muted);
             pointer-events: none;
             user-select: none;
             transition: color 0.2s;
@@ -275,7 +328,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             color: var(--brand);
         }
 
-        /* 全屏放大模式样式 (Fullscreen Overlay) */
+        /* 全屏放大模式样式 */
         .chart-fullscreen {
             position: fixed !important;
             top: 0 !important;
@@ -283,7 +336,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             width: 100vw !important;
             height: 100vh !important;
             z-index: 999999 !important;
-            background: #0B1120 !important;
+            background: var(--bg-main) !important;
             padding: 24px !important;
             border-radius: 0 !important;
             border: none !important;
@@ -293,6 +346,8 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         .chart-fullscreen #chart-scatter {
             width: min(85vh, 85vw) !important;
             height: min(85vh, 85vw) !important;
+            max-width: none !important;
+            max-height: none !important;
         }
         .close-fullscreen-btn {
             display: none;
@@ -300,20 +355,20 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             top: 20px;
             right: 28px;
             z-index: 1000000;
-            background: rgba(30, 41, 59, 0.9);
+            background: var(--bg-card);
             border: 1px solid var(--brand);
             color: var(--brand);
-            padding: 8px 16px;
+            padding: 8px 18px;
             border-radius: 20px;
             font-size: 13px;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
             transition: all 0.2s;
         }
         .close-fullscreen-btn:hover {
             background: var(--brand);
-            color: #0F172A;
+            color: #FFFFFF;
         }
 
         /* Footer */
@@ -335,8 +390,13 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 <h1>🛰️ GNSS 定位精度测试与综合评定报告</h1>
                 <p>测试对象: __REPORT_TITLE__  |  报告生成时间: __GEN_TIME__  |  分段总数: __SEG_COUNT__  |  数据历元总数: __TOTAL_EPOCHS__</p>
             </div>
-            <div class="header-badge">
-                POS_Handling 专业评定
+            <div class="header-actions">
+                <button class="theme-toggle-btn" onclick="toggleTheme()">
+                    <span id="theme-icon">☀️</span> <span id="theme-text">浅色模式</span>
+                </button>
+                <div class="header-badge">
+                    POS_Handling 专业评定
+                </div>
             </div>
         </div>
 
@@ -364,7 +424,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Section 1: 空间轨迹 (支持双击放大) -->
+        <!-- Section 1: 空间轨迹 -->
         <div class="section-card">
             <div class="section-title">
                 <div class="section-title-left">
@@ -401,7 +461,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Section 3: 误差曲线大看板 (支持双击全屏放大 / 历元或时间对齐切换) -->
+        <!-- Section 3: 误差曲线大看板 -->
         <div class="section-card">
             <div class="section-title">
                 <div class="section-title-left">📈 误差时序历元分布与联合分析 (💡 双击任意图表放大全屏 / 再次双击还原)</div>
@@ -469,6 +529,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var globalEpochline = __GLOBAL_EPOCHLINE_JSON__;
         var maxLimit = __SCATTER_LIMIT__ || 1.0;
         var currentXAxisMode = '__DEFAULT_XAXIS_MODE__';
+        var currentTheme = 'dark'; // 'dark' or 'light'
 
         // 1. 初始化 Leaflet 轨迹地图
         var map = L.map('map-container', { zoomControl: true, attributionControl: false }).setView([39.9, 116.4], 13);
@@ -569,19 +630,32 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         // 2. 初始化 ECharts 动态图表
         var legendNames = segmentsData.map(function(s) { return s.name; });
 
-        var echH = echarts.init(document.getElementById('chart-epoch-h'), 'dark');
-        var echV = echarts.init(document.getElementById('chart-epoch-v'), 'dark');
-        var echENU = echarts.init(document.getElementById('chart-epoch-enu'), 'dark');
-        var echScatter = echarts.init(document.getElementById('chart-scatter'), 'dark');
-        var echCDF = echarts.init(document.getElementById('chart-cdf'), 'dark');
-        var echSpeed = echarts.init(document.getElementById('chart-speed'), 'dark');
+        var echH = echarts.init(document.getElementById('chart-epoch-h'));
+        var echV = echarts.init(document.getElementById('chart-epoch-v'));
+        var echENU = echarts.init(document.getElementById('chart-epoch-enu'));
+        var echScatter = echarts.init(document.getElementById('chart-scatter'));
+        var echCDF = echarts.init(document.getElementById('chart-cdf'));
+        var echSpeed = echarts.init(document.getElementById('chart-speed'));
 
         var allChartsList = [echH, echV, echENU, echScatter, echCDF, echSpeed];
+
+        function getThemeColors() {
+            var isDark = (currentTheme === 'dark');
+            return {
+                title: isDark ? '#F8FAFC' : '#0F172A',
+                axis: isDark ? '#475569' : '#94A3B8',
+                axisText: isDark ? '#94A3B8' : '#475569',
+                split: isDark ? '#1E293B' : '#E2E8F0',
+                legend: isDark ? '#94A3B8' : '#475569',
+                circleGrid: isDark ? '#334155' : '#CBD5E1'
+            };
+        }
 
         function renderAllCharts(mode) {
             var isTime = (mode === 'time');
             var currentXData = isTime ? globalTimeline : globalEpochline;
             var xAxisName = isTime ? '时刻' : '历元号';
+            var tc = getThemeColors();
 
             // A. 水平误差图
             var seriesH = segmentsData.map(function(s) {
@@ -594,13 +668,13 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             });
             echH.setOption({
                 backgroundColor: 'transparent',
-                title: { text: '水平位置误差历元分布图 (2D Error · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
+                title: { text: '水平位置误差历元分布图 (2D Error · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: tc.title } },
                 tooltip: { trigger: 'axis' },
-                legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
+                legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
                 grid: { left: 60, right: 30, top: 65, bottom: 42 },
-                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: '#475569' } } },
-                yAxis: { type: 'value', name: '偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
+                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } },
+                yAxis: { type: 'value', name: '偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
                 series: seriesH
             }, true);
 
@@ -615,13 +689,13 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             });
             echV.setOption({
                 backgroundColor: 'transparent',
-                title: { text: '高程位置误差历元分布图 (Vertical Error · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
+                title: { text: '高程位置误差历元分布图 (Vertical Error · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: tc.title } },
                 tooltip: { trigger: 'axis' },
-                legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
+                legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
                 grid: { left: 60, right: 30, top: 65, bottom: 42 },
-                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: '#475569' } } },
-                yAxis: { type: 'value', name: '高程偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
+                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } },
+                yAxis: { type: 'value', name: '高程偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
                 series: seriesV
             }, true);
 
@@ -647,10 +721,10 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             }
             echENU.setOption({
                 backgroundColor: 'transparent',
-                title: { text: 'ENU 三向位置误差历元曲线 (E / N / U 分层独立展示 · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
+                title: { text: 'ENU 三向位置误差历元曲线 (E / N / U 分层独立展示 · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: tc.title } },
                 tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
                 axisPointer: { link: [{ xAxisIndex: 'all' }] },
-                legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
+                legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [
                     { type: 'inside', xAxisIndex: [0, 1, 2] },
                     { type: 'slider', xAxisIndex: [0, 1, 2], height: 16, bottom: 4 }
@@ -663,12 +737,12 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 xAxis: [
                     { gridIndex: 0, type: 'category', data: currentXData, axisLabel: { show: false }, axisTick: { show: false } },
                     { gridIndex: 1, type: 'category', data: currentXData, axisLabel: { show: false }, axisTick: { show: false } },
-                    { gridIndex: 2, type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: '#475569' } } }
+                    { gridIndex: 2, type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } }
                 ],
                 yAxis: [
-                    { gridIndex: 0, type: 'value', name: '东向 dE (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: '#334155' } } },
-                    { gridIndex: 1, type: 'value', name: '北向 dN (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: '#334155' } } },
-                    { gridIndex: 2, type: 'value', name: '天向 dU (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: '#334155' } } }
+                    { gridIndex: 0, type: 'value', name: '东向 dE (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
+                    { gridIndex: 1, type: 'value', name: '北向 dN (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
+                    { gridIndex: 2, type: 'value', name: '天向 dU (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } }
                 ],
                 series: seriesENU
             }, true);
@@ -684,15 +758,114 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             });
             echSpeed.setOption({
                 backgroundColor: 'transparent',
-                title: { text: '对地运行速度时序曲线 (' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
+                title: { text: '对地运行速度时序曲线 (' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: tc.title } },
                 tooltip: { trigger: 'axis' },
-                legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
+                legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
                 grid: { left: 60, right: 30, top: 65, bottom: 42 },
-                xAxis: { type: 'category', data: currentXData, name: xAxisName },
-                yAxis: { type: 'value', name: '速度 (m/s)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
+                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } },
+                yAxis: { type: 'value', name: '速度 (m/s)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
                 series: seriesSpeed
             }, true);
+        }
+
+        // =========================================================================
+        // 🌟 核心重构：靶心图同心圆网格采用物理几何折线系列，永远锚定 (0,0) 原点！
+        // =========================================================================
+        function renderScatterAndCDF() {
+            var tc = getThemeColors();
+
+            // 生成严格以 (0,0) 为圆心的同心圆点集 (100个采样点闭合成圆)
+            var scatterSeries = [];
+            var circleSteps = [0.25, 0.5, 0.75, 1.0];
+            for (var c = 0; c < circleSteps.length; c++) {
+                var r = maxLimit * circleSteps[c];
+                var circlePts = [];
+                for (var a = 0; a <= 360; a += 4) {
+                    var rad = a * Math.PI / 180;
+                    circlePts.push([round(r * Math.cos(rad), 4), round(r * Math.sin(rad), 4)]);
+                }
+                scatterSeries.push({
+                    name: '标尺网格',
+                    type: 'line',
+                    data: circlePts,
+                    lineStyle: { type: 'dashed', color: tc.circleGrid, width: 0.9 },
+                    showSymbol: false,
+                    silent: true,
+                    tooltip: { show: false }
+                });
+            }
+
+            // 各分段散点系列
+            for (var s = 0; s < segmentsData.length; s++) {
+                var seg = segmentsData[s];
+                scatterSeries.push({
+                    name: seg.name,
+                    type: 'scatter',
+                    symbolSize: 5,
+                    data: seg.scatter_pts,
+                    itemStyle: { color: seg.color, opacity: 0.85 }
+                });
+            }
+
+            echScatter.setOption({
+                backgroundColor: 'transparent',
+                title: { text: '定位偏差散点分布 (靶心图 · 1:1正圆)', left: 'center', top: 4, textStyle: { fontSize: 14, color: tc.title } },
+                tooltip: {
+                    formatter: function(p) {
+                        if (!p.data || p.seriesName === '标尺网格') return '';
+                        return '<b>' + p.seriesName + '</b><br/>dE: ' + p.data[0] + 'm<br/>dN: ' + p.data[1] + 'm';
+                    }
+                },
+                legend: { top: 26, data: legendNames, textStyle: { color: tc.legend, fontSize: 11 } },
+                grid: { left: 40, right: 40, top: 50, bottom: 40 },
+                xAxis: {
+                    type: 'value', min: -maxLimit, max: maxLimit,
+                    axisLine: { onZero: true, lineStyle: { color: tc.axis } },
+                    axisLabel: { color: tc.axisText },
+                    splitLine: { show: false }
+                },
+                yAxis: {
+                    type: 'value', min: -maxLimit, max: maxLimit,
+                    axisLine: { onZero: true, lineStyle: { color: tc.axis } },
+                    axisLabel: { color: tc.axisText },
+                    splitLine: { show: false }
+                },
+                series: scatterSeries
+            }, true);
+
+            // CDF 图
+            var seriesCDF = segmentsData.map(function(s) {
+                return {
+                    name: s.name, type: 'line', data: s.cdf_pts,
+                    lineStyle: { color: s.color, width: 2 },
+                    itemStyle: { color: s.color },
+                    showSymbol: false
+                };
+            });
+            echCDF.setOption({
+                backgroundColor: 'transparent',
+                title: { text: '误差累积概率分布曲线 (CDF)', left: 'center', top: 8, textStyle: { fontSize: 15, color: tc.title } },
+                tooltip: {
+                    trigger: 'axis', formatter: function(params) {
+                        var res = '误差: ' + params[0].value[0] + 'm<br/>';
+                        for (var i = 0; i < params.length; i++) {
+                            res += params[i].marker + params[i].seriesName + ': ' + params[i].value[1] + '%<br/>';
+                        }
+                        return res;
+                    }
+                },
+                legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
+                grid: { left: 60, right: 30, top: 65, bottom: 42 },
+                xAxis: { type: 'value', name: '水平误差 (m)', splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
+                yAxis: { type: 'value', name: '累积概率 (%)', max: 100, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
+                series: seriesCDF
+            }, true);
+        }
+
+        function round(val, d) {
+            var m = Math.pow(10, d);
+            return Math.round(val * m) / m;
         }
 
         function switchXAxisMode(mode) {
@@ -700,73 +873,33 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             renderAllCharts(mode);
         }
 
-        // 靶心图与 CDF 初始化
-        var circleGraphics = [];
-        var circleSteps = [0.2, 0.4, 0.6, 0.8, 1.0];
-        for (var i = 0; i < circleSteps.length; i++) {
-            circleGraphics.push({
-                type: 'circle',
-                shape: { cx: 210, cy: 210, r: 170 * circleSteps[i] },
-                style: { stroke: '#475569', fill: 'none', lineWidth: 0.8, lineDash: [3, 3] }
-            });
+        // =========================================================================
+        // 🌓 深色 / 浅色模式动态切换
+        // =========================================================================
+        function toggleTheme() {
+            var htmlRoot = document.documentElement;
+            if (currentTheme === 'dark') {
+                currentTheme = 'light';
+                htmlRoot.setAttribute('data-theme', 'light');
+                document.getElementById('theme-icon').innerText = '🌙';
+                document.getElementById('theme-text').innerText = '深色模式';
+            } else {
+                currentTheme = 'dark';
+                htmlRoot.setAttribute('data-theme', 'dark');
+                document.getElementById('theme-icon').innerText = '☀️';
+                document.getElementById('theme-text').innerText = '浅色模式';
+            }
+            renderAllCharts(currentXAxisMode);
+            renderScatterAndCDF();
+            updateMapDisplay();
         }
-        var seriesScatter = segmentsData.map(function(s) {
-            return {
-                name: s.name, type: 'scatter', symbolSize: 5,
-                data: s.scatter_pts,
-                itemStyle: { color: s.color, opacity: 0.85 }
-            };
-        });
-        echScatter.setOption({
-            backgroundColor: 'transparent',
-            title: { text: '定位偏差散点分布 (靶心图 · 1:1正圆)', left: 'center', top: 4, textStyle: { fontSize: 14, color: '#F8FAFC' } },
-            tooltip: { formatter: function(p) { return '<b>' + p.seriesName + '</b><br/>dE: ' + p.data[0] + 'm<br/>dN: ' + p.data[1] + 'm'; } },
-            legend: { top: 26, data: legendNames, textStyle: { color: '#94A3B8', fontSize: 11 } },
-            grid: { left: 40, right: 40, top: 48, bottom: 40 },
-            xAxis: {
-                type: 'value', min: -maxLimit, max: maxLimit,
-                axisLine: { onZero: true, lineStyle: { color: '#64748B' } },
-                splitLine: { show: false }
-            },
-            yAxis: {
-                type: 'value', min: -maxLimit, max: maxLimit,
-                axisLine: { onZero: true, lineStyle: { color: '#64748B' } },
-                splitLine: { show: false }
-            },
-            graphic: circleGraphics,
-            series: seriesScatter
-        });
 
-        var seriesCDF = segmentsData.map(function(s) {
-            return {
-                name: s.name, type: 'line', data: s.cdf_pts,
-                lineStyle: { color: s.color, width: 2 },
-                itemStyle: { color: s.color },
-                showSymbol: false
-            };
-        });
-        echCDF.setOption({
-            backgroundColor: 'transparent',
-            title: { text: '误差累积概率分布曲线 (CDF)', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
-            tooltip: { trigger: 'axis', formatter: function(params) {
-                var res = '误差: ' + params[0].value[0] + 'm<br/>';
-                for (var i = 0; i < params.length; i++) {
-                    res += params[i].marker + params[i].seriesName + ': ' + params[i].value[1] + '%<br/>';
-                }
-                return res;
-            } },
-            legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
-            grid: { left: 60, right: 30, top: 65, bottom: 42 },
-            xAxis: { type: 'value', name: '水平误差 (m)', splitLine: { lineStyle: { color: '#334155' } } },
-            yAxis: { type: 'value', name: '累积概率 (%)', max: 100, splitLine: { lineStyle: { color: '#334155' } } },
-            series: seriesCDF
-        });
-
-        // 初始渲染
+        // 初始渲染图表
         renderAllCharts(currentXAxisMode);
+        renderScatterAndCDF();
 
         // =========================================================================
-        // 🌟 核心新特性：单个图表双击全屏放大 / 再次双击还原 (或按 ESC / 点击关闭按钮)
+        // 🌟 单个图表双击全屏放大 / 再次双击还原 (支持 ESC 键与关闭按钮)
         // =========================================================================
         var currentFullscreenEl = null;
 
@@ -786,7 +919,6 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             boxEl.classList.add('chart-fullscreen');
             document.getElementById('btn-close-fullscreen').style.display = 'block';
 
-            // 触发内部图表重新自适应大尺寸
             setTimeout(function() {
                 if (boxEl.id === 'map-wrapper') {
                     map.invalidateSize();
@@ -795,7 +927,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                         allChartsList[i].resize();
                     }
                 }
-            }, 50);
+            }, 60);
         }
 
         function exitFullscreen() {
@@ -813,10 +945,9 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                         allChartsList[i].resize();
                     }
                 }
-            }, 50);
+            }, 60);
         }
 
-        // 监听 ESC 键一键退出全屏
         window.addEventListener('keydown', function(e) {
             if (e.key === 'Escape' || e.keyCode === 27) {
                 exitFullscreen();
