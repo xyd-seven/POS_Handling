@@ -6099,6 +6099,11 @@ class MainWindow(QMainWindow):
                 self.record_file.close()
             except Exception:
                 pass
+        try:
+            from core.tile_cache_manager import TileCacheManager
+            TileCacheManager().stop_server()
+        except Exception:
+            pass
         super().closeEvent(event)
 
 if __name__ == "__main__":

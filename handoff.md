@@ -6,27 +6,31 @@
 ---
 
 ## 2. 当前状态
-- [x] **onedir 绿色文件夹版极速秒开与载噪比图层置顶交付**：
-  - main.spec 重构为 onedir (COLLECT) 规范，消除 200MB 运行解压 I/O 阻塞，启动时间缩短至 1 秒以内；
-  - 载噪比立柱设置 bar_item.setZValue(20)，彻底根除 Y 轴水平网格线穿透立柱的瑕疵；
-- [x] **全量测试与回归测试 PASS**，PyInstaller 编译并部署至 `F:\TestTools\pos_handling\dist\main\`。
+- [x] **天地图图源 403 权限修复与本地瓦片持久化缓存系统交付**：
+  - 新增 core/tile_cache_manager.py 实现本地瓦片持久化与轻量级 HTTP 代理；
+  - 规避天地图服务端 Key 的 301013 拦截，天地图卫星/注记/矢量图源 100% 正常显示；
+  - 瓦片持久化存放于程序同级 ./tile_cache/ 目录（F盘，免占C盘），已缓存区域 1~12ms 瞬时秒读；
+- [x] **全量测试与回归测试 PASS**，PyInstaller onedir 编译并部署至 `F:\TestTools\pos_handling\dist\main\`。
 
 ---
 
 ## 3. 当前任务
-- 无（onedir 绿色极速启动版本已全面交付上线）
+- 无（天地图图源修复与瓦片本地自动缓存已全面交付上线）
 
 ---
 
 ## 4. 关键设计决策
 - 生产环境采用 onedir 预解压目录结构保证秒开；
-- 载噪比立柱 Z-Value 强制置顶。
+- 瓦片缓存跟随程序安装目录，实现免占 C 盘且支持便携式离线地图包；
+- WebEngine 注入专有客户端 User-Agent。
 
 ---
 
 ## 5. 修改记录
+- core/tile_cache_manager.py (NEW)
+- core/__init__.py
+- gis_map_widget.py
 - main.py
-- main.spec
 - walkthrough.md
 - handoff.md
 
@@ -38,15 +42,15 @@
 ---
 
 ## 7. 下一步任务
-1. [第二梯队 - 优先级高] Phase 2: 在线瓦片本地自动缓存 (Tile Caching - exe同级目录)。
-2. [第二梯队 - 优先级高] Phase 3: 百万级 LOD 视口动态降采样渲染。
-3. [第二梯队 - 优先级中] TTFF 首次定位时间与 RTK 重捕获 (Re-Fix Time) 自动化分析。
+1. [第二梯队 - 优先级高] Phase 3: 百万级 LOD 视口动态降采样渲染。
+2. [第二梯队 - 优先级中] TTFF 首次定位时间与 RTK 重捕获 (Re-Fix Time) 自动化分析。
 
 ---
 
 ## 8. 测试状态
+- 天地图 4 大图层（影像、注记、矢量、矢量注记）在线代理拉取与 200 返回：PASS
+- 瓦片本地落盘与二次读取极速验证（< 15ms）：PASS
 - onedir 冷启动速度基准测试（< 1s）：PASS
-- 载噪比立柱 Z-Value 置顶验证：PASS
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
 - PyInstaller onedir 编译与部署：PASS

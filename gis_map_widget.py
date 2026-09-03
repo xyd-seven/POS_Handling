@@ -15,12 +15,13 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEngineSettings
+from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEngineProfile
 from PySide6.QtWebChannel import QWebChannel
 
 from coord_transform import wgs84_to_gcj02
 from mbtiles_server import MBTilesServer
 from theme_manager import ThemeManager
+from core.tile_cache_manager import TileCacheManager
 
 
 class MapBridge(QObject):
@@ -90,18 +91,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             });
         }
 
-        // Base Layer Definitions
+        var TILE_PROXY_PORT = __TILE_PROXY_PORT__;
+
+        // Base Layer Definitions (接入本地持久化缓存代理 http://127.0.0.1:port/tile/...)
         var baseLayers = {
             'amap_vec': {
-                url: 'https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7',
+                url: TILE_PROXY_PORT > 0 ? ('http://127.0.0.1:' + TILE_PROXY_PORT + '/tile/amap_vec/{z}/{x}/{y}') : 'https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7',
                 subdomains: ['1','2','3','4'],
                 maxZoom: 18,
                 isGcj: true
             },
             'amap_sat': {
-                url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+                url: TILE_PROXY_PORT > 0 ? ('http://127.0.0.1:' + TILE_PROXY_PORT + '/tile/amap_sat/{z}/{x}/{y}') : 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
                 subdomains: ['1','2','3','4'],
-                annotUrl: 'https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}',
+                annotUrl: TILE_PROXY_PORT > 0 ? ('http://127.0.0.1:' + TILE_PROXY_PORT + '/tile/amap_sat_annot/{z}/{x}/{y}') : 'https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}',
                 maxZoom: 18,
                 isGcj: true
             },
@@ -112,21 +115,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 isGcj: false
             },
             'tdt_sat': {
-                url: 'https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
+                url: TILE_PROXY_PORT > 0 ? ('http://127.0.0.1:' + TILE_PROXY_PORT + '/tile/tdt_sat/{z}/{x}/{y}') : 'https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
                 subdomains: ['0','1','2','3','4','5','6','7'],
-                annotUrl: 'https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
+                annotUrl: TILE_PROXY_PORT > 0 ? ('http://127.0.0.1:' + TILE_PROXY_PORT + '/tile/tdt_sat_annot/{z}/{x}/{y}') : 'https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
                 maxZoom: 18,
                 isGcj: false
             },
             'tdt_vec': {
-                url: 'https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
+                url: TILE_PROXY_PORT > 0 ? ('http://127.0.0.1:' + TILE_PROXY_PORT + '/tile/tdt_vec/{z}/{x}/{y}') : 'https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
                 subdomains: ['0','1','2','3','4','5','6','7'],
-                annotUrl: 'https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
+                annotUrl: TILE_PROXY_PORT > 0 ? ('http://127.0.0.1:' + TILE_PROXY_PORT + '/tile/tdt_vec_annot/{z}/{x}/{y}') : 'https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=8e50f8cdd0450027d98d635238363e11',
                 maxZoom: 18,
                 isGcj: false
             },
             'osm': {
-                url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                url: TILE_PROXY_PORT > 0 ? ('http://127.0.0.1:' + TILE_PROXY_PORT + '/tile/osm/{z}/{x}/{y}') : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 subdomains: ['a','b','c'],
                 maxZoom: 19,
                 isGcj: false
@@ -475,6 +478,12 @@ class GISMapWidget(QWidget):
 
         layout.addWidget(self.toolbar, 0)
 
+        # 设置专属客户端 User-Agent (方案一 + 方案三双核驱动，彻底规避天地图等服务的 403 权限拦截)
+        try:
+            QWebEngineProfile.defaultProfile().setHttpUserAgent("GNSS_Precision_Tool/1.0")
+        except Exception:
+            pass
+
         # 官方原生 QWebEngineView 容器
         self.web_view = QWebEngineView(self)
         settings = self.web_view.settings()
@@ -487,7 +496,11 @@ class GISMapWidget(QWidget):
         self.web_view.page().setWebChannel(self.channel)
 
         self.web_view.page().loadFinished.connect(self.on_load_finished)
-        self.web_view.setHtml(HTML_TEMPLATE, QUrl("http://127.0.0.1/"))
+        
+        # 启动本地持久化瓦片缓存代理，并将端口注入 HTML_TEMPLATE
+        tile_port = TileCacheManager().start_server()
+        html_rendered = HTML_TEMPLATE.replace('__TILE_PROXY_PORT__', str(tile_port))
+        self.web_view.setHtml(html_rendered, QUrl("http://127.0.0.1/"))
 
         layout.addWidget(self.web_view, 1)
 
