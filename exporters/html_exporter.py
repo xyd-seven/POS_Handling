@@ -826,11 +826,13 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var tc = getThemeColors();
 
             var scatterSeries = [];
+            var ringLabelPts = [];
             var circleSteps = [0.25, 0.5, 0.75, 1.0];
+
             for (var c = 0; c < circleSteps.length; c++) {
                 var r = maxLimit * circleSteps[c];
                 var circlePts = [];
-                for (var a = 0; a <= 360; a += 4) {
+                for (var a = 0; a <= 360; a += 3) {
                     var rad = a * Math.PI / 180;
                     circlePts.push([round(r * Math.cos(rad), 4), round(r * Math.sin(rad), 4)]);
                 }
@@ -838,13 +840,78 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                     name: '标尺网格',
                     type: 'line',
                     data: circlePts,
-                    lineStyle: { type: 'dashed', color: tc.circleGrid, width: 0.9 },
+                    lineStyle: { type: 'dashed', color: tc.circleGrid, width: 1.0 },
                     showSymbol: false,
                     silent: true,
                     tooltip: { show: false }
                 });
+
+                // 将刻度数值直接标记在圆形标线处（位于正东偏北交界处，清晰醒目）
+                ringLabelPts.push({
+                    value: [round(r, 4), 0],
+                    labelTxt: round(r, 2) + 'm'
+                });
             }
 
+            // 刻度指示标注系列 (直接显示在圆形标线与 X 轴正半轴交点处)
+            scatterSeries.push({
+                name: '圆形标尺刻度',
+                type: 'scatter',
+                data: ringLabelPts.map(function(item) { return item.value; }),
+                symbolSize: 4,
+                itemStyle: { color: tc.axis },
+                label: {
+                    show: true,
+                    formatter: function(params) {
+                        return ringLabelPts[params.dataIndex].labelTxt;
+                    },
+                    position: 'top',
+                    distance: 4,
+                    color: tc.axisText,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    backgroundColor: (currentTheme === 'dark' ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.9)'),
+                    padding: [2, 5],
+                    borderRadius: 3,
+                    borderColor: tc.axis,
+                    borderWidth: 0.5
+                },
+                silent: true,
+                tooltip: { show: false }
+            });
+
+            // 四向罗盘方位指示 (N, S, E, W)
+            scatterSeries.push({
+                name: '罗盘方位',
+                type: 'scatter',
+                data: [
+                    [0, maxLimit * 0.98],   // N
+                    [0, -maxLimit * 0.98],  // S
+                    [maxLimit * 0.98, 0],   // E
+                    [-maxLimit * 0.98, 0]   // W
+                ],
+                symbolSize: 0.1,
+                label: {
+                    show: true,
+                    formatter: function(params) {
+                        var dirs = ['北 (N)', '南 (S)', '东 (E)', '西 (W)'];
+                        return dirs[params.dataIndex];
+                    },
+                    position: 'inside',
+                    color: tc.title,
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                    backgroundColor: (currentTheme === 'dark' ? 'rgba(30, 41, 59, 0.9)' : 'rgba(241, 245, 249, 0.95)'),
+                    padding: [3, 6],
+                    borderRadius: 4,
+                    borderColor: tc.axis,
+                    borderWidth: 0.8
+                },
+                silent: true,
+                tooltip: { show: false }
+            });
+
+            // 数据散点系列
             for (var s = 0; s < segmentsData.length; s++) {
                 var seg = segmentsData[s];
                 scatterSeries.push({
@@ -861,24 +928,24 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 title: { text: '定位偏差散点分布 (靶心图 · 1:1正圆)', left: 'center', top: 4, textStyle: { fontSize: 14, color: tc.title } },
                 tooltip: {
                     formatter: function(p) {
-                        if (!p.data || p.seriesName === '标尺网格') return '';
+                        if (!p.data || p.seriesName === '标尺网格' || p.seriesName === '圆形标尺刻度' || p.seriesName === '罗盘方位') return '';
                         return '<b>' + p.seriesName + '</b><br/>dE: ' + p.data[0] + 'm<br/>dN: ' + p.data[1] + 'm';
                     }
                 },
                 legend: { top: 26, data: legendNames, textStyle: { color: tc.legend, fontSize: 11 } },
-                grid: { left: 40, right: 40, top: 50, bottom: 40 },
+                grid: { left: 25, right: 25, top: 45, bottom: 25 },
                 xAxis: {
                     type: 'value', min: -maxLimit, max: maxLimit,
                     axisLine: { onZero: true, lineStyle: { color: tc.axis, width: 1.5 } },
-                    axisTick: { show: true, lineStyle: { color: tc.axis } },
-                    axisLabel: { color: tc.axisText },
+                    axisTick: { show: false },
+                    axisLabel: { show: false },   // 隐藏杂乱的直角坐标系标签，直接由圆形标尺刻度指示
                     splitLine: { show: false }
                 },
                 yAxis: {
                     type: 'value', min: -maxLimit, max: maxLimit,
                     axisLine: { onZero: true, lineStyle: { color: tc.axis, width: 1.5 } },
-                    axisTick: { show: true, lineStyle: { color: tc.axis } },
-                    axisLabel: { color: tc.axisText },
+                    axisTick: { show: false },
+                    axisLabel: { show: false },   // 隐藏杂乱的直角坐标系标签，直接由圆形标尺刻度指示
                     splitLine: { show: false }
                 },
                 series: scatterSeries
