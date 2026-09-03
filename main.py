@@ -435,12 +435,15 @@ class CNoPlotCanvas(QWidget):
                 is_used = (prefix, prn) in used_satellites
 
             color = QColor(color_hex)
-            txt_color = '#0F172A' if ThemeManager().get_tokens()['plot_fig_bg'] == '#FFFFFF' else '#FFFFFF'
-            txt_font = QFont('Consolas', 8, QFont.Bold)
+            tokens = ThemeManager().get_tokens()
+            is_light = (tokens.get('name') == 'light') or (tokens.get('plot_fig_bg') in ['#F8FAFC', '#FFFFFF'])
+            txt_color_used = '#0F172A' if is_light else '#F8FAFC'
+            txt_color_unused = '#475569' if is_light else '#CBD5E1'
+            txt_font = QFont('Consolas', 10, QFont.Bold)
             if is_used:
                 brushes.append(pg.mkBrush(color))
                 pens.append(pg.mkPen('#0F172A', width=0.5))
-                text_item = pg.TextItem(text=f"{int(val)}", color=txt_color, anchor=(0.5, 1.0))
+                text_item = pg.TextItem(text=f"{int(val)}", color=txt_color_used, anchor=(0.5, 1.0))
                 text_item.setFont(txt_font)
                 text_item.setPos(x_c, val + 0.8)
                 self.plot_item.addItem(text_item)
@@ -449,7 +452,7 @@ class CNoPlotCanvas(QWidget):
                 brushes.append(pg.mkBrush(color))
                 color.setAlpha(255)
                 pens.append(pg.mkPen(color, width=1.2))
-                text_item = pg.TextItem(text=f"{int(val)}", color='#64748B', anchor=(0.5, 1.0))
+                text_item = pg.TextItem(text=f"{int(val)}", color=txt_color_unused, anchor=(0.5, 1.0))
                 text_item.setFont(txt_font)
                 text_item.setPos(x_c, val + 0.8)
                 self.plot_item.addItem(text_item)
@@ -466,8 +469,10 @@ class CNoPlotCanvas(QWidget):
             })
 
         # 3. 绘制分界虚线网格
+        tokens = ThemeManager().get_tokens()
+        is_light = (tokens.get('name') == 'light') or (tokens.get('plot_fig_bg') in ['#F8FAFC', '#FFFFFF'])
+        grid_c = '#CBD5E1' if is_light else '#1E293B'
         for x_grid in range(1, N):
-            grid_c = '#CBD5E1' if ThemeManager().get_tokens()['plot_fig_bg'] == '#FFFFFF' else '#1E293B'
             vline = pg.PlotCurveItem([x_grid, x_grid], [0, 55], pen=pg.mkPen(grid_c, width=0.8, style=Qt.DashLine))
             self.plot_item.addItem(vline)
 
