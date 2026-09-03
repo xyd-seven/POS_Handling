@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Interactive Standalone HTML GNSS Report Exporter (Pro Edition v4)
-- Supports both Epoch Alignment (历元对齐) and Time Alignment (时间对齐)
-- Automatically inherits current alignment mode from desktop software
-- Provides an instant interactive switch on the webpage
+Interactive Standalone HTML GNSS Report Exporter (Pro Edition v5)
+- Supports double-click on ANY chart or map to maximize fullscreen, double-click again or press ESC to restore
+- Supports Epoch Alignment and Time Alignment dual-mode
 - Multi-segment overlay with software colors, map legend, and 1:1 circular bullseye
+- 1800px widescreen layout with rich tooltips and export options
 """
 
 import os
@@ -158,6 +158,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             border-radius: 8px;
             overflow: hidden;
             border: 1px solid var(--border);
+            cursor: pointer;
         }
         #map-container {
             width: 100%;
@@ -178,6 +179,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             color: var(--text-main);
             box-shadow: 0 4px 16px rgba(0,0,0,0.4);
             max-width: 360px;
+            pointer-events: none;
         }
         .map-legend-title {
             font-weight: bold;
@@ -219,17 +221,27 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         .charts-row-full {
             margin-bottom: 20px;
         }
+        
+        /* 可双击放大的图表卡片样式 */
         .chart-box {
+            position: relative;
             background: #0F172A;
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 12px;
             height: 440px;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .chart-box:hover {
+            border-color: var(--brand);
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
         }
         .chart-box-tall {
             height: 560px;
         }
         .bullseye-container {
+            position: relative;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -238,10 +250,70 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 12px;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .bullseye-container:hover {
+            border-color: var(--brand);
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
         }
         #chart-scatter {
             width: 420px;
             height: 420px;
+        }
+        .zoom-hint {
+            position: absolute;
+            top: 10px;
+            right: 14px;
+            font-size: 11px;
+            color: #64748B;
+            pointer-events: none;
+            user-select: none;
+            transition: color 0.2s;
+        }
+        .chart-box:hover .zoom-hint, .bullseye-container:hover .zoom-hint, #map-wrapper:hover .zoom-hint {
+            color: var(--brand);
+        }
+
+        /* 全屏放大模式样式 (Fullscreen Overlay) */
+        .chart-fullscreen {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 999999 !important;
+            background: #0B1120 !important;
+            padding: 24px !important;
+            border-radius: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+        }
+        .chart-fullscreen #chart-scatter {
+            width: min(85vh, 85vw) !important;
+            height: min(85vh, 85vw) !important;
+        }
+        .close-fullscreen-btn {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 28px;
+            z-index: 1000000;
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid var(--brand);
+            color: var(--brand);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+            transition: all 0.2s;
+        }
+        .close-fullscreen-btn:hover {
+            background: var(--brand);
+            color: #0F172A;
         }
 
         /* Footer */
@@ -254,6 +326,8 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
     </style>
 </head>
 <body>
+    <button id="btn-close-fullscreen" class="close-fullscreen-btn" onclick="exitFullscreen()">✕ 还原默认视图 (或按 ESC / 双击)</button>
+
     <div class="container">
         <!-- Header -->
         <div class="report-header">
@@ -290,7 +364,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Section 1: 空间轨迹 -->
+        <!-- Section 1: 空间轨迹 (支持双击放大) -->
         <div class="section-card">
             <div class="section-title">
                 <div class="section-title-left">
@@ -310,7 +384,8 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                     </label>
                 </div>
             </div>
-            <div id="map-wrapper">
+            <div id="map-wrapper" ondblclick="toggleChartFullscreen(this)">
+                <span class="zoom-hint">⛶ 双击全屏放大</span>
                 <div id="map-container"></div>
                 <div id="map-legend" class="map-legend"></div>
             </div>
@@ -326,10 +401,10 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Section 3: 误差曲线大看板 (支持历元对齐 / 时间对齐自由切换) -->
+        <!-- Section 3: 误差曲线大看板 (支持双击全屏放大 / 历元或时间对齐切换) -->
         <div class="section-card">
             <div class="section-title">
-                <div class="section-title-left">📈 误差时序历元分布与联合分析</div>
+                <div class="section-title-left">📈 误差时序历元分布与联合分析 (💡 双击任意图表放大全屏 / 再次双击还原)</div>
                 <div class="top-controls">
                     <label>
                         <b>X 轴对齐基准:</b>
@@ -341,28 +416,44 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 </div>
             </div>
 
-            <!-- 第一行：水平误差与垂直误差 (宽屏 2 列大图) -->
+            <!-- 第一行：水平误差与垂直误差 -->
             <div class="charts-row-2col">
-                <div class="chart-box" id="chart-epoch-h"></div>
-                <div class="chart-box" id="chart-epoch-v"></div>
+                <div class="chart-box" id="box-epoch-h" ondblclick="toggleChartFullscreen(this)">
+                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <div id="chart-epoch-h" style="width:100%; height:100%;"></div>
+                </div>
+                <div class="chart-box" id="box-epoch-v" ondblclick="toggleChartFullscreen(this)">
+                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <div id="chart-epoch-v" style="width:100%; height:100%;"></div>
+                </div>
             </div>
 
-            <!-- 第二行：三向 ENU 误差 (三层独立垂直展开，各文件多线对比) -->
+            <!-- 第二行：三向 ENU 误差 -->
             <div class="charts-row-full">
-                <div class="chart-box chart-box-tall" id="chart-epoch-enu"></div>
+                <div class="chart-box chart-box-tall" id="box-epoch-enu" ondblclick="toggleChartFullscreen(this)">
+                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <div id="chart-epoch-enu" style="width:100%; height:100%;"></div>
+                </div>
             </div>
 
             <!-- 第三行：自适应正圆靶心图 与 CDF 累积分布图 -->
             <div class="charts-row-2col">
-                <div class="bullseye-container">
+                <div class="bullseye-container" id="box-scatter" ondblclick="toggleChartFullscreen(this)">
+                    <span class="zoom-hint">⛶ 双击放大</span>
                     <div id="chart-scatter"></div>
                 </div>
-                <div class="chart-box" id="chart-cdf"></div>
+                <div class="chart-box" id="box-cdf" ondblclick="toggleChartFullscreen(this)">
+                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <div id="chart-cdf" style="width:100%; height:100%;"></div>
+                </div>
             </div>
 
             <!-- 第四行：运行速度曲线 -->
             <div class="charts-row-full">
-                <div class="chart-box" id="chart-speed"></div>
+                <div class="chart-box" id="box-speed" ondblclick="toggleChartFullscreen(this)">
+                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <div id="chart-speed" style="width:100%; height:100%;"></div>
+                </div>
             </div>
         </div>
 
@@ -377,7 +468,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var globalTimeline = __GLOBAL_TIMELINE_JSON__;
         var globalEpochline = __GLOBAL_EPOCHLINE_JSON__;
         var maxLimit = __SCATTER_LIMIT__ || 1.0;
-        var currentXAxisMode = '__DEFAULT_XAXIS_MODE__'; // 'epoch' or 'time'
+        var currentXAxisMode = '__DEFAULT_XAXIS_MODE__';
 
         // 1. 初始化 Leaflet 轨迹地图
         var map = L.map('map-container', { zoomControl: true, attributionControl: false }).setView([39.9, 116.4], 13);
@@ -484,6 +575,8 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var echScatter = echarts.init(document.getElementById('chart-scatter'), 'dark');
         var echCDF = echarts.init(document.getElementById('chart-cdf'), 'dark');
         var echSpeed = echarts.init(document.getElementById('chart-speed'), 'dark');
+
+        var allChartsList = [echH, echV, echENU, echScatter, echCDF, echSpeed];
 
         function renderAllCharts(mode) {
             var isTime = (mode === 'time');
@@ -602,13 +695,12 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             }, true);
         }
 
-        // 切换对齐模式 (历元 / 时间)
         function switchXAxisMode(mode) {
             currentXAxisMode = mode;
             renderAllCharts(mode);
         }
 
-        // 靶心图与 CDF 初始化 (不受 X 轴对齐影响)
+        // 靶心图与 CDF 初始化
         var circleGraphics = [];
         var circleSteps = [0.2, 0.4, 0.6, 0.8, 1.0];
         for (var i = 0; i < circleSteps.length; i++) {
@@ -673,8 +765,69 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         // 初始渲染
         renderAllCharts(currentXAxisMode);
 
+        // =========================================================================
+        // 🌟 核心新特性：单个图表双击全屏放大 / 再次双击还原 (或按 ESC / 点击关闭按钮)
+        // =========================================================================
+        var currentFullscreenEl = null;
+
+        function toggleChartFullscreen(boxEl) {
+            if (currentFullscreenEl === boxEl) {
+                exitFullscreen();
+            } else {
+                if (currentFullscreenEl) {
+                    exitFullscreen();
+                }
+                enterFullscreen(boxEl);
+            }
+        }
+
+        function enterFullscreen(boxEl) {
+            currentFullscreenEl = boxEl;
+            boxEl.classList.add('chart-fullscreen');
+            document.getElementById('btn-close-fullscreen').style.display = 'block';
+
+            // 触发内部图表重新自适应大尺寸
+            setTimeout(function() {
+                if (boxEl.id === 'map-wrapper') {
+                    map.invalidateSize();
+                } else {
+                    for (var i = 0; i < allChartsList.length; i++) {
+                        allChartsList[i].resize();
+                    }
+                }
+            }, 50);
+        }
+
+        function exitFullscreen() {
+            if (!currentFullscreenEl) return;
+            currentFullscreenEl.classList.remove('chart-fullscreen');
+            document.getElementById('btn-close-fullscreen').style.display = 'none';
+            var oldEl = currentFullscreenEl;
+            currentFullscreenEl = null;
+
+            setTimeout(function() {
+                if (oldEl.id === 'map-wrapper') {
+                    map.invalidateSize();
+                } else {
+                    for (var i = 0; i < allChartsList.length; i++) {
+                        allChartsList[i].resize();
+                    }
+                }
+            }, 50);
+        }
+
+        // 监听 ESC 键一键退出全屏
+        window.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' || e.keyCode === 27) {
+                exitFullscreen();
+            }
+        });
+
         window.addEventListener('resize', function() {
-            echH.resize(); echV.resize(); echENU.resize(); echScatter.resize(); echCDF.resize(); echSpeed.resize();
+            for (var i = 0; i < allChartsList.length; i++) {
+                allChartsList[i].resize();
+            }
+            if (map) map.invalidateSize();
         });
     </script>
 </body>
@@ -798,8 +951,7 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
             table_html += "</tr>"
         table_html += "</tbody></table>"
 
-        # 4. 构造多分段数据：同时准备【时间轴对齐】与【历元轴对齐】两套序列
-        # A. 全局绝对时间轴 (去重并按时序排列)
+        # 4. 构造多分段数据
         all_timestamps = []
         for s in active_segs:
             for ep in s.get('epochs', []):
@@ -816,7 +968,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         time_step = max(1, len(raw_timeline) // 4000)
         filtered_timeline = raw_timeline[::time_step]
 
-        # B. 全局历元轴 (从 1 到各分段的最大历元数)
         max_epoch_len = max(len(s.get('epochs', [])) for s in active_segs) if active_segs else 0
         epoch_step = max(1, max_epoch_len // 4000)
         filtered_epochline = [str(i) for i in range(1, max_epoch_len + 1, epoch_step)]
@@ -842,7 +993,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 dn_list = [p.get('n', 0.0) for p in metrics['enu_points']]
                 du_list = [p.get('u', 0.0) for p in metrics['enu_points']]
 
-            # 提取时间字典与历元序列
             h_time_dict, v_time_dict, de_time_dict, dn_time_dict, du_time_dict, sp_time_dict = {}, {}, {}, {}, {}, {}
             h_raw_list, v_raw_list, de_raw_list, dn_raw_list, du_raw_list, sp_raw_list = [], [], [], [], [], []
 
@@ -869,14 +1019,12 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 if h_val is not None:
                     seg_all_h.append(h_val)
 
-                # 散点
                 if de is not None and dn is not None:
                     dist = (de**2 + dn**2)**0.5
                     global_max_scatter = max(global_max_scatter, dist)
                     if len(scatter_pts) < 1500 and (i % max(1, len(epochs)//1500) == 0):
                         scatter_pts.append([round(de, 4), round(dn, 4)])
 
-                # 地图点
                 raw_lat = float(ep.get('lat', 0.0))
                 raw_lon = float(ep.get('lon', 0.0))
                 if abs(raw_lat) > 1e-4 and abs(raw_lon) > 1e-4:
@@ -889,7 +1037,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                         'h_err': h_val
                     })
 
-                # 时间轴映射
                 h_time_dict[t_str] = h_val_r
                 v_time_dict[t_str] = v_val_r
                 de_time_dict[t_str] = de_r
@@ -897,7 +1044,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 du_time_dict[t_str] = du_r
                 sp_time_dict[t_str] = sp_r
 
-                # 历元序列
                 h_raw_list.append(h_val_r)
                 v_raw_list.append(v_val_r)
                 de_raw_list.append(de_r)
@@ -905,7 +1051,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 du_raw_list.append(du_r)
                 sp_raw_list.append(sp_r)
 
-            # 映射到绝对时间轴
             h_time_series = [h_time_dict.get(t) for t in filtered_timeline]
             v_time_series = [v_time_dict.get(t) for t in filtered_timeline]
             de_time_series = [de_time_dict.get(t) for t in filtered_timeline]
@@ -913,7 +1058,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
             du_time_series = [du_time_dict.get(t) for t in filtered_timeline]
             speed_time_series = [sp_time_dict.get(t) for t in filtered_timeline]
 
-            # 映射到相对历元轴 (按 epoch_step 抽样)
             h_epoch_series = [h_raw_list[idx-1] if (idx-1) < len(h_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
             v_epoch_series = [v_raw_list[idx-1] if (idx-1) < len(v_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
             de_epoch_series = [de_raw_list[idx-1] if (idx-1) < len(de_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
@@ -921,7 +1065,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
             du_epoch_series = [du_raw_list[idx-1] if (idx-1) < len(du_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
             speed_epoch_series = [sp_raw_list[idx-1] if (idx-1) < len(sp_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
 
-            # CDF 计算
             cdf_pts = []
             if seg_all_h:
                 sorted_errs = sorted(seg_all_h)
