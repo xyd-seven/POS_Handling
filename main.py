@@ -30,7 +30,7 @@ from gnss_parser import (parse_log_line, convert_pogos_to_gga, calculate_metrics
                     time_str_to_seconds, seconds_to_time_str, gps_tow_to_utc_time,
                     interpolate_dynamic_truth, parse_bk_frame, BKStreamParser,
                     crc16_ccitt)
-from exporters import export_word_report
+from exporters import export_word_report, export_excel_report, export_html_report
 from core import ReplaySnapshotWorker, LogParserThread, SkyPlotDataModel
 from plots import SkyPlotCanvas
 from plot_widget import PlotWidget
@@ -2303,6 +2303,16 @@ class MainWindow(QMainWindow):
         self.btn_export_report.clicked.connect(self.on_export_report_clicked)
         actions_grid.addWidget(self.btn_export_report, 1, 2)
 
+        self.btn_export_excel = QPushButton("📊 导出 Excel")
+        self.btn_export_excel.setToolTip("将当前时段的精度指标、逐历元明细与异常点导出为专业格式的 Excel 报表 (.xlsx)。")
+        self.btn_export_excel.clicked.connect(self.on_export_excel_clicked)
+        actions_grid.addWidget(self.btn_export_excel, 2, 0)
+
+        self.btn_export_html = QPushButton("🌐 交互式 HTML")
+        self.btn_export_html.setToolTip("导出自包含的交互式独立 HTML 评测报告，内置 Leaflet 卫星地图与可缩放 ECharts 动态曲线。")
+        self.btn_export_html.clicked.connect(self.on_export_html_clicked)
+        actions_grid.addWidget(self.btn_export_html, 2, 1, 1, 2)
+
         file_layout.addLayout(actions_grid)
 
         # 设置区网格对齐 (2-Column Key-Value Grid)：左右两列排布下拉框与复选框切换开关
@@ -4366,6 +4376,12 @@ class MainWindow(QMainWindow):
             'skyplot': self.canvas_skyplot
         }
         export_word_report(self, self.segments, self.truth, self.table_metrics, canvases, getattr(self, 'app_config', {}))
+
+    def on_export_excel_clicked(self):
+        export_excel_report(self, self.segments, self.truth, self.table_metrics, getattr(self, 'app_config', {}))
+
+    def on_export_html_clicked(self):
+        export_html_report(self, self.segments, self.truth, self.table_metrics, getattr(self, 'app_config', {}))
 
     def refresh_serial_ports(self):
         self.cmb_port.clear()

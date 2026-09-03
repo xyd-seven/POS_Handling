@@ -6,27 +6,30 @@
 ---
 
 ## 2. 当前状态
-- [x] **可见卫星载噪比监视器双击全屏/还原交互交付**：
-  - CNoPlotCanvas 安装全局事件过滤器捕获左键双击事件并分发 `sig_double_clicked`；
-  - 双击图表任意区域瞬时折叠/隐藏上方串口终端与状态卡片，载噪比柱状图独占全屏最大化显示；
-  - 再次双击图表无缝平滑还原默认分割布局；
+- [x] **方向 5：交互式单文件 HTML 独立报告与专业 Excel 数据报表导出交付**：
+  - 新增 `exporters/excel_exporter.py`：生成包含概览指标、逐历元明细与异常清单的三页式企业级 Excel (.xlsx)；
+  - 新增 `exporters/html_exporter.py`：生成自包含单文件 HTML 报告，内嵌 Leaflet 交互式轨迹地图与 ECharts 5 动态图表；
+  - 主界面右侧操作网格新增【📊 导出 Excel】与【🌐 交互式 HTML】按钮；
 - [x] **全量测试与回归测试 PASS**，PyInstaller onedir 编译并部署至 `F:\TestTools\pos_handling\dist\main\`。
 
 ---
 
 ## 3. 当前任务
-- 无（载噪比双击全屏/还原功能已全面交付上线）
+- 无（多格式报告导出能力已全面交付上线）
 
 ---
 
 ## 4. 关键设计决策
-- 载噪比双击全屏采用非模态原位最大化机制，避免多窗口切换闪烁，保障串口数据流持续渲染；
 - 生产环境采用 onedir 预解压目录结构保证秒开；
-- 瓦片缓存跟随程序安装目录，实现免占 C 盘且支持便携式离线地图包。
+- HTML 报告采用纯自包含单文件模式，确保无外部依赖，任何系统浏览器双击秒开；
+- Excel 报表采用三页结构，兼顾管理层汇报概览与研发层原始逐历元诊断。
 
 ---
 
 ## 5. 修改记录
+- exporters/excel_exporter.py (NEW)
+- exporters/html_exporter.py (NEW)
+- exporters/__init__.py
 - main.py
 - walkthrough.md
 - handoff.md
@@ -39,13 +42,17 @@
 ---
 
 ## 7. 下一步任务
-1. [第二梯队 - 优先级高] Phase 3: 百万级 LOD 视口动态降采样渲染。
-2. [第二梯队 - 优先级中] TTFF 首次定位时间与 RTK 重捕获 (Re-Fix Time) 自动化分析。
+1. [方向 4 - 优先级高] u-blox UBX 原生二进制协议 (`.ubx`) 直接拖入解析支持。
+2. [方向 4 - 优先级高] RTCM 3.x 差分报文链路监视面板（基站坐标与电文更新率）。
+3. [第二梯队 - 优先级高] Phase 3: 百万级 LOD 视口动态降采样渲染。
+4. [第二梯队 - 优先级中] TTFF 首次定位时间与 RTK 重捕获 (Re-Fix Time) 自动化分析。
 
 ---
 
 ## 8. 测试状态
-- 载噪比双击最大化与再次双击还原状态机测试：PASS
+- Excel 结构化三页数据报表生成与单元格格式验证：PASS
+- 交互式单文件 HTML 报告生成与图表数据验证：PASS
+- onedir 冷启动速度基准测试（< 1s）：PASS
 - 独立进程健康运行测试：PASS
 - 全量 9 大 Tab 回归测试：PASS
 - PyInstaller onedir 编译与部署：PASS
