@@ -695,7 +695,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             });
             echV.setOption({
                 backgroundColor: 'transparent',
-                title: { text: '高程位置误差历元分布图 (Vertical Error · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: tc.title } },
+                title: { text: (__IS_ABS_ALT__ ? '高程位置误差绝对值历元分布图 (|Vertical Error| · ' : '高程位置误差历元分布图 (Vertical Error · ') + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: tc.title } },
                 tooltip: { trigger: 'axis' },
                 legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
@@ -717,12 +717,12 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 seriesENU.push({
                     name: seg.name + ' - dN', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
                     data: isTime ? seg.dn_time_series : seg.dn_epoch_series,
-                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6), type: 'dashed' }, itemStyle: { color: seg.color }, showSymbol: false
+                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6) }, itemStyle: { color: seg.color }, showSymbol: false
                 });
                 seriesENU.push({
                     name: seg.name + ' - dU', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
                     data: isTime ? seg.du_time_series : seg.du_epoch_series,
-                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6), type: 'dotted' }, itemStyle: { color: seg.color }, showSymbol: false
+                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6) }, itemStyle: { color: seg.color }, showSymbol: false
                 });
             }
             echENU.setOption({
@@ -1014,6 +1014,11 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         select_epoch_attr = "selected" if default_xaxis_mode == "epoch" else ""
         select_time_attr = "selected" if default_xaxis_mode == "time" else ""
 
+        # 读取软件是否勾选“高程绝对值误差”
+        show_absolute_alt = getattr(parent_window, 'show_absolute_alt', False)
+        if hasattr(parent_window, 'cb_abs_alt') and hasattr(parent_window.cb_abs_alt, 'isChecked'):
+            show_absolute_alt = parent_window.cb_abs_alt.isChecked()
+
         # 2. 汇总指标卡片数据
         total_epochs = sum(len(s.get('epochs', [])) for s in active_segs)
         fix_rates, h_rms_list, h_95_list, v_rms_list, max_h_list = [], [], [], [], []
@@ -1147,6 +1152,8 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 t_str = ep.get('time_str', str(i+1))
                 h_val = h_err_list[i] if i < len(h_err_list) else None
                 v_val = v_err_list[i] if i < len(v_err_list) else None
+                if v_val is not None and show_absolute_alt:
+                    v_val = abs(v_val)
                 de = de_list[i] if i < len(de_list) else None
                 dn = dn_list[i] if i < len(dn_list) else None
                 du = du_list[i] if i < len(du_list) else None
@@ -1257,6 +1264,7 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         html_content = html_content.replace('__SELECT_EPOCH__', select_epoch_attr)
         html_content = html_content.replace('__SELECT_TIME__', select_time_attr)
         html_content = html_content.replace('__DEFAULT_XAXIS_MODE__', default_xaxis_mode)
+        html_content = html_content.replace('__IS_ABS_ALT__', 'true' if show_absolute_alt else 'false')
         html_content = html_content.replace('__METRICS_TABLE_HTML__', table_html)
         html_content = html_content.replace('__SEGMENTS_PAYLOAD_JSON__', json.dumps(segments_payload))
         html_content = html_content.replace('__GLOBAL_TIMELINE_JSON__', json.dumps(filtered_timeline))
