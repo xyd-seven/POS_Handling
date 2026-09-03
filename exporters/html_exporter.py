@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Interactive Standalone HTML GNSS Report Exporter (Multi-Segment Edition v3)
-- Fully supports multiple imported files/segments
-- Strictly matches line colors defined in desktop software for each file
-- Shows dynamic interactive legends on both map and all error charts
-- Multi-series overlay comparison for horizontal, vertical, ENU, scatter, CDF, and speed
+Interactive Standalone HTML GNSS Report Exporter (Pro Edition v4)
+- Supports both Epoch Alignment (历元对齐) and Time Alignment (时间对齐)
+- Automatically inherits current alignment mode from desktop software
+- Provides an instant interactive switch on the webpage
+- Multi-segment overlay with software colors, map legend, and 1:1 circular bullseye
 """
 
 import os
@@ -124,7 +124,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             align-items: center;
             gap: 8px;
         }
-        .map-controls {
+        .top-controls {
             display: flex;
             align-items: center;
             gap: 16px;
@@ -132,20 +132,22 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             font-weight: normal;
             color: var(--text-main);
         }
-        .map-controls label {
+        .top-controls label {
             display: flex;
             align-items: center;
             gap: 6px;
             cursor: pointer;
         }
-        .map-controls select {
+        .top-controls select {
             background: #0F172A;
             color: var(--text-main);
             border: 1px solid var(--border);
-            padding: 4px 8px;
-            border-radius: 4px;
+            padding: 5px 10px;
+            border-radius: 6px;
             font-size: 12px;
+            font-weight: 500;
             outline: none;
+            cursor: pointer;
         }
 
         /* Map Container & Legend */
@@ -288,13 +290,13 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Section 1: 空间轨迹 (支持多分段文件对比、软件配置颜色、图例及交互控制) -->
+        <!-- Section 1: 空间轨迹 -->
         <div class="section-card">
             <div class="section-title">
                 <div class="section-title-left">
                     🗺️ 空间二维运行轨迹与解状态投影 (多文件对比)
                 </div>
-                <div class="map-controls">
+                <div class="top-controls">
                     <label>
                         <input type="checkbox" id="chk-rtk-color" __CHECKED_RTK_COLOR__ onchange="updateMapDisplay()"> 按 RTK 状态着色
                     </label>
@@ -324,10 +326,19 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Section 3: 误差曲线大看板 (多文件多曲线颜色同步对比) -->
+        <!-- Section 3: 误差曲线大看板 (支持历元对齐 / 时间对齐自由切换) -->
         <div class="section-card">
             <div class="section-title">
-                <div class="section-title-left">📈 误差时序历元分布与联合分析 (各文件采用软件设置专属颜色 · 点击图例隐藏/显示)</div>
+                <div class="section-title-left">📈 误差时序历元分布与联合分析</div>
+                <div class="top-controls">
+                    <label>
+                        <b>X 轴对齐基准:</b>
+                        <select id="sel-xaxis-mode" onchange="switchXAxisMode(this.value)">
+                            <option value="epoch" __SELECT_EPOCH__>🔢 相对历元对齐 (从第1点拉齐对比)</option>
+                            <option value="time" __SELECT_TIME__>⏱️ 绝对时间对齐 (按真实UTC/TOW时刻)</option>
+                        </select>
+                    </label>
+                </div>
             </div>
 
             <!-- 第一行：水平误差与垂直误差 (宽屏 2 列大图) -->
@@ -341,7 +352,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 <div class="chart-box chart-box-tall" id="chart-epoch-enu"></div>
             </div>
 
-            <!-- 第三行：自适应正圆靶心图 (多文件散点) 与 CDF 累积分布图 (多文件曲线) -->
+            <!-- 第三行：自适应正圆靶心图 与 CDF 累积分布图 -->
             <div class="charts-row-2col">
                 <div class="bullseye-container">
                     <div id="chart-scatter"></div>
@@ -364,7 +375,9 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
     <script>
         var segmentsData = __SEGMENTS_PAYLOAD_JSON__;
         var globalTimeline = __GLOBAL_TIMELINE_JSON__;
+        var globalEpochline = __GLOBAL_EPOCHLINE_JSON__;
         var maxLimit = __SCATTER_LIMIT__ || 1.0;
+        var currentXAxisMode = '__DEFAULT_XAXIS_MODE__'; // 'epoch' or 'time'
 
         // 1. 初始化 Leaflet 轨迹地图
         var map = L.map('map-container', { zoomControl: true, attributionControl: false }).setView([39.9, 116.4], 13);
@@ -381,7 +394,6 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var displayMode = document.getElementById('sel-map-mode').value;
             var statusColors = { 4: '#10B981', 5: '#F59E0B', 1: '#38BDF8', 2: '#6366F1' };
 
-            // 渲染图例
             var legendHtml = '';
             if (isColorByStatus) {
                 legendHtml += '<div class="map-legend-title">定位解状态图例:</div>';
@@ -397,13 +409,11 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             }
             legendEl.innerHTML = legendHtml;
 
-            // 逐分段绘制轨迹
             for (var s = 0; s < segmentsData.length; s++) {
                 var seg = segmentsData[s];
                 var pts = seg.points;
                 if (!pts || pts.length === 0) continue;
 
-                // A. 绘制折线
                 if (displayMode !== 'points_only') {
                     if (isColorByStatus) {
                         var currQuality = null;
@@ -427,13 +437,11 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                             L.polyline(currLine, { color: color, weight: 3.5, opacity: 0.9 }).addTo(mapLayersGroup);
                         }
                     } else {
-                        // 使用各分段在软件中的专属颜色
                         var allLatLngs = pts.map(function(p) { return [p.lat, p.lon]; });
                         L.polyline(allLatLngs, { color: seg.color, weight: 3.5, opacity: 0.9 }).addTo(mapLayersGroup);
                     }
                 }
 
-                // B. 绘制采样点
                 if (displayMode !== 'line_only') {
                     var step = Math.max(1, Math.floor(pts.length / 500));
                     for (var i = 0; i < pts.length; i += step) {
@@ -454,7 +462,6 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        // 初始地图视口缩放
         var allBounds = [];
         for (var s = 0; s < segmentsData.length; s++) {
             var pts = segmentsData[s].points;
@@ -468,106 +475,140 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             map.fitBounds(poly.getBounds(), { padding: [35, 35] });
         }
 
-        // 2. 初始化 ECharts 动态图表 (全支持多分段对比)
+        // 2. 初始化 ECharts 动态图表
         var legendNames = segmentsData.map(function(s) { return s.name; });
 
-        // A. 水平位置误差分布图 (多文件多曲线对比)
-        var seriesH = segmentsData.map(function(s) {
-            return {
-                name: s.name, type: 'line', data: s.h_series,
-                lineStyle: { color: s.color, width: 1.8 },
-                itemStyle: { color: s.color },
-                showSymbol: false
-            };
-        });
         var echH = echarts.init(document.getElementById('chart-epoch-h'), 'dark');
-        echH.setOption({
-            backgroundColor: 'transparent',
-            title: { text: '水平位置误差历元分布图 (2D Error)', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
-            tooltip: { trigger: 'axis' },
-            legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
-            dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-            grid: { left: 60, right: 30, top: 65, bottom: 42 },
-            xAxis: { type: 'category', data: globalTimeline, axisLine: { lineStyle: { color: '#475569' } } },
-            yAxis: { type: 'value', name: '偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
-            series: seriesH
-        });
-
-        // B. 高程位置误差分布图 (多文件多曲线对比)
-        var seriesV = segmentsData.map(function(s) {
-            return {
-                name: s.name, type: 'line', data: s.v_series,
-                lineStyle: { color: s.color, width: 1.8 },
-                itemStyle: { color: s.color },
-                showSymbol: false
-            };
-        });
         var echV = echarts.init(document.getElementById('chart-epoch-v'), 'dark');
-        echV.setOption({
-            backgroundColor: 'transparent',
-            title: { text: '高程位置误差历元分布图 (Vertical Error)', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
-            tooltip: { trigger: 'axis' },
-            legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
-            dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-            grid: { left: 60, right: 30, top: 65, bottom: 42 },
-            xAxis: { type: 'category', data: globalTimeline, axisLine: { lineStyle: { color: '#475569' } } },
-            yAxis: { type: 'value', name: '高程偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
-            series: seriesV
-        });
-
-        // C. ENU 三向误差图 (三层独立展开，每层均支持多文件对比)
-        var seriesENU = [];
-        for (var s = 0; s < segmentsData.length; s++) {
-            var seg = segmentsData[s];
-            // 东向层
-            seriesENU.push({
-                name: seg.name + ' - dE', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
-                data: seg.de_series, lineStyle: { color: seg.color, width: 1.6 },
-                itemStyle: { color: seg.color }, showSymbol: false
-            });
-            // 北向层
-            seriesENU.push({
-                name: seg.name + ' - dN', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
-                data: seg.dn_series, lineStyle: { color: seg.color, width: 1.6, type: 'dashed' },
-                itemStyle: { color: seg.color }, showSymbol: false
-            });
-            // 天向层
-            seriesENU.push({
-                name: seg.name + ' - dU', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
-                data: seg.du_series, lineStyle: { color: seg.color, width: 1.6, type: 'dotted' },
-                itemStyle: { color: seg.color }, showSymbol: false
-            });
-        }
         var echENU = echarts.init(document.getElementById('chart-epoch-enu'), 'dark');
-        echENU.setOption({
-            backgroundColor: 'transparent',
-            title: { text: 'ENU 三向位置误差历元曲线 (E / N / U 分层独立展示 · 多文件对比)', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
-            tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-            axisPointer: { link: [{ xAxisIndex: 'all' }] },
-            legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
-            dataZoom: [
-                { type: 'inside', xAxisIndex: [0, 1, 2] },
-                { type: 'slider', xAxisIndex: [0, 1, 2], height: 16, bottom: 4 }
-            ],
-            grid: [
-                { left: 65, right: 30, top: 65, height: '23%' },
-                { left: 65, right: 30, top: '42%', height: '23%' },
-                { left: 65, right: 30, top: '70%', height: '23%' }
-            ],
-            xAxis: [
-                { gridIndex: 0, type: 'category', data: globalTimeline, axisLabel: { show: false }, axisTick: { show: false } },
-                { gridIndex: 1, type: 'category', data: globalTimeline, axisLabel: { show: false }, axisTick: { show: false } },
-                { gridIndex: 2, type: 'category', data: globalTimeline, axisLine: { lineStyle: { color: '#475569' } } }
-            ],
-            yAxis: [
-                { gridIndex: 0, type: 'value', name: '东向 dE (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: '#334155' } } },
-                { gridIndex: 1, type: 'value', name: '北向 dN (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: '#334155' } } },
-                { gridIndex: 2, type: 'value', name: '天向 dU (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: '#334155' } } }
-            ],
-            series: seriesENU
-        });
+        var echScatter = echarts.init(document.getElementById('chart-scatter'), 'dark');
+        var echCDF = echarts.init(document.getElementById('chart-cdf'), 'dark');
+        var echSpeed = echarts.init(document.getElementById('chart-speed'), 'dark');
 
-        // D. 靶心散点图 (正圆 1:1，多文件不同颜色对比)
+        function renderAllCharts(mode) {
+            var isTime = (mode === 'time');
+            var currentXData = isTime ? globalTimeline : globalEpochline;
+            var xAxisName = isTime ? '时刻' : '历元号';
+
+            // A. 水平误差图
+            var seriesH = segmentsData.map(function(s) {
+                return {
+                    name: s.name, type: 'line', data: isTime ? s.h_time_series : s.h_epoch_series,
+                    lineStyle: { color: s.color, width: 1.8 },
+                    itemStyle: { color: s.color },
+                    showSymbol: false
+                };
+            });
+            echH.setOption({
+                backgroundColor: 'transparent',
+                title: { text: '水平位置误差历元分布图 (2D Error · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
+                tooltip: { trigger: 'axis' },
+                legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
+                dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
+                grid: { left: 60, right: 30, top: 65, bottom: 42 },
+                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: '#475569' } } },
+                yAxis: { type: 'value', name: '偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
+                series: seriesH
+            }, true);
+
+            // B. 高程误差图
+            var seriesV = segmentsData.map(function(s) {
+                return {
+                    name: s.name, type: 'line', data: isTime ? s.v_time_series : s.v_epoch_series,
+                    lineStyle: { color: s.color, width: 1.8 },
+                    itemStyle: { color: s.color },
+                    showSymbol: false
+                };
+            });
+            echV.setOption({
+                backgroundColor: 'transparent',
+                title: { text: '高程位置误差历元分布图 (Vertical Error · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
+                tooltip: { trigger: 'axis' },
+                legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
+                dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
+                grid: { left: 60, right: 30, top: 65, bottom: 42 },
+                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: '#475569' } } },
+                yAxis: { type: 'value', name: '高程偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
+                series: seriesV
+            }, true);
+
+            // C. ENU 三向误差图
+            var seriesENU = [];
+            for (var s = 0; s < segmentsData.length; s++) {
+                var seg = segmentsData[s];
+                seriesENU.push({
+                    name: seg.name + ' - dE', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+                    data: isTime ? seg.de_time_series : seg.de_epoch_series,
+                    lineStyle: { color: seg.color, width: 1.6 }, itemStyle: { color: seg.color }, showSymbol: false
+                });
+                seriesENU.push({
+                    name: seg.name + ' - dN', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
+                    data: isTime ? seg.dn_time_series : seg.dn_epoch_series,
+                    lineStyle: { color: seg.color, width: 1.6, type: 'dashed' }, itemStyle: { color: seg.color }, showSymbol: false
+                });
+                seriesENU.push({
+                    name: seg.name + ' - dU', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
+                    data: isTime ? seg.du_time_series : seg.du_epoch_series,
+                    lineStyle: { color: seg.color, width: 1.6, type: 'dotted' }, itemStyle: { color: seg.color }, showSymbol: false
+                });
+            }
+            echENU.setOption({
+                backgroundColor: 'transparent',
+                title: { text: 'ENU 三向位置误差历元曲线 (E / N / U 分层独立展示 · ' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                axisPointer: { link: [{ xAxisIndex: 'all' }] },
+                legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
+                dataZoom: [
+                    { type: 'inside', xAxisIndex: [0, 1, 2] },
+                    { type: 'slider', xAxisIndex: [0, 1, 2], height: 16, bottom: 4 }
+                ],
+                grid: [
+                    { left: 65, right: 30, top: 65, height: '23%' },
+                    { left: 65, right: 30, top: '42%', height: '23%' },
+                    { left: 65, right: 30, top: '70%', height: '23%' }
+                ],
+                xAxis: [
+                    { gridIndex: 0, type: 'category', data: currentXData, axisLabel: { show: false }, axisTick: { show: false } },
+                    { gridIndex: 1, type: 'category', data: currentXData, axisLabel: { show: false }, axisTick: { show: false } },
+                    { gridIndex: 2, type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: '#475569' } } }
+                ],
+                yAxis: [
+                    { gridIndex: 0, type: 'value', name: '东向 dE (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: '#334155' } } },
+                    { gridIndex: 1, type: 'value', name: '北向 dN (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: '#334155' } } },
+                    { gridIndex: 2, type: 'value', name: '天向 dU (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: '#334155' } } }
+                ],
+                series: seriesENU
+            }, true);
+
+            // F. 运行速度图
+            var seriesSpeed = segmentsData.map(function(s) {
+                return {
+                    name: s.name, type: 'line', data: isTime ? s.speed_time_series : s.speed_epoch_series,
+                    lineStyle: { color: s.color, width: 1.8 },
+                    itemStyle: { color: s.color },
+                    showSymbol: false
+                };
+            });
+            echSpeed.setOption({
+                backgroundColor: 'transparent',
+                title: { text: '对地运行速度时序曲线 (' + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
+                tooltip: { trigger: 'axis' },
+                legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
+                dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
+                grid: { left: 60, right: 30, top: 65, bottom: 42 },
+                xAxis: { type: 'category', data: currentXData, name: xAxisName },
+                yAxis: { type: 'value', name: '速度 (m/s)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
+                series: seriesSpeed
+            }, true);
+        }
+
+        // 切换对齐模式 (历元 / 时间)
+        function switchXAxisMode(mode) {
+            currentXAxisMode = mode;
+            renderAllCharts(mode);
+        }
+
+        // 靶心图与 CDF 初始化 (不受 X 轴对齐影响)
         var circleGraphics = [];
         var circleSteps = [0.2, 0.4, 0.6, 0.8, 1.0];
         for (var i = 0; i < circleSteps.length; i++) {
@@ -584,7 +625,6 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 itemStyle: { color: s.color, opacity: 0.85 }
             };
         });
-        var echScatter = echarts.init(document.getElementById('chart-scatter'), 'dark');
         echScatter.setOption({
             backgroundColor: 'transparent',
             title: { text: '定位偏差散点分布 (靶心图 · 1:1正圆)', left: 'center', top: 4, textStyle: { fontSize: 14, color: '#F8FAFC' } },
@@ -605,7 +645,6 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             series: seriesScatter
         });
 
-        // E. CDF 误差累积分布曲线 (多文件对比)
         var seriesCDF = segmentsData.map(function(s) {
             return {
                 name: s.name, type: 'line', data: s.cdf_pts,
@@ -614,7 +653,6 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 showSymbol: false
             };
         });
-        var echCDF = echarts.init(document.getElementById('chart-cdf'), 'dark');
         echCDF.setOption({
             backgroundColor: 'transparent',
             title: { text: '误差累积概率分布曲线 (CDF)', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
@@ -632,27 +670,8 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             series: seriesCDF
         });
 
-        // F. 速度时序曲线 (多文件对比)
-        var seriesSpeed = segmentsData.map(function(s) {
-            return {
-                name: s.name, type: 'line', data: s.speed_series,
-                lineStyle: { color: s.color, width: 1.8 },
-                itemStyle: { color: s.color },
-                showSymbol: false
-            };
-        });
-        var echSpeed = echarts.init(document.getElementById('chart-speed'), 'dark');
-        echSpeed.setOption({
-            backgroundColor: 'transparent',
-            title: { text: '对地运行速度时序曲线 (多文件对比)', left: 'center', top: 8, textStyle: { fontSize: 15, color: '#F8FAFC' } },
-            tooltip: { trigger: 'axis' },
-            legend: { top: 32, data: legendNames, textStyle: { color: '#94A3B8' } },
-            dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-            grid: { left: 60, right: 30, top: 65, bottom: 42 },
-            xAxis: { type: 'category', data: globalTimeline },
-            yAxis: { type: 'value', name: '速度 (m/s)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: '#334155' } } },
-            series: seriesSpeed
-        });
+        // 初始渲染
+        renderAllCharts(currentXAxisMode);
 
         window.addEventListener('resize', function() {
             echH.resize(); echV.resize(); echENU.resize(); echScatter.resize(); echCDF.resize(); echSpeed.resize();
@@ -688,13 +707,18 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         title_name = "、".join([s.get('name', f'分段{i+1}') for i, s in enumerate(active_segs)])
         gen_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        # 检查主软件当前是否勾选了“按RTK状态着色”
+        # 1. 继承软件当前界面的设置
         color_by_status_checked = False
         if hasattr(parent_window, 'gis_map_widget') and hasattr(parent_window.gis_map_widget, 'cb_color_by_status'):
             color_by_status_checked = parent_window.gis_map_widget.cb_color_by_status.isChecked()
         checked_rtk_attr = "checked" if color_by_status_checked else ""
 
-        # 1. 汇总指标卡片数据
+        desktop_xaxis_mode = getattr(parent_window, 'x_axis_mode', '历元数')
+        default_xaxis_mode = "time" if desktop_xaxis_mode == "时间轴" else "epoch"
+        select_epoch_attr = "selected" if default_xaxis_mode == "epoch" else ""
+        select_time_attr = "selected" if default_xaxis_mode == "time" else ""
+
+        # 2. 汇总指标卡片数据
         total_epochs = sum(len(s.get('epochs', [])) for s in active_segs)
         fix_rates, h_rms_list, h_95_list, v_rms_list, max_h_list = [], [], [], [], []
         
@@ -758,7 +782,7 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         progress.setValue(30)
         QApplication.processEvents()
 
-        # 2. 生成表格 HTML
+        # 3. 生成表格 HTML
         table_html = "<table><thead><tr>"
         col_count = table_metrics.columnCount() if table_metrics else 0
         row_count = table_metrics.rowCount() if table_metrics else 0
@@ -774,33 +798,34 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
             table_html += "</tr>"
         table_html += "</tbody></table>"
 
-        # 3. 构造多分段结构化数据 (Multi-Segment Datasets)
-        # 先建立统一的全局时间刻度或历元轴
+        # 4. 构造多分段数据：同时准备【时间轴对齐】与【历元轴对齐】两套序列
+        # A. 全局绝对时间轴 (去重并按时序排列)
         all_timestamps = []
         for s in active_segs:
-            epochs = s.get('epochs', [])
-            for ep in epochs:
+            for ep in s.get('epochs', []):
                 t_str = ep.get('time_str')
                 if t_str and t_str not in all_timestamps:
                     all_timestamps.append(t_str)
 
         if not all_timestamps:
             max_len = max(len(s.get('epochs', [])) for s in active_segs) if active_segs else 0
-            global_timeline = [str(i+1) for i in range(max_len)]
+            raw_timeline = [str(i+1) for i in range(max_len)]
         else:
-            global_timeline = sorted(all_timestamps)
+            raw_timeline = sorted(all_timestamps)
 
-        # 降采样限制最大 4000 点
-        step = max(1, len(global_timeline) // 4000)
-        filtered_timeline = global_timeline[::step]
-        time_index_map = {t: idx for idx, t in enumerate(filtered_timeline)}
+        time_step = max(1, len(raw_timeline) // 4000)
+        filtered_timeline = raw_timeline[::time_step]
+
+        # B. 全局历元轴 (从 1 到各分段的最大历元数)
+        max_epoch_len = max(len(s.get('epochs', [])) for s in active_segs) if active_segs else 0
+        epoch_step = max(1, max_epoch_len // 4000)
+        filtered_epochline = [str(i) for i in range(1, max_epoch_len + 1, epoch_step)]
 
         segments_payload = []
         global_max_scatter = 0.01
 
         for s_idx, s in enumerate(active_segs):
             s_name = s.get('name', f"分段_{s_idx+1}")
-            # 严格使用软件中的配色
             s_color = s.get('color', '#38BDF8')
             epochs = s.get('epochs', [])
             metrics = s.get('metrics', {})
@@ -817,8 +842,10 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 dn_list = [p.get('n', 0.0) for p in metrics['enu_points']]
                 du_list = [p.get('u', 0.0) for p in metrics['enu_points']]
 
-            # 构建时序曲线数据字典
-            h_dict, v_dict, de_dict, dn_dict, du_dict, sp_dict = {}, {}, {}, {}, {}, {}
+            # 提取时间字典与历元序列
+            h_time_dict, v_time_dict, de_time_dict, dn_time_dict, du_time_dict, sp_time_dict = {}, {}, {}, {}, {}, {}
+            h_raw_list, v_raw_list, de_raw_list, dn_raw_list, du_raw_list, sp_raw_list = [], [], [], [], [], []
+
             scatter_pts = []
             s_map_points = []
             seg_all_h = []
@@ -830,17 +857,26 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 de = de_list[i] if i < len(de_list) else None
                 dn = dn_list[i] if i < len(dn_list) else None
                 du = du_list[i] if i < len(du_list) else None
+                sp = speed_test_list[i] if i < len(speed_test_list) else ep.get('speed', 0.0)
+
+                h_val_r = round(h_val, 4) if h_val is not None else None
+                v_val_r = round(v_val, 4) if v_val is not None else None
+                de_r = round(de, 4) if de is not None else None
+                dn_r = round(dn, 4) if dn is not None else None
+                du_r = round(du, 4) if du is not None else None
+                sp_r = round(float(sp), 2) if sp is not None else 0.0
 
                 if h_val is not None:
                     seg_all_h.append(h_val)
 
+                # 散点
                 if de is not None and dn is not None:
                     dist = (de**2 + dn**2)**0.5
                     global_max_scatter = max(global_max_scatter, dist)
                     if len(scatter_pts) < 1500 and (i % max(1, len(epochs)//1500) == 0):
                         scatter_pts.append([round(de, 4), round(dn, 4)])
 
-                # 地图轨迹点做 GCJ-02 转换
+                # 地图点
                 raw_lat = float(ep.get('lat', 0.0))
                 raw_lon = float(ep.get('lon', 0.0))
                 if abs(raw_lat) > 1e-4 and abs(raw_lon) > 1e-4:
@@ -853,24 +889,39 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                         'h_err': h_val
                     })
 
-                # 时序聚合
-                h_dict[t_str] = round(h_val, 4) if h_val is not None else None
-                v_dict[t_str] = round(v_val, 4) if v_val is not None else None
-                de_dict[t_str] = round(de, 4) if de is not None else None
-                dn_dict[t_str] = round(dn, 4) if dn is not None else None
-                du_dict[t_str] = round(du, 4) if du is not None else None
-                sp = speed_test_list[i] if i < len(speed_test_list) else ep.get('speed', 0.0)
-                sp_dict[t_str] = round(float(sp), 2) if sp is not None else 0.0
+                # 时间轴映射
+                h_time_dict[t_str] = h_val_r
+                v_time_dict[t_str] = v_val_r
+                de_time_dict[t_str] = de_r
+                dn_time_dict[t_str] = dn_r
+                du_time_dict[t_str] = du_r
+                sp_time_dict[t_str] = sp_r
 
-            # 对齐到 filtered_timeline
-            h_series = [h_dict.get(t) for t in filtered_timeline]
-            v_series = [v_dict.get(t) for t in filtered_timeline]
-            de_series = [de_dict.get(t) for t in filtered_timeline]
-            dn_series = [dn_dict.get(t) for t in filtered_timeline]
-            du_series = [du_dict.get(t) for t in filtered_timeline]
-            speed_series = [sp_dict.get(t) for t in filtered_timeline]
+                # 历元序列
+                h_raw_list.append(h_val_r)
+                v_raw_list.append(v_val_r)
+                de_raw_list.append(de_r)
+                dn_raw_list.append(dn_r)
+                du_raw_list.append(du_r)
+                sp_raw_list.append(sp_r)
 
-            # 计算各分段的 CDF
+            # 映射到绝对时间轴
+            h_time_series = [h_time_dict.get(t) for t in filtered_timeline]
+            v_time_series = [v_time_dict.get(t) for t in filtered_timeline]
+            de_time_series = [de_time_dict.get(t) for t in filtered_timeline]
+            dn_time_series = [dn_time_dict.get(t) for t in filtered_timeline]
+            du_time_series = [du_time_dict.get(t) for t in filtered_timeline]
+            speed_time_series = [sp_time_dict.get(t) for t in filtered_timeline]
+
+            # 映射到相对历元轴 (按 epoch_step 抽样)
+            h_epoch_series = [h_raw_list[idx-1] if (idx-1) < len(h_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
+            v_epoch_series = [v_raw_list[idx-1] if (idx-1) < len(v_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
+            de_epoch_series = [de_raw_list[idx-1] if (idx-1) < len(de_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
+            dn_epoch_series = [dn_raw_list[idx-1] if (idx-1) < len(dn_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
+            du_epoch_series = [du_raw_list[idx-1] if (idx-1) < len(du_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
+            speed_epoch_series = [sp_raw_list[idx-1] if (idx-1) < len(sp_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
+
+            # CDF 计算
             cdf_pts = []
             if seg_all_h:
                 sorted_errs = sorted(seg_all_h)
@@ -884,12 +935,18 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 'name': s_name,
                 'color': s_color,
                 'points': s_map_points,
-                'h_series': h_series,
-                'v_series': v_series,
-                'de_series': de_series,
-                'dn_series': dn_series,
-                'du_series': du_series,
-                'speed_series': speed_series,
+                'h_time_series': h_time_series,
+                'v_time_series': v_time_series,
+                'de_time_series': de_time_series,
+                'dn_time_series': dn_time_series,
+                'du_time_series': du_time_series,
+                'speed_time_series': speed_time_series,
+                'h_epoch_series': h_epoch_series,
+                'v_epoch_series': v_epoch_series,
+                'de_epoch_series': de_epoch_series,
+                'dn_epoch_series': dn_epoch_series,
+                'du_epoch_series': du_epoch_series,
+                'speed_epoch_series': speed_epoch_series,
                 'scatter_pts': scatter_pts,
                 'cdf_pts': cdf_pts
             })
@@ -899,7 +956,7 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         progress.setValue(80)
         QApplication.processEvents()
 
-        # 4. 组装并写入 HTML 文件
+        # 5. 组装并写入 HTML 文件
         html_content = HTML_REPORT_TEMPLATE
         html_content = html_content.replace('__REPORT_TITLE__', title_name)
         html_content = html_content.replace('__GEN_TIME__', gen_time)
@@ -911,9 +968,13 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         html_content = html_content.replace('__V_RMS__', v_rms_val)
         html_content = html_content.replace('__MAX_H_ERR__', max_h_val)
         html_content = html_content.replace('__CHECKED_RTK_COLOR__', checked_rtk_attr)
+        html_content = html_content.replace('__SELECT_EPOCH__', select_epoch_attr)
+        html_content = html_content.replace('__SELECT_TIME__', select_time_attr)
+        html_content = html_content.replace('__DEFAULT_XAXIS_MODE__', default_xaxis_mode)
         html_content = html_content.replace('__METRICS_TABLE_HTML__', table_html)
         html_content = html_content.replace('__SEGMENTS_PAYLOAD_JSON__', json.dumps(segments_payload))
         html_content = html_content.replace('__GLOBAL_TIMELINE_JSON__', json.dumps(filtered_timeline))
+        html_content = html_content.replace('__GLOBAL_EPOCHLINE_JSON__', json.dumps(filtered_epochline))
         html_content = html_content.replace('__SCATTER_LIMIT__', str(scatter_limit))
 
         progress.setValue(95)
