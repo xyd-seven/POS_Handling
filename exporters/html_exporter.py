@@ -940,6 +940,15 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             modalTitle.innerText = titleText + ' [全屏沉浸大图]';
             modalOverlay.style.display = 'block';
 
+            // 针对靶心图锁定 1:1 正方比例，避免宽屏下拉伸变形
+            if (chartKey === 'echScatter') {
+                modalCanvas.style.width = 'min(82vh, 82vw)';
+                modalCanvas.style.height = 'min(82vh, 82vw)';
+            } else {
+                modalCanvas.style.width = '100%';
+                modalCanvas.style.height = '100%';
+            }
+
             if (!modalChartInstance) {
                 modalChartInstance = echarts.init(modalCanvas);
             }
