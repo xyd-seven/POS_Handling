@@ -207,13 +207,26 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         }
 
         /* Map Container & Legend */
+        #map-placeholder {
+            width: 100%;
+            height: 520px;
+        }
         #map-wrapper {
             position: relative;
             width: 100%;
-            height: 520px;
+            height: 100%;
             border-radius: 8px;
             overflow: hidden;
             border: 1px solid var(--border);
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        #map-wrapper:hover {
+            border-color: var(--brand);
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+        }
+        #map-wrapper:hover .zoom-hint {
+            color: var(--brand);
         }
         #map-container {
             width: 100%;
@@ -476,9 +489,12 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                     </label>
                 </div>
             </div>
-            <div id="map-wrapper">
-                <div id="map-container"></div>
-                <div id="map-legend" class="map-legend"></div>
+            <div id="map-placeholder">
+                <div id="map-wrapper" ondblclick="zoomMap()" title="双击放大全屏地图">
+                    <span class="zoom-hint">⛶ 双击放大地图</span>
+                    <div id="map-container"></div>
+                    <div id="map-legend" class="map-legend"></div>
+                </div>
             </div>
         </div>
 
@@ -564,7 +580,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var isAbsAlt = __IS_ABS_ALT__;
 
         // 1. 初始化 Leaflet 轨迹地图
-        var map = L.map('map-container', { zoomControl: true, attributionControl: false }).setView([39.9, 116.4], 13);
+        var map = L.map('map-container', { zoomControl: true, attributionControl: false, doubleClickZoom: false }).setView([39.9, 116.4], 13);
         L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
             subdomains: ['1','2','3','4'], maxZoom: 18
         }).addTo(map);
@@ -932,8 +948,27 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var modalCanvas = document.getElementById('modal-chart-canvas');
         var modalTitle = document.getElementById('modal-chart-title');
         var modalChartInstance = null;
+        var isMapInModal = false;
+
+        function zoomMap() {
+            isMapInModal = true;
+            modalTitle.innerText = '🗺️ 空间二维运行轨迹与解状态投影 [全屏大地图]';
+            modalCanvas.style.width = '100%';
+            modalCanvas.style.height = '100%';
+            modalCanvas.style.display = 'none';
+
+            var mapWrapper = document.getElementById('map-wrapper');
+            document.querySelector('.modal-chart-body').appendChild(mapWrapper);
+            modalOverlay.style.display = 'block';
+
+            setTimeout(function() {
+                map.invalidateSize();
+            }, 60);
+        }
 
         function zoomChart(chartKey, titleText) {
+            isMapInModal = false;
+            modalCanvas.style.display = 'block';
             var sourceChart = chartsMap[chartKey];
             if (!sourceChart) return;
 
@@ -974,11 +1009,18 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         }
 
         function closeChartModal() {
+            if (isMapInModal) {
+                var mapWrapper = document.getElementById('map-wrapper');
+                document.getElementById('map-placeholder').appendChild(mapWrapper);
+                isMapInModal = false;
+                setTimeout(function() {
+                    map.invalidateSize();
+                }, 60);
+            }
             modalOverlay.style.display = 'none';
             if (modalChartInstance) {
                 modalChartInstance.clear();
             }
-            // 原图表毫秒级安全自适应，确保万无一失
             for (var k in chartsMap) {
                 chartsMap[k].resize();
             }
