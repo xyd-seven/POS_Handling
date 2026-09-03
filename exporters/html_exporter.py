@@ -643,12 +643,18 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var isDark = (currentTheme === 'dark');
             return {
                 title: isDark ? '#F8FAFC' : '#0F172A',
-                axis: isDark ? '#475569' : '#94A3B8',
-                axisText: isDark ? '#94A3B8' : '#475569',
-                split: isDark ? '#1E293B' : '#E2E8F0',
-                legend: isDark ? '#94A3B8' : '#475569',
-                circleGrid: isDark ? '#334155' : '#CBD5E1'
+                axis: isDark ? '#64748B' : '#475569',       // 加深加清晰坐标轴线
+                axisText: isDark ? '#CBD5E1' : '#334155',   // 高对比度刻度文字
+                split: isDark ? '#334155' : '#CBD5E1',      // 显著加深的刻度分割线
+                splitZero: isDark ? '#64748B' : '#94A3B8',  // 0 基准突出线
+                legend: isDark ? '#CBD5E1' : '#334155',
+                circleGrid: isDark ? '#475569' : '#94A3B8'  // 靶心标尺网格加深
             };
+        }
+
+        var isCurrentlyFullscreen = false;
+        function getDynamicLineWidth(baseWidth) {
+            return isCurrentlyFullscreen ? (baseWidth + 1.2) : baseWidth;
         }
 
         function renderAllCharts(mode) {
@@ -661,7 +667,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var seriesH = segmentsData.map(function(s) {
                 return {
                     name: s.name, type: 'line', data: isTime ? s.h_time_series : s.h_epoch_series,
-                    lineStyle: { color: s.color, width: 1.8 },
+                    lineStyle: { color: s.color, width: getDynamicLineWidth(1.8) },
                     itemStyle: { color: s.color },
                     showSymbol: false
                 };
@@ -674,7 +680,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
                 grid: { left: 60, right: 30, top: 65, bottom: 42 },
                 xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } },
-                yAxis: { type: 'value', name: '偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
+                yAxis: { type: 'value', name: '偏差 (m)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 series: seriesH
             }, true);
 
@@ -682,7 +688,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var seriesV = segmentsData.map(function(s) {
                 return {
                     name: s.name, type: 'line', data: isTime ? s.v_time_series : s.v_epoch_series,
-                    lineStyle: { color: s.color, width: 1.8 },
+                    lineStyle: { color: s.color, width: getDynamicLineWidth(1.8) },
                     itemStyle: { color: s.color },
                     showSymbol: false
                 };
@@ -695,7 +701,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
                 grid: { left: 60, right: 30, top: 65, bottom: 42 },
                 xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } },
-                yAxis: { type: 'value', name: '高程偏差 (m)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
+                yAxis: { type: 'value', name: '高程偏差 (m)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 series: seriesV
             }, true);
 
@@ -706,17 +712,17 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 seriesENU.push({
                     name: seg.name + ' - dE', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
                     data: isTime ? seg.de_time_series : seg.de_epoch_series,
-                    lineStyle: { color: seg.color, width: 1.6 }, itemStyle: { color: seg.color }, showSymbol: false
+                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6) }, itemStyle: { color: seg.color }, showSymbol: false
                 });
                 seriesENU.push({
                     name: seg.name + ' - dN', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
                     data: isTime ? seg.dn_time_series : seg.dn_epoch_series,
-                    lineStyle: { color: seg.color, width: 1.6, type: 'dashed' }, itemStyle: { color: seg.color }, showSymbol: false
+                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6), type: 'dashed' }, itemStyle: { color: seg.color }, showSymbol: false
                 });
                 seriesENU.push({
                     name: seg.name + ' - dU', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
                     data: isTime ? seg.du_time_series : seg.du_epoch_series,
-                    lineStyle: { color: seg.color, width: 1.6, type: 'dotted' }, itemStyle: { color: seg.color }, showSymbol: false
+                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6), type: 'dotted' }, itemStyle: { color: seg.color }, showSymbol: false
                 });
             }
             echENU.setOption({
@@ -751,7 +757,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var seriesSpeed = segmentsData.map(function(s) {
                 return {
                     name: s.name, type: 'line', data: isTime ? s.speed_time_series : s.speed_epoch_series,
-                    lineStyle: { color: s.color, width: 1.8 },
+                    lineStyle: { color: s.color, width: getDynamicLineWidth(1.8) },
                     itemStyle: { color: s.color },
                     showSymbol: false
                 };
@@ -764,7 +770,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
                 grid: { left: 60, right: 30, top: 65, bottom: 42 },
                 xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } },
-                yAxis: { type: 'value', name: '速度 (m/s)', nameLocation: 'end', nameGap: 10, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
+                yAxis: { type: 'value', name: '速度 (m/s)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 series: seriesSpeed
             }, true);
         }
@@ -802,7 +808,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 scatterSeries.push({
                     name: seg.name,
                     type: 'scatter',
-                    symbolSize: 5,
+                    symbolSize: (isCurrentlyFullscreen ? 7.5 : 5),
                     data: seg.scatter_pts,
                     itemStyle: { color: seg.color, opacity: 0.85 }
                 });
@@ -821,13 +827,13 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 grid: { left: 40, right: 40, top: 50, bottom: 40 },
                 xAxis: {
                     type: 'value', min: -maxLimit, max: maxLimit,
-                    axisLine: { onZero: true, lineStyle: { color: tc.axis } },
+                    axisLine: { onZero: true, lineStyle: { color: tc.axis, width: 1.5 } }, axisTick: { show: true, lineStyle: { color: tc.axis } },
                     axisLabel: { color: tc.axisText },
                     splitLine: { show: false }
                 },
                 yAxis: {
                     type: 'value', min: -maxLimit, max: maxLimit,
-                    axisLine: { onZero: true, lineStyle: { color: tc.axis } },
+                    axisLine: { onZero: true, lineStyle: { color: tc.axis, width: 1.5 } }, axisTick: { show: true, lineStyle: { color: tc.axis } },
                     axisLabel: { color: tc.axisText },
                     splitLine: { show: false }
                 },
@@ -916,8 +922,11 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
 
         function enterFullscreen(boxEl) {
             currentFullscreenEl = boxEl;
+            isCurrentlyFullscreen = true;
             boxEl.classList.add('chart-fullscreen');
             document.getElementById('btn-close-fullscreen').style.display = 'block';
+            renderAllCharts(currentXAxisMode);
+            renderScatterAndCDF();
 
             setTimeout(function() {
                 if (boxEl.id === 'map-wrapper') {
@@ -936,6 +945,9 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             document.getElementById('btn-close-fullscreen').style.display = 'none';
             var oldEl = currentFullscreenEl;
             currentFullscreenEl = null;
+            isCurrentlyFullscreen = false;
+            renderAllCharts(currentXAxisMode);
+            renderScatterAndCDF();
 
             setTimeout(function() {
                 if (oldEl.id === 'map-wrapper') {
