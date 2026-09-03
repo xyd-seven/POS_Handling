@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Interactive Standalone HTML GNSS Report Exporter (Pro Edition v6)
-- Fix bullseye chart concentric circles: uses mathematical coordinate series (x=r*cos, y=r*sin) anchored permanently to (0,0), eliminates any pixel offset during fullscreen zoom
-- Dark / Light Theme Toggle: full theme switching with CSS variables and ECharts palette adaptation
-- Multi-segment overlay with software colors, map legend, and double-click fullscreen
-- Epoch Alignment and Time Alignment dual-mode
+Interactive Standalone HTML GNSS Report Exporter (Pro Edition v9)
+- Isolated Fullscreen Modal: uses a dedicated clean overlay modal for chart zoom, completely preventing any CSS Grid collapse or side-effect on sibling charts
+- High-contrast axis ticks & split lines in both dark and light modes
+- Supports Epoch Alignment and Time Alignment dual-mode
+- High elevation absolute error support
+- Solid lines for all ENU subplots
+- Multi-segment overlay with software colors, map legend, and 1:1 circular bullseye
 """
 
 import os
@@ -26,7 +28,6 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        /* 主题调色板：默认深色模式 */
         :root[data-theme="dark"] {
             --bg-main: #0B1120;
             --bg-card: #1E293B;
@@ -40,18 +41,18 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             --success: #10B981;
             --warning: #F59E0B;
             --danger: #EF4444;
-            --chart-split: #1E293B;
-            --chart-axis: #475569;
+            --chart-split: #334155;
+            --chart-axis: #64748B;
             --table-hover: rgba(56, 189, 248, 0.06);
             --legend-bg: rgba(15, 23, 42, 0.88);
+            --modal-bg: rgba(11, 17, 32, 0.95);
         }
 
-        /* 浅色模式调色板 (Light Theme) */
         :root[data-theme="light"] {
             --bg-main: #F1F5F9;
             --bg-card: #FFFFFF;
             --bg-subtle: #F8FAFC;
-            --border: #E2E8F0;
+            --border: #CBD5E1;
             --border-hover: #0284C7;
             --text-main: #0F172A;
             --text-sub: #475569;
@@ -60,19 +61,21 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             --success: #059669;
             --warning: #D97706;
             --danger: #DC2626;
-            --chart-split: #E2E8F0;
-            --chart-axis: #94A3B8;
+            --chart-split: #CBD5E1;
+            --chart-axis: #475569;
             --table-hover: rgba(2, 132, 199, 0.05);
-            --legend-bg: rgba(255, 255, 255, 0.92);
+            --legend-bg: rgba(255, 255, 255, 0.94);
+            --modal-bg: rgba(241, 245, 249, 0.96);
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; transition: background-color 0.25s, color 0.25s, border-color 0.25s; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
             background-color: var(--bg-main);
             color: var(--text-main);
             line-height: 1.6;
             padding: 20px;
+            transition: background-color 0.25s, color 0.25s;
         }
         .container {
             width: 96%;
@@ -112,6 +115,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             align-items: center;
             gap: 6px;
             outline: none;
+            transition: all 0.2s;
         }
         .theme-toggle-btn:hover {
             border-color: var(--brand);
@@ -210,7 +214,6 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             border-radius: 8px;
             overflow: hidden;
             border: 1px solid var(--border);
-            cursor: pointer;
         }
         #map-container {
             width: 100%;
@@ -324,51 +327,69 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             user-select: none;
             transition: color 0.2s;
         }
-        .chart-box:hover .zoom-hint, .bullseye-container:hover .zoom-hint, #map-wrapper:hover .zoom-hint {
+        .chart-box:hover .zoom-hint, .bullseye-container:hover .zoom-hint {
             color: var(--brand);
         }
 
-        /* 全屏放大模式样式 */
-        .chart-fullscreen {
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100vw !important;
-            height: 100vh !important;
-            z-index: 999999 !important;
-            background: var(--bg-main) !important;
-            padding: 24px !important;
-            border-radius: 0 !important;
-            border: none !important;
-            box-shadow: none !important;
-            margin: 0 !important;
-        }
-        .chart-fullscreen #chart-scatter {
-            width: min(85vh, 85vw) !important;
-            height: min(85vh, 85vw) !important;
-            max-width: none !important;
-            max-height: none !important;
-        }
-        .close-fullscreen-btn {
+        /* 🌟 独立的全屏模态遮罩层 (Isolated Modal Overlay) - 绝不影响原页面 Grid 布局 */
+        .chart-modal-overlay {
             display: none;
             position: fixed;
-            top: 20px;
-            right: 28px;
-            z-index: 1000000;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 999999;
+            background: var(--modal-bg);
+            backdrop-filter: blur(12px);
+            padding: 20px 30px;
+        }
+        .modal-dialog {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 12px;
+        }
+        .modal-title {
+            font-size: 17px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+        .modal-close-btn {
             background: var(--bg-card);
             border: 1px solid var(--brand);
             color: var(--brand);
-            padding: 8px 18px;
+            padding: 6px 18px;
             border-radius: 20px;
             font-size: 13px;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
             transition: all 0.2s;
         }
-        .close-fullscreen-btn:hover {
+        .modal-close-btn:hover {
             background: var(--brand);
             color: #FFFFFF;
+        }
+        .modal-chart-body {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #modal-chart-canvas {
+            width: 100%;
+            height: 100%;
         }
 
         /* Footer */
@@ -381,7 +402,18 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <button id="btn-close-fullscreen" class="close-fullscreen-btn" onclick="exitFullscreen()">✕ 还原默认视图 (或按 ESC / 双击)</button>
+    <!-- 独立全屏大图弹窗 -->
+    <div id="chart-modal-overlay" class="chart-modal-overlay" ondblclick="closeChartModal()">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <div id="modal-chart-title" class="modal-title">图表全屏分析</div>
+                <button class="modal-close-btn" onclick="closeChartModal()">✕ 还原默认视图 (ESC / 双击)</button>
+            </div>
+            <div class="modal-chart-body">
+                <div id="modal-chart-canvas"></div>
+            </div>
+        </div>
+    </div>
 
     <div class="container">
         <!-- Header -->
@@ -444,8 +476,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                     </label>
                 </div>
             </div>
-            <div id="map-wrapper" ondblclick="toggleChartFullscreen(this)">
-                <span class="zoom-hint">⛶ 双击全屏放大</span>
+            <div id="map-wrapper">
                 <div id="map-container"></div>
                 <div id="map-legend" class="map-legend"></div>
             </div>
@@ -478,11 +509,11 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
 
             <!-- 第一行：水平误差与垂直误差 -->
             <div class="charts-row-2col">
-                <div class="chart-box" id="box-epoch-h" ondblclick="toggleChartFullscreen(this)">
+                <div class="chart-box" id="box-epoch-h" ondblclick="zoomChart('echH', '水平位置误差历元分布图 (2D Error)')">
                     <span class="zoom-hint">⛶ 双击放大</span>
                     <div id="chart-epoch-h" style="width:100%; height:100%;"></div>
                 </div>
-                <div class="chart-box" id="box-epoch-v" ondblclick="toggleChartFullscreen(this)">
+                <div class="chart-box" id="box-epoch-v" ondblclick="zoomChart('echV', '高程位置误差历元分布图 (Vertical Error)')">
                     <span class="zoom-hint">⛶ 双击放大</span>
                     <div id="chart-epoch-v" style="width:100%; height:100%;"></div>
                 </div>
@@ -490,7 +521,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
 
             <!-- 第二行：三向 ENU 误差 -->
             <div class="charts-row-full">
-                <div class="chart-box chart-box-tall" id="box-epoch-enu" ondblclick="toggleChartFullscreen(this)">
+                <div class="chart-box chart-box-tall" id="box-epoch-enu" ondblclick="zoomChart('echENU', 'ENU 三向位置误差历元曲线 (E / N / U 分层独立展示)')">
                     <span class="zoom-hint">⛶ 双击放大</span>
                     <div id="chart-epoch-enu" style="width:100%; height:100%;"></div>
                 </div>
@@ -498,11 +529,11 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
 
             <!-- 第三行：自适应正圆靶心图 与 CDF 累积分布图 -->
             <div class="charts-row-2col">
-                <div class="bullseye-container" id="box-scatter" ondblclick="toggleChartFullscreen(this)">
+                <div class="bullseye-container" id="box-scatter" ondblclick="zoomChart('echScatter', '定位偏差散点分布 (靶心图 · 1:1正圆)')">
                     <span class="zoom-hint">⛶ 双击放大</span>
                     <div id="chart-scatter"></div>
                 </div>
-                <div class="chart-box" id="box-cdf" ondblclick="toggleChartFullscreen(this)">
+                <div class="chart-box" id="box-cdf" ondblclick="zoomChart('echCDF', '误差累积概率分布曲线 (CDF)')">
                     <span class="zoom-hint">⛶ 双击放大</span>
                     <div id="chart-cdf" style="width:100%; height:100%;"></div>
                 </div>
@@ -510,7 +541,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
 
             <!-- 第四行：运行速度曲线 -->
             <div class="charts-row-full">
-                <div class="chart-box" id="box-speed" ondblclick="toggleChartFullscreen(this)">
+                <div class="chart-box" id="box-speed" ondblclick="zoomChart('echSpeed', '对地运行速度时序曲线')">
                     <span class="zoom-hint">⛶ 双击放大</span>
                     <div id="chart-speed" style="width:100%; height:100%;"></div>
                 </div>
@@ -529,7 +560,8 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var globalEpochline = __GLOBAL_EPOCHLINE_JSON__;
         var maxLimit = __SCATTER_LIMIT__ || 1.0;
         var currentXAxisMode = '__DEFAULT_XAXIS_MODE__';
-        var currentTheme = 'dark'; // 'dark' or 'light'
+        var currentTheme = 'dark';
+        var isAbsAlt = __IS_ABS_ALT__;
 
         // 1. 初始化 Leaflet 轨迹地图
         var map = L.map('map-container', { zoomControl: true, attributionControl: false }).setView([39.9, 116.4], 13);
@@ -637,24 +669,21 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var echCDF = echarts.init(document.getElementById('chart-cdf'));
         var echSpeed = echarts.init(document.getElementById('chart-speed'));
 
-        var allChartsList = [echH, echV, echENU, echScatter, echCDF, echSpeed];
+        var chartsMap = {
+            'echH': echH, 'echV': echV, 'echENU': echENU,
+            'echScatter': echScatter, 'echCDF': echCDF, 'echSpeed': echSpeed
+        };
 
         function getThemeColors() {
             var isDark = (currentTheme === 'dark');
             return {
                 title: isDark ? '#F8FAFC' : '#0F172A',
-                axis: isDark ? '#64748B' : '#475569',       // 加深加清晰坐标轴线
-                axisText: isDark ? '#CBD5E1' : '#334155',   // 高对比度刻度文字
-                split: isDark ? '#334155' : '#CBD5E1',      // 显著加深的刻度分割线
-                splitZero: isDark ? '#64748B' : '#94A3B8',  // 0 基准突出线
+                axis: isDark ? '#64748B' : '#475569',
+                axisText: isDark ? '#CBD5E1' : '#334155',
+                split: isDark ? '#334155' : '#CBD5E1',
                 legend: isDark ? '#CBD5E1' : '#334155',
-                circleGrid: isDark ? '#475569' : '#94A3B8'  // 靶心标尺网格加深
+                circleGrid: isDark ? '#475569' : '#94A3B8'
             };
-        }
-
-        var isCurrentlyFullscreen = false;
-        function getDynamicLineWidth(baseWidth) {
-            return isCurrentlyFullscreen ? (baseWidth + 1.2) : baseWidth;
         }
 
         function renderAllCharts(mode) {
@@ -667,7 +696,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var seriesH = segmentsData.map(function(s) {
                 return {
                     name: s.name, type: 'line', data: isTime ? s.h_time_series : s.h_epoch_series,
-                    lineStyle: { color: s.color, width: getDynamicLineWidth(1.8) },
+                    lineStyle: { color: s.color, width: 1.8 },
                     itemStyle: { color: s.color },
                     showSymbol: false
                 };
@@ -679,7 +708,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
                 grid: { left: 60, right: 30, top: 65, bottom: 42 },
-                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } },
+                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisTick: { show: true }, axisLine: { show: true, lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 yAxis: { type: 'value', name: '偏差 (m)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 series: seriesH
             }, true);
@@ -688,41 +717,42 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var seriesV = segmentsData.map(function(s) {
                 return {
                     name: s.name, type: 'line', data: isTime ? s.v_time_series : s.v_epoch_series,
-                    lineStyle: { color: s.color, width: getDynamicLineWidth(1.8) },
+                    lineStyle: { color: s.color, width: 1.8 },
                     itemStyle: { color: s.color },
                     showSymbol: false
                 };
             });
+            var vTitle = (isAbsAlt ? '高程位置误差绝对值历元分布图 (|Vertical Error| · ' : '高程位置误差历元分布图 (Vertical Error · ') + (isTime ? '时间对齐' : '历元对齐') + ')';
             echV.setOption({
                 backgroundColor: 'transparent',
-                title: { text: (__IS_ABS_ALT__ ? '高程位置误差绝对值历元分布图 (|Vertical Error| · ' : '高程位置误差历元分布图 (Vertical Error · ') + (isTime ? '时间对齐' : '历元对齐') + ')', left: 'center', top: 8, textStyle: { fontSize: 15, color: tc.title } },
+                title: { text: vTitle, left: 'center', top: 8, textStyle: { fontSize: 15, color: tc.title } },
                 tooltip: { trigger: 'axis' },
                 legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
                 grid: { left: 60, right: 30, top: 65, bottom: 42 },
-                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } },
-                yAxis: { type: 'value', name: '高程偏差 (m)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
+                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisTick: { show: true }, axisLine: { show: true, lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
+                yAxis: { type: 'value', name: isAbsAlt ? '高程绝对偏差 (m)' : '高程偏差 (m)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 series: seriesV
             }, true);
 
-            // C. ENU 三向误差图
+            // C. ENU 三向误差图 (全实线)
             var seriesENU = [];
             for (var s = 0; s < segmentsData.length; s++) {
                 var seg = segmentsData[s];
                 seriesENU.push({
                     name: seg.name + ' - dE', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
                     data: isTime ? seg.de_time_series : seg.de_epoch_series,
-                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6) }, itemStyle: { color: seg.color }, showSymbol: false
+                    lineStyle: { color: seg.color, width: 1.6 }, itemStyle: { color: seg.color }, showSymbol: false
                 });
                 seriesENU.push({
                     name: seg.name + ' - dN', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
                     data: isTime ? seg.dn_time_series : seg.dn_epoch_series,
-                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6) }, itemStyle: { color: seg.color }, showSymbol: false
+                    lineStyle: { color: seg.color, width: 1.6 }, itemStyle: { color: seg.color }, showSymbol: false
                 });
                 seriesENU.push({
                     name: seg.name + ' - dU', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
                     data: isTime ? seg.du_time_series : seg.du_epoch_series,
-                    lineStyle: { color: seg.color, width: getDynamicLineWidth(1.6) }, itemStyle: { color: seg.color }, showSymbol: false
+                    lineStyle: { color: seg.color, width: 1.6 }, itemStyle: { color: seg.color }, showSymbol: false
                 });
             }
             echENU.setOption({
@@ -743,7 +773,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 xAxis: [
                     { gridIndex: 0, type: 'category', data: currentXData, axisLabel: { show: false }, axisTick: { show: false } },
                     { gridIndex: 1, type: 'category', data: currentXData, axisLabel: { show: false }, axisTick: { show: false } },
-                    { gridIndex: 2, type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } }
+                    { gridIndex: 2, type: 'category', data: currentXData, name: xAxisName, axisTick: { show: true }, axisLine: { show: true, lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText, fontWeight: 500 } }
                 ],
                 yAxis: [
                     { gridIndex: 0, type: 'value', name: '东向 dE (m)', nameLocation: 'middle', nameGap: 45, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
@@ -757,7 +787,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             var seriesSpeed = segmentsData.map(function(s) {
                 return {
                     name: s.name, type: 'line', data: isTime ? s.speed_time_series : s.speed_epoch_series,
-                    lineStyle: { color: s.color, width: getDynamicLineWidth(1.8) },
+                    lineStyle: { color: s.color, width: 1.8 },
                     itemStyle: { color: s.color },
                     showSymbol: false
                 };
@@ -769,19 +799,16 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
                 grid: { left: 60, right: 30, top: 65, bottom: 42 },
-                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisLine: { lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText } },
+                xAxis: { type: 'category', data: currentXData, name: xAxisName, axisTick: { show: true }, axisLine: { show: true, lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 yAxis: { type: 'value', name: '速度 (m/s)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 series: seriesSpeed
             }, true);
         }
 
-        // =========================================================================
-        // 🌟 核心重构：靶心图同心圆网格采用物理几何折线系列，永远锚定 (0,0) 原点！
-        // =========================================================================
+        // 靶心图与 CDF 初始化
         function renderScatterAndCDF() {
             var tc = getThemeColors();
 
-            // 生成严格以 (0,0) 为圆心的同心圆点集 (100个采样点闭合成圆)
             var scatterSeries = [];
             var circleSteps = [0.25, 0.5, 0.75, 1.0];
             for (var c = 0; c < circleSteps.length; c++) {
@@ -802,13 +829,12 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 });
             }
 
-            // 各分段散点系列
             for (var s = 0; s < segmentsData.length; s++) {
                 var seg = segmentsData[s];
                 scatterSeries.push({
                     name: seg.name,
                     type: 'scatter',
-                    symbolSize: (isCurrentlyFullscreen ? 7.5 : 5),
+                    symbolSize: 5,
                     data: seg.scatter_pts,
                     itemStyle: { color: seg.color, opacity: 0.85 }
                 });
@@ -827,13 +853,15 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 grid: { left: 40, right: 40, top: 50, bottom: 40 },
                 xAxis: {
                     type: 'value', min: -maxLimit, max: maxLimit,
-                    axisLine: { onZero: true, lineStyle: { color: tc.axis, width: 1.5 } }, axisTick: { show: true, lineStyle: { color: tc.axis } },
+                    axisLine: { onZero: true, lineStyle: { color: tc.axis, width: 1.5 } },
+                    axisTick: { show: true, lineStyle: { color: tc.axis } },
                     axisLabel: { color: tc.axisText },
                     splitLine: { show: false }
                 },
                 yAxis: {
                     type: 'value', min: -maxLimit, max: maxLimit,
-                    axisLine: { onZero: true, lineStyle: { color: tc.axis, width: 1.5 } }, axisTick: { show: true, lineStyle: { color: tc.axis } },
+                    axisLine: { onZero: true, lineStyle: { color: tc.axis, width: 1.5 } },
+                    axisTick: { show: true, lineStyle: { color: tc.axis } },
                     axisLabel: { color: tc.axisText },
                     splitLine: { show: false }
                 },
@@ -879,9 +907,6 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             renderAllCharts(mode);
         }
 
-        // =========================================================================
-        // 🌓 深色 / 浅色模式动态切换
-        // =========================================================================
         function toggleTheme() {
             var htmlRoot = document.documentElement;
             if (currentTheme === 'dark') {
@@ -900,75 +925,72 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             updateMapDisplay();
         }
 
-        // 初始渲染图表
-        renderAllCharts(currentXAxisMode);
-        renderScatterAndCDF();
-
         // =========================================================================
-        // 🌟 单个图表双击全屏放大 / 再次双击还原 (支持 ESC 键与关闭按钮)
+        // 🌟 核心升级：专用全屏模态弹窗系统 (完全隔离，彻底杜绝 Grid 塌陷和兄弟图挤压)
         // =========================================================================
-        var currentFullscreenEl = null;
+        var modalOverlay = document.getElementById('chart-modal-overlay');
+        var modalCanvas = document.getElementById('modal-chart-canvas');
+        var modalTitle = document.getElementById('modal-chart-title');
+        var modalChartInstance = null;
 
-        function toggleChartFullscreen(boxEl) {
-            if (currentFullscreenEl === boxEl) {
-                exitFullscreen();
-            } else {
-                if (currentFullscreenEl) {
-                    exitFullscreen();
-                }
-                enterFullscreen(boxEl);
+        function zoomChart(chartKey, titleText) {
+            var sourceChart = chartsMap[chartKey];
+            if (!sourceChart) return;
+
+            modalTitle.innerText = titleText + ' [全屏沉浸大图]';
+            modalOverlay.style.display = 'block';
+
+            if (!modalChartInstance) {
+                modalChartInstance = echarts.init(modalCanvas);
             }
-        }
 
-        function enterFullscreen(boxEl) {
-            currentFullscreenEl = boxEl;
-            isCurrentlyFullscreen = true;
-            boxEl.classList.add('chart-fullscreen');
-            document.getElementById('btn-close-fullscreen').style.display = 'block';
-            renderAllCharts(currentXAxisMode);
-            renderScatterAndCDF();
+            // 克隆原图表的完整配置，并为全屏状态加粗线条与散点
+            var opt = JSON.parse(JSON.stringify(sourceChart.getOption()));
 
-            setTimeout(function() {
-                if (boxEl.id === 'map-wrapper') {
-                    map.invalidateSize();
-                } else {
-                    for (var i = 0; i < allChartsList.length; i++) {
-                        allChartsList[i].resize();
+            if (opt.series) {
+                for (var i = 0; i < opt.series.length; i++) {
+                    var s = opt.series[i];
+                    if (s.type === 'line' && s.lineStyle && s.name !== '标尺网格') {
+                        s.lineStyle.width = (s.lineStyle.width || 1.8) + 1.2; // 全屏线条加粗至 3.0px
+                    } else if (s.type === 'scatter') {
+                        s.symbolSize = 7.5; // 散点加粗至 7.5px
                     }
                 }
-            }, 60);
+            }
+
+            modalChartInstance.setOption(opt, true);
+            setTimeout(function() {
+                modalChartInstance.resize();
+            }, 30);
         }
 
-        function exitFullscreen() {
-            if (!currentFullscreenEl) return;
-            currentFullscreenEl.classList.remove('chart-fullscreen');
-            document.getElementById('btn-close-fullscreen').style.display = 'none';
-            var oldEl = currentFullscreenEl;
-            currentFullscreenEl = null;
-            isCurrentlyFullscreen = false;
-            renderAllCharts(currentXAxisMode);
-            renderScatterAndCDF();
-
-            setTimeout(function() {
-                if (oldEl.id === 'map-wrapper') {
-                    map.invalidateSize();
-                } else {
-                    for (var i = 0; i < allChartsList.length; i++) {
-                        allChartsList[i].resize();
-                    }
-                }
-            }, 60);
+        function closeChartModal() {
+            modalOverlay.style.display = 'none';
+            if (modalChartInstance) {
+                modalChartInstance.clear();
+            }
+            // 原图表毫秒级安全自适应，确保万无一失
+            for (var k in chartsMap) {
+                chartsMap[k].resize();
+            }
         }
 
         window.addEventListener('keydown', function(e) {
             if (e.key === 'Escape' || e.keyCode === 27) {
-                exitFullscreen();
+                closeChartModal();
             }
         });
 
+        // 初始渲染
+        renderAllCharts(currentXAxisMode);
+        renderScatterAndCDF();
+
         window.addEventListener('resize', function() {
-            for (var i = 0; i < allChartsList.length; i++) {
-                allChartsList[i].resize();
+            for (var k in chartsMap) {
+                chartsMap[k].resize();
+            }
+            if (modalChartInstance && modalOverlay.style.display === 'block') {
+                modalChartInstance.resize();
             }
             if (map) map.invalidateSize();
         });
@@ -1014,7 +1036,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         select_epoch_attr = "selected" if default_xaxis_mode == "epoch" else ""
         select_time_attr = "selected" if default_xaxis_mode == "time" else ""
 
-        # 读取软件是否勾选“高程绝对值误差”
         show_absolute_alt = getattr(parent_window, 'show_absolute_alt', False)
         if hasattr(parent_window, 'cb_abs_alt') and hasattr(parent_window.cb_abs_alt, 'isChecked'):
             show_absolute_alt = parent_window.cb_abs_alt.isChecked()
@@ -1154,6 +1175,7 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 v_val = v_err_list[i] if i < len(v_err_list) else None
                 if v_val is not None and show_absolute_alt:
                     v_val = abs(v_val)
+
                 de = de_list[i] if i < len(de_list) else None
                 dn = dn_list[i] if i < len(dn_list) else None
                 du = du_list[i] if i < len(du_list) else None
