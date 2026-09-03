@@ -195,6 +195,8 @@ def get_sat_info(prefix_or_talker, prn):
     return 'GPS', prn, 'G'
 
 class CNoPlotCanvas(QWidget):
+    sig_double_clicked = Signal()
+
     def __init__(self, parent=None, width=5, height=3, dpi=100):
         super().__init__(parent)
         import pyqtgraph as pg
@@ -211,6 +213,12 @@ class CNoPlotCanvas(QWidget):
         self.plot_widget = pg.PlotWidget(background=init_bg)
         self.plot_widget.setMouseEnabled(x=False, y=False) # 锁定缩放与拖拽
         self.plot_widget.setMenuEnabled(False)             # 禁用右键菜单
+
+        # 安装事件过滤器以捕获图表区域的双击全屏/还原事件
+        self.plot_widget.installEventFilter(self)
+        if hasattr(self.plot_widget, 'viewport'):
+            self.plot_widget.viewport().installEventFilter(self)
+
         layout.addWidget(self.plot_widget)
         
         self.plot_item = self.plot_widget.getPlotItem()
@@ -296,6 +304,13 @@ class CNoPlotCanvas(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.reposition_flags()
+
+    def eventFilter(self, watched, event):
+        from PySide6.QtCore import QEvent
+        if event.type() == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton:
+            self.sig_double_clicked.emit()
+            return True
+        return super().eventFilter(watched, event)
 
     def get_signal_name(self, pref, sig_id):
         if pref == 'GPS':
@@ -1833,12 +1848,15 @@ class MainWindow(QMainWindow):
         self.serial_upper_splitter.addWidget(self.group_console)
 
         # F.2.2 下层：可见卫星载噪比监视器卡片包裹
-        self.group_cno = QGroupBox("可见卫星载噪比监视器")
+        self.group_cno = QGroupBox("可见卫星载噪比监视器 (双击全屏 / 还原)")
+        self.is_cno_maximized = False
+        self.cno_saved_splitter_sizes = [600, 300]
         cno_layout = QVBoxLayout(self.group_cno)
         cno_layout.setContentsMargins(8, 16, 8, 8)
         cno_layout.setSpacing(0)
 
         self.canvas_cno = CNoPlotCanvas(self.group_cno)
+        self.canvas_cno.sig_double_clicked.connect(self.toggle_cno_maximize)
         cno_layout.addWidget(self.canvas_cno)
         self.serial_vertical_splitter.addWidget(self.group_cno)
 
@@ -5634,6 +5652,26 @@ class MainWindow(QMainWindow):
                 return
             self._last_cno_snapshot = snapshot
             self.canvas_cno.render_cno(self.gsv_satellites, self.used_satellites, self.has_received_gsa, self.sat_metadata)
+
+    def toggle_cno_maximize(self):
+        """ 双击载噪比视图：全屏最大化 / 还原默认布局 """
+        self.is_cno_maximized = not getattr(self, 'is_cno_maximized', False)
+        if self.is_cno_maximized:
+            sizes = self.serial_vertical_splitter.sizes()
+            if sizes and len(sizes) >= 2 and sizes[0] > 0:
+                self.cno_saved_splitter_sizes = sizes
+            self.serial_upper_splitter.hide()
+            self.group_cno.setTitle("可见卫星载噪比监视器 [全屏最大化中 · 双击还原默认显示]")
+        else:
+            self.serial_upper_splitter.show()
+            saved_sizes = getattr(self, 'cno_saved_splitter_sizes', [600, 300])
+            self.serial_vertical_splitter.setSizes(saved_sizes)
+            self.group_cno.setTitle("可见卫星载噪比监视器 (双击全屏 / 还原)")
+
+        if hasattr(self, 'canvas_cno'):
+            QTimer.singleShot(60, lambda: self.canvas_cno.render_cno(
+                self.gsv_satellites, self.used_satellites, self.has_received_gsa, self.sat_metadata
+            ))
 
         if hasattr(self, 'canvas_skyplot') and self.tab_widget.currentIndex() == 6 and self.skyplot_mode in ['snapshot', '3d']:
             live_sats = {}
