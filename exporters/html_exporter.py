@@ -412,6 +412,87 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             color: var(--text-sub);
             padding: 24px 0;
         }
+
+        /* 📱 移动端专属响应式规则 (屏幕宽度 <= 768px 生效，电脑端 100% 完全忽略) */
+        @media (max-width: 768px) {
+            body { padding: 10px 8px; }
+            .container { width: 100%; max-width: 100%; margin: 0; }
+            
+            .report-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 14px 16px;
+            }
+            .header-title h1 { font-size: 18px; }
+            .header-title p { font-size: 11px; }
+            .header-actions {
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .header-badge { font-size: 11px; padding: 4px 10px; }
+            .theme-toggle-btn { font-size: 12px; padding: 6px 12px; }
+
+            /* KPI 仪表盘在手机上优雅排为双列四格 */
+            .kpi-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+            .kpi-card { padding: 10px 12px; }
+            .kpi-label { font-size: 11px; margin-bottom: 4px; }
+            .kpi-value { font-size: 20px; }
+            .kpi-unit { font-size: 11px; }
+
+            .section-card {
+                padding: 14px 12px;
+                margin-bottom: 14px;
+                border-radius: 10px;
+            }
+            .section-title {
+                font-size: 14px;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .top-controls {
+                width: 100%;
+                flex-wrap: wrap;
+                gap: 8px;
+                font-size: 12px;
+            }
+
+            /* 图表黄金适度高度，避免占满整屏 */
+            #map-placeholder { height: 320px; }
+            .chart-box { height: 300px; padding: 8px; }
+            .chart-box-tall { height: 380px; padding: 8px; }
+            .bullseye-container { height: 300px; padding: 8px; }
+            #chart-scatter { max-width: 280px; max-height: 280px; }
+
+            /* 触控友好：放大标签常驻为半透明胶囊按钮，支持手指直接点击 */
+            .zoom-hint {
+                display: inline-block;
+                top: 8px;
+                right: 8px;
+                font-size: 11px;
+                padding: 3px 8px;
+                border-radius: 12px;
+                background: var(--bg-card);
+                border: 1px solid var(--border);
+                color: var(--brand);
+                pointer-events: auto;
+                cursor: pointer;
+            }
+
+            /* 全屏模态弹窗手机端贴合 */
+            .chart-modal-overlay { padding: 10px 8px; }
+            .modal-title { font-size: 14px; }
+            .modal-close-btn { padding: 8px 14px; font-size: 12px; }
+
+            table { font-size: 11px; }
+            th, td { padding: 8px 6px; }
+        }
     </style>
 </head>
 <body>
@@ -491,7 +572,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
             <div id="map-placeholder">
                 <div id="map-wrapper" ondblclick="zoomMap()" title="双击放大全屏地图">
-                    <span class="zoom-hint">⛶ 双击放大地图</span>
+                    <span class="zoom-hint" onclick="event.stopPropagation(); zoomMap();">⛶ 放大地图</span>
                     <div id="map-container"></div>
                     <div id="map-legend" class="map-legend"></div>
                 </div>
@@ -526,11 +607,11 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             <!-- 第一行：水平误差与垂直误差 -->
             <div class="charts-row-2col">
                 <div class="chart-box" id="box-epoch-h" ondblclick="zoomChart('echH', '水平位置误差历元分布图 (2D Error)')">
-                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <span class="zoom-hint" onclick="event.stopPropagation(); this.parentElement.ondblclick && this.parentElement.ondblclick();">⛶ 放大</span>
                     <div id="chart-epoch-h" style="width:100%; height:100%;"></div>
                 </div>
                 <div class="chart-box" id="box-epoch-v" ondblclick="zoomChart('echV', '高程位置误差历元分布图 (Vertical Error)')">
-                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <span class="zoom-hint" onclick="event.stopPropagation(); this.parentElement.ondblclick && this.parentElement.ondblclick();">⛶ 放大</span>
                     <div id="chart-epoch-v" style="width:100%; height:100%;"></div>
                 </div>
             </div>
@@ -538,7 +619,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             <!-- 第二行：三向 ENU 误差 -->
             <div class="charts-row-full">
                 <div class="chart-box chart-box-tall" id="box-epoch-enu" ondblclick="zoomChart('echENU', 'ENU 三向位置误差历元曲线 (E / N / U 分层独立展示)')">
-                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <span class="zoom-hint" onclick="event.stopPropagation(); this.parentElement.ondblclick && this.parentElement.ondblclick();">⛶ 放大</span>
                     <div id="chart-epoch-enu" style="width:100%; height:100%;"></div>
                 </div>
             </div>
@@ -546,11 +627,11 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             <!-- 第三行：自适应正圆靶心图 与 CDF 累积分布图 -->
             <div class="charts-row-2col">
                 <div class="bullseye-container" id="box-scatter" ondblclick="zoomChart('echScatter', '定位偏差散点分布 (靶心图 · 1:1正圆)')">
-                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <span class="zoom-hint" onclick="event.stopPropagation(); this.parentElement.ondblclick && this.parentElement.ondblclick();">⛶ 放大</span>
                     <div id="chart-scatter"></div>
                 </div>
                 <div class="chart-box" id="box-cdf" ondblclick="zoomChart('echCDF', '误差累积概率分布曲线 (CDF)')">
-                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <span class="zoom-hint" onclick="event.stopPropagation(); this.parentElement.ondblclick && this.parentElement.ondblclick();">⛶ 放大</span>
                     <div id="chart-cdf" style="width:100%; height:100%;"></div>
                 </div>
             </div>
@@ -558,7 +639,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             <!-- 第四行：运行速度曲线 -->
             <div class="charts-row-full">
                 <div class="chart-box" id="box-speed" ondblclick="zoomChart('echSpeed', '对地运行速度时序曲线')">
-                    <span class="zoom-hint">⛶ 双击放大</span>
+                    <span class="zoom-hint" onclick="event.stopPropagation(); this.parentElement.ondblclick && this.parentElement.ondblclick();">⛶ 放大</span>
                     <div id="chart-speed" style="width:100%; height:100%;"></div>
                 </div>
             </div>
@@ -723,7 +804,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 tooltip: { trigger: 'axis' },
                 legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-                grid: { left: 60, right: 30, top: 65, bottom: 42 },
+                grid: { left: (window.innerWidth <= 768 ? 42 : 60), right: (window.innerWidth <= 768 ? 16 : 30), top: 65, bottom: 42 },
                 xAxis: { type: 'category', data: currentXData, name: xAxisName, axisTick: { show: true }, axisLine: { show: true, lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 yAxis: { type: 'value', name: '偏差 (m)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 series: seriesH
@@ -745,7 +826,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 tooltip: { trigger: 'axis' },
                 legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-                grid: { left: 60, right: 30, top: 65, bottom: 42 },
+                grid: { left: (window.innerWidth <= 768 ? 42 : 60), right: (window.innerWidth <= 768 ? 16 : 30), top: 65, bottom: 42 },
                 xAxis: { type: 'category', data: currentXData, name: xAxisName, axisTick: { show: true }, axisLine: { show: true, lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 yAxis: { type: 'value', name: isAbsAlt ? '高程绝对偏差 (m)' : '高程偏差 (m)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 series: seriesV
@@ -782,9 +863,9 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                     { type: 'slider', xAxisIndex: [0, 1, 2], height: 16, bottom: 4 }
                 ],
                 grid: [
-                    { left: 65, right: 30, top: 65, height: '23%' },
-                    { left: 65, right: 30, top: '42%', height: '23%' },
-                    { left: 65, right: 30, top: '70%', height: '23%' }
+                    { left: (window.innerWidth <= 768 ? 44 : 65), right: (window.innerWidth <= 768 ? 16 : 30), top: 65, height: '23%' },
+                    { left: (window.innerWidth <= 768 ? 44 : 65), right: (window.innerWidth <= 768 ? 16 : 30), top: '42%', height: '23%' },
+                    { left: (window.innerWidth <= 768 ? 44 : 65), right: (window.innerWidth <= 768 ? 16 : 30), top: '70%', height: '23%' }
                 ],
                 xAxis: [
                     { gridIndex: 0, type: 'category', data: currentXData, axisLabel: { show: false }, axisTick: { show: false } },
@@ -814,7 +895,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                 tooltip: { trigger: 'axis' },
                 legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
                 dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4 }],
-                grid: { left: 60, right: 30, top: 65, bottom: 42 },
+                grid: { left: (window.innerWidth <= 768 ? 42 : 60), right: (window.innerWidth <= 768 ? 16 : 30), top: 65, bottom: 42 },
                 xAxis: { type: 'category', data: currentXData, name: xAxisName, axisTick: { show: true }, axisLine: { show: true, lineStyle: { color: tc.axis } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 yAxis: { type: 'value', name: '速度 (m/s)', nameLocation: 'end', nameGap: 10, axisTick: { show: true, lineStyle: { color: tc.axis } }, axisLine: { show: true, lineStyle: { color: tc.axis } }, splitLine: { lineStyle: { color: tc.split, width: 1 } }, axisLabel: { color: tc.axisText, fontWeight: 500 } },
                 series: seriesSpeed
@@ -972,7 +1053,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                     }
                 },
                 legend: { top: 32, data: legendNames, textStyle: { color: tc.legend } },
-                grid: { left: 60, right: 30, top: 65, bottom: 42 },
+                grid: { left: (window.innerWidth <= 768 ? 42 : 60), right: (window.innerWidth <= 768 ? 16 : 30), top: 65, bottom: 42 },
                 xAxis: { type: 'value', name: '水平误差 (m)', splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
                 yAxis: { type: 'value', name: '累积概率 (%)', max: 100, splitLine: { lineStyle: { color: tc.split } }, axisLabel: { color: tc.axisText } },
                 series: seriesCDF
