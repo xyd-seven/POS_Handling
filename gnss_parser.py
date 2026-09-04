@@ -213,10 +213,17 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
         
         quality_str = parts[6].strip() if len(parts) > 6 else ""
         # 若 raw_lon_hemi 包含后续数字（如 'E?4' 或 'E4'），且 quality_str 无效，回填 quality
-        if len(raw_lon_hemi) > 1 and not quality_str.isdigit():
+        if len(raw_lon_hemi) > 1 and not (len(quality_str) == 1 and quality_str in '012345678'):
             digits = ''.join([c for c in raw_lon_hemi[1:] if c.isdigit()])
-            if digits:
+            if digits and digits[0] in '012345678':
                 quality_str = digits[0]
+
+        # 语义防伪锚点一：GGA 字段 6 必须为标准单个数字解状态 0~8
+        # 精准拦截串口丢逗号导致的字段粘连乱码（如 '419.725', '4-19.725' 等坏帧）
+        quality_clean = quality_str.strip()
+        if not (len(quality_clean) == 1 and quality_clean in '012345678'):
+            return None
+        quality = int(quality_clean)
 
         try:
             lat_deg = nmea_to_deg(raw_lat, lat_hemi, True)
@@ -225,15 +232,23 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
             return None
             
         try:
-            quality = _extract_int(quality_str, 1)
             num_sats = _extract_int(parts[7], 0) if len(parts) > 7 else 0
             hdop = _extract_float(parts[8], 99.9) if len(parts) > 8 else 99.9
-            alt = _extract_float(parts[9], None) if len(parts) > 9 else None
+            
+            # 语义防伪锚点二：提取海拔高程时校验单位标记 'M'，防止字段错位将基站 ID 当作高程
+            alt = None
+            if len(parts) > 10 and parts[10].strip().upper() == 'M':
+                alt = _extract_float(parts[9], None)
+            elif len(parts) > 9 and parts[9].strip():
+                # 兼容极少数非标未标明单位的精简设备（限制在常规地表物理高度 -500m ~ 9000m）
+                raw_alt = _extract_float(parts[9], None)
+                if raw_alt is not None and -500.0 <= raw_alt <= 9000.0:
+                    alt = raw_alt
             
             # 若存在大地水准面差距（Geoidal Separation，第 11 索引），则将其与海拔相加，换算为 WGS84 椭球高 (HAE)
             if alt is not None and len(parts) > 11 and parts[11].strip():
                 geoid_sep = _extract_float(parts[11], 0.0)
-                if geoid_sep is not None:
+                if geoid_sep is not None and -300.0 <= geoid_sep <= 300.0:
                     alt += geoid_sep
         except Exception:
             return None
