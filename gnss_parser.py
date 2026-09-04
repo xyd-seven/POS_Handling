@@ -27,8 +27,15 @@ def deg_to_nmea(deg, is_lat):
 def nmea_to_deg(raw, indicator, is_lat):
     """
     解析 NMEA 坐标字段 (ddmm.mmmm) 为十进制浮点度数 (dd.dddd)
+    严格校验半球指示符，防止乱码或数字字段穿透。
     """
     if not raw or not indicator:
+        return None
+        
+    indicator = indicator.strip().upper()
+    if is_lat and indicator not in ['N', 'S']:
+        return None
+    if not is_lat and indicator not in ['E', 'W']:
         return None
         
     dot_idx = raw.find('.')
@@ -275,14 +282,34 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
         if len(parts) < 10:
             return None
         utc_time = parts[1]
-        status = parts[2]
+        status = parts[2].strip().upper()
         if status != 'A':
             return None
             
+        raw_lat = parts[3].strip()
+        lat_hemi = parts[4].strip().upper()
+        raw_lon = parts[5].strip()
+        lon_hemi = parts[6].strip().upper()
+
+        # 语义防伪锚点一：半球指示符必须合法，拦截字段粘连错位
+        if lat_hemi not in ['N', 'S'] or lon_hemi not in ['E', 'W']:
+            return None
+
         try:
-            lat_deg = nmea_to_deg(parts[3], parts[4], True)
-            lon_deg = nmea_to_deg(parts[5], parts[6], False)
+            lat_deg = nmea_to_deg(raw_lat, lat_hemi, True)
+            lon_deg = nmea_to_deg(raw_lon, lon_hemi, False)
         except (ValueError, IndexError):
+            return None
+            
+        if lat_deg is None or lon_deg is None or lat_deg == 0.0 or lon_deg == 0.0:
+            return None
+
+        # 语义防伪锚点二：字段错位结构校验
+        # RMC 标准中字段 7 为速度，字段 8 为真航向(COG)，字段 9 为日期(ddmmyy)
+        # 若字段 8 呈现为 6 位日期格式且字段 9 为空，说明速度字段丢失、后续字段左移错位，需拦截
+        cog_str = parts[8].strip() if len(parts) > 8 else ""
+        date_str = parts[9].strip() if len(parts) > 9 else ""
+        if len(cog_str) == 6 and cog_str.isdigit() and (not date_str or not date_str.isdigit()):
             return None
             
         quality = 1 # RMC 没有详细 RTK 状态，假设为单点有效
@@ -293,12 +320,9 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
         # 提取速度: RMC 第7字段为节 (Knots), 1 knot = 0.5144444 m/s
         ground_speed = 0.0
         if len(parts) > 7 and parts[7].strip():
-            sp_val = _extract_float(parts[7], 0.0)
+            sp_val = _extract_float(parts[7], None)
             if sp_val is not None:
                 ground_speed = sp_val * 0.5144444
-        
-        if lat_deg is None or lon_deg is None or lat_deg == 0.0 or lon_deg == 0.0:
-            return None
             
         return {
             'type': 'RMC',
