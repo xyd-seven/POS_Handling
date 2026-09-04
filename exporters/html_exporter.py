@@ -821,16 +821,27 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             }, true);
         }
 
-        // 靶心图与 CDF 初始化
+        // 靶心图与 CDF 初始化 (100% 严谨对齐软件端优雅对数整步长与 45 度轻量排印)
         function renderScatterAndCDF() {
             var tc = getThemeColors();
 
             var scatterSeries = [];
-            var ringLabelPts = [];
-            var circleSteps = [0.25, 0.5, 0.75, 1.0];
+            var ringScaleItems = [];
 
-            for (var c = 0; c < circleSteps.length; c++) {
-                var r = maxLimit * circleSteps[c];
+            // 1. 移植软件端核心算法：以 10 为底的指数对数步长算法，实现等间距圆圈网格线完美自适应
+            var rawStep = maxLimit / 5.0;
+            if (rawStep <= 0) rawStep = 0.01;
+            var exponent = Math.floor(Math.log10(rawStep));
+            var fraction = rawStep / Math.pow(10, exponent);
+            var niceStep = 1.0;
+            if (fraction < 1.5) niceStep = 1.0;
+            else if (fraction < 3.0) niceStep = 2.0;
+            else if (fraction < 7.0) niceStep = 5.0;
+            else niceStep = 10.0;
+            var step = niceStep * Math.pow(10, exponent);
+
+            // 2. 绘制规整同心圆环，并在右下角 45 度对角线优雅附着标尺数字 (与软件端完全一致)
+            for (var r = step; r < maxLimit; r += step) {
                 var circlePts = [];
                 for (var a = 0; a <= 360; a += 3) {
                     var rad = a * Math.PI / 180;
@@ -840,72 +851,60 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
                     name: '标尺网格',
                     type: 'line',
                     data: circlePts,
-                    lineStyle: { type: 'dashed', color: tc.circleGrid, width: 1.0 },
+                    lineStyle: { type: 'dashed', color: tc.circleGrid, width: 0.8 },
                     showSymbol: false,
                     silent: true,
                     tooltip: { show: false }
                 });
 
-                // 将刻度数值直接标记在圆形标线处（位于正东偏北交界处，清晰醒目）
-                ringLabelPts.push({
-                    value: [round(r, 4), 0],
-                    labelTxt: round(r, 2) + 'm'
+                // 标尺文字格式化：整数不带多余小数，小数最多保留 2 位
+                var scaleLabel = (step >= 1 ? round(r, 1).toString() : round(r, 3).toString()) + 'm';
+                ringScaleItems.push({
+                    name: scaleLabel,
+                    value: [round(r * 0.7071, 4), round(-r * 0.7071, 4)]
                 });
             }
 
-            // 刻度指示标注系列 (直接显示在圆形标线与 X 轴正半轴交点处)
-            scatterSeries.push({
-                name: '圆形标尺刻度',
-                type: 'scatter',
-                data: ringLabelPts.map(function(item) { return item.value; }),
-                symbolSize: 4,
-                itemStyle: { color: tc.axis },
-                label: {
-                    show: true,
-                    formatter: function(params) {
-                        return ringLabelPts[params.dataIndex].labelTxt;
+            // 3. 圆格标尺文字系列 (纯文本模板 '{b}'，全屏克隆绝对不丢失、无厚重白底框)
+            if (ringScaleItems.length > 0) {
+                scatterSeries.push({
+                    name: '圆格标尺',
+                    type: 'scatter',
+                    data: ringScaleItems,
+                    symbolSize: 0.01,
+                    label: {
+                        show: true,
+                        formatter: '{b}',
+                        position: 'inside',
+                        color: tc.axisText,
+                        fontSize: 10,
+                        fontWeight: 500
                     },
-                    position: 'top',
-                    distance: 4,
-                    color: tc.axisText,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    backgroundColor: (currentTheme === 'dark' ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.9)'),
-                    padding: [2, 5],
-                    borderRadius: 3,
-                    borderColor: tc.axis,
-                    borderWidth: 0.5
-                },
-                silent: true,
-                tooltip: { show: false }
-            });
+                    silent: true,
+                    tooltip: { show: false }
+                });
+            }
 
-            // 四向罗盘方位指示 (N, S, E, W)
+            // 4. 四向指南针方位指示 N, S, E, W (极简排印，与软件端 100% 一致，绝不遮挡图例)
+            var compassDistance = maxLimit * 0.95;
+            var compassItems = [
+                { name: 'N', value: [0, compassDistance] },
+                { name: 'S', value: [0, -compassDistance] },
+                { name: 'E', value: [compassDistance, 0] },
+                { name: 'W', value: [-compassDistance, 0] }
+            ];
             scatterSeries.push({
-                name: '罗盘方位',
+                name: '指南针',
                 type: 'scatter',
-                data: [
-                    [0, maxLimit * 0.98],   // N
-                    [0, -maxLimit * 0.98],  // S
-                    [maxLimit * 0.98, 0],   // E
-                    [-maxLimit * 0.98, 0]   // W
-                ],
-                symbolSize: 0.1,
+                data: compassItems,
+                symbolSize: 0.01,
                 label: {
                     show: true,
-                    formatter: function(params) {
-                        var dirs = ['北 (N)', '南 (S)', '东 (E)', '西 (W)'];
-                        return dirs[params.dataIndex];
-                    },
+                    formatter: '{b}',
                     position: 'inside',
                     color: tc.title,
-                    fontSize: 12,
-                    fontWeight: 'bold',
-                    backgroundColor: (currentTheme === 'dark' ? 'rgba(30, 41, 59, 0.9)' : 'rgba(241, 245, 249, 0.95)'),
-                    padding: [3, 6],
-                    borderRadius: 4,
-                    borderColor: tc.axis,
-                    borderWidth: 0.8
+                    fontSize: 11,
+                    fontWeight: 'bold'
                 },
                 silent: true,
                 tooltip: { show: false }
