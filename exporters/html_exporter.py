@@ -152,10 +152,18 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         .kpi-unit { font-size: 14px; font-weight: 400; color: var(--text-sub); margin-left: 4px; }
         .kpi-sub-badge {
             font-size: 11px;
-            font-weight: 400;
-            color: var(--text-sub);
-            margin-left: 4px;
+            font-weight: 500;
+            color: var(--brand);
+            background: rgba(56, 189, 248, 0.12);
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 6px;
             vertical-align: middle;
+            display: inline-block;
+            max-width: 135px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .kpi-breakdown {
             margin-top: 8px;
@@ -172,6 +180,12 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             align-items: center;
             justify-content: space-between;
         }
+        .kpi-sub-left {
+            display: flex;
+            align-items: center;
+            min-width: 0;
+            margin-right: auto;
+        }
         .kpi-dot {
             display: inline-block;
             width: 7px;
@@ -182,15 +196,23 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         }
         .kpi-sub-name {
             color: var(--text-sub);
-            margin-right: auto;
-            max-width: 110px;
+            max-width: 105px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        .kpi-sub-best {
+            font-size: 10px;
+            color: var(--success);
+            font-weight: 600;
+            margin-left: 4px;
+            flex-shrink: 0;
+        }
         .kpi-sub-val {
             font-weight: 600;
             color: var(--text-main);
+            flex-shrink: 0;
+            margin-left: 8px;
         }
         .color-brand { color: var(--brand); }
         .color-success { color: var(--success); }
@@ -1352,31 +1374,49 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                                 try: matched_kpi['max_h'] = float(it.text().rstrip('m').strip())
                                 except Exception: pass
 
-        # 渲染顶部 KPI 卡片：单分段直接显示数值；多分段时显示均值及各分段专属彩色对比胶囊
+        # 渲染顶部 KPI 卡片：单分段直接显示数值；多分段时显示最优成绩领衔与各分段明细横评 (方案1)
         is_multi_seg = len(seg_kpi_list) > 1
 
-        def build_kpi_block(key, unit, val_color_cls, is_max=False, fmt=".3f"):
+        def build_kpi_block(key, unit, val_color_cls, is_higher_better=False, fmt=".3f"):
             if not seg_kpi_list:
                 return f'<div class="kpi-value {val_color_cls}">0.000<span class="kpi-unit">{unit}</span></div>'
-            vals = [item[key] for item in seg_kpi_list]
-            main_v = max(vals) if is_max else (sum(vals) / len(vals))
-            main_str = f"{main_v:.2f}" if unit == "%" else f"{main_v:{fmt}}"
             
-            sub_tag = ('<span class="kpi-sub-badge">(最大值)</span>' if is_max else '<span class="kpi-sub-badge">(均值)</span>') if is_multi_seg else ''
+            vals = [it[key] for it in seg_kpi_list]
+            all_equal = (max(vals) == min(vals))
+
+            if is_higher_better:
+                best_item = max(seg_kpi_list, key=lambda x: x[key])
+            else:
+                best_item = min(seg_kpi_list, key=lambda x: x[key])
+
+            best_val = best_item[key]
+            main_str = f"{best_val:.2f}" if unit == "%" else f"{best_val:{fmt}}"
+
+            if is_multi_seg:
+                if all_equal:
+                    sub_tag = '<span class="kpi-sub-badge" title="各对比项数值一致">(持平)</span>'
+                else:
+                    sub_tag = f'<span class="kpi-sub-badge" title="最优表现: {best_item["name"]}">(最优: {best_item["name"]})</span>'
+            else:
+                sub_tag = ''
+
             html = f'<div class="kpi-value {val_color_cls}">{main_str}<span class="kpi-unit">{unit}</span>{sub_tag}</div>'
             if is_multi_seg:
                 html += '<div class="kpi-breakdown">'
                 for it in seg_kpi_list:
                     sub_v_str = f"{it[key]:.2f}{unit}" if unit == "%" else f"{it[key]:{fmt}}{unit}"
-                    html += f'<div class="kpi-sub-item"><span class="kpi-dot" style="background:{it["color"]};"></span><span class="kpi-sub-name" title="{it["name"]}">{it["name"]}</span><span class="kpi-sub-val">{sub_v_str}</span></div>'
+                    is_this_best = (not all_equal) and (it[key] == best_val)
+                    best_tag = '<span class="kpi-sub-best">(最优)</span>' if is_this_best else ''
+                    val_style = ' style="color:var(--brand); font-weight:700;"' if is_this_best else ''
+                    html += f'<div class="kpi-sub-item"><div class="kpi-sub-left"><span class="kpi-dot" style="background:{it["color"]};"></span><span class="kpi-sub-name" title="{it["name"]}">{it["name"]}</span>{best_tag}</div><span class="kpi-sub-val"{val_style}>{sub_v_str}</span></div>'
                 html += '</div>'
             return html
 
-        fix_rate_block = build_kpi_block('fix_rate', '%', 'color-success')
-        h_rms_block = build_kpi_block('h_rms', 'm', 'color-brand')
-        h_95_block = build_kpi_block('h_95', 'm', 'color-brand')
-        v_rms_block = build_kpi_block('v_rms', 'm', 'color-warning')
-        max_h_block = build_kpi_block('max_h', 'm', 'color-warning', is_max=True)
+        fix_rate_block = build_kpi_block('fix_rate', '%', 'color-success', is_higher_better=True)
+        h_rms_block = build_kpi_block('h_rms', 'm', 'color-brand', is_higher_better=False)
+        h_95_block = build_kpi_block('h_95', 'm', 'color-brand', is_higher_better=False)
+        v_rms_block = build_kpi_block('v_rms', 'm', 'color-warning', is_higher_better=False)
+        max_h_block = build_kpi_block('max_h', 'm', 'color-warning', is_higher_better=False)
 
         progress.setValue(30)
         QApplication.processEvents()
