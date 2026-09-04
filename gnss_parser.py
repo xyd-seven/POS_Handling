@@ -53,8 +53,22 @@ def nmea_to_deg(raw, indicator, is_lat):
         min_val = float(min_str)
     except ValueError:
         return None
+
+    # 严格地球物理防伪：分必须小于 60.0，度数不能超过地球物理极值（纬度 90°，经度 180°）
+    # 精准拦截丢小数点导致的恶性伪帧（如将 3449.23 丢失小数点误认作 3449 度产生 3.78 亿米跳点）
+    if min_val < 0.0 or min_val >= 60.0:
+        return None
+    if is_lat and (deg < 0 or deg > 90):
+        return None
+    if not is_lat and (deg < 0 or deg > 180):
+        return None
         
     decimal = deg + (min_val / 60.0)
+    if is_lat and abs(decimal) > 90.0:
+        return None
+    if not is_lat and abs(decimal) > 180.0:
+        return None
+
     if indicator in ['S', 'W']:
         decimal = -decimal
     return decimal
@@ -240,23 +254,30 @@ def parse_log_line(line, leap_seconds=18, strict_checksum=False):
             
         try:
             num_sats = _extract_int(parts[7], 0) if len(parts) > 7 else 0
-            hdop = _extract_float(parts[8], 99.9) if len(parts) > 8 else 99.9
             
-            # 语义防伪锚点二：提取海拔高程时校验单位标记 'M'，防止字段错位将基站 ID 当作高程
+            # HDOP 校验：防止串口丢逗号粘连英文字母（如 '0.M'）
+            hdop_raw = parts[8].strip() if len(parts) > 8 else ""
+            if hdop_raw and any(c.isalpha() for c in hdop_raw):
+                return None
+            hdop = _extract_float(hdop_raw, 99.9)
+            
+            # 语义防伪锚点二：提取海拔高程时严格校验单位标记 'M'，防止字段错位将基站 ID 或差分龄期当作高程
             alt = None
             if len(parts) > 10 and parts[10].strip().upper() == 'M':
                 alt = _extract_float(parts[9], None)
-            elif len(parts) > 9 and parts[9].strip():
-                # 兼容极少数非标未标明单位的精简设备（限制在常规地表物理高度 -500m ~ 9000m）
-                raw_alt = _extract_float(parts[9], None)
-                if raw_alt is not None and -500.0 <= raw_alt <= 9000.0:
-                    alt = raw_alt
+            
+            # 定位解有效（quality > 0）时，高程单位 'M' 缺失或错位视为残缺坏帧
+            if quality > 0 and alt is None:
+                return None
             
             # 若存在大地水准面差距（Geoidal Separation，第 11 索引），则将其与海拔相加，换算为 WGS84 椭球高 (HAE)
             if alt is not None and len(parts) > 11 and parts[11].strip():
-                geoid_sep = _extract_float(parts[11], 0.0)
-                if geoid_sep is not None and -300.0 <= geoid_sep <= 300.0:
-                    alt += geoid_sep
+                if len(parts) > 12 and parts[12].strip() and parts[12].strip().upper() != 'M':
+                    pass
+                else:
+                    geoid_sep = _extract_float(parts[11], 0.0)
+                    if geoid_sep is not None and -300.0 <= geoid_sep <= 300.0:
+                        alt += geoid_sep
         except Exception:
             return None
             
