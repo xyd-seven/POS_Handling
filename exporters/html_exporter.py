@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog, QApplic
 from coord_transform import wgs84_to_gcj02
 
 HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -437,7 +437,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
             <div class="header-actions">
                 <button class="theme-toggle-btn" onclick="toggleTheme()">
-                    <span id="theme-icon">☀️</span> <span id="theme-text">浅色模式</span>
+                    <span id="theme-icon">🌙</span> <span id="theme-text">深色模式</span>
                 </button>
                 <div class="header-badge">
                     POS_Handling 专业评定
@@ -576,7 +576,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         var globalEpochline = __GLOBAL_EPOCHLINE_JSON__;
         var maxLimit = __SCATTER_LIMIT__ || 1.0;
         var currentXAxisMode = '__DEFAULT_XAXIS_MODE__';
-        var currentTheme = 'dark';
+        var currentTheme = 'light';
         var isAbsAlt = __IS_ABS_ALT__;
 
         // 1. 初始化 Leaflet 轨迹地图
