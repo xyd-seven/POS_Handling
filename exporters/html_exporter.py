@@ -150,6 +150,48 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         .kpi-label { font-size: 12px; color: var(--text-sub); margin-bottom: 8px; font-weight: 500; }
         .kpi-value { font-size: 28px; font-weight: 700; font-family: "Consolas", monospace; }
         .kpi-unit { font-size: 14px; font-weight: 400; color: var(--text-sub); margin-left: 4px; }
+        .kpi-sub-badge {
+            font-size: 11px;
+            font-weight: 400;
+            color: var(--text-sub);
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+        .kpi-breakdown {
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px dashed var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .kpi-sub-item {
+            font-size: 11px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .kpi-dot {
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            margin-right: 5px;
+            flex-shrink: 0;
+        }
+        .kpi-sub-name {
+            color: var(--text-sub);
+            margin-right: auto;
+            max-width: 110px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .kpi-sub-val {
+            font-weight: 600;
+            color: var(--text-main);
+        }
         .color-brand { color: var(--brand); }
         .color-success { color: var(--success); }
         .color-warning { color: var(--warning); }
@@ -530,23 +572,23 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
         <div class="kpi-grid">
             <div class="kpi-card">
                 <div class="kpi-label">RTK 固定解比例 (Fix Rate)</div>
-                <div class="kpi-value color-success">__FIX_RATE__<span class="kpi-unit">%</span></div>
+                __FIX_RATE_BLOCK__
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">水平精度 RMS (1σ)</div>
-                <div class="kpi-value color-brand">__H_RMS__<span class="kpi-unit">m</span></div>
+                __H_RMS_BLOCK__
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">水平 95% 置信度误差</div>
-                <div class="kpi-value color-brand">__H_95__<span class="kpi-unit">m</span></div>
+                __H_95_BLOCK__
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">高程精度 RMS (1σ)</div>
-                <div class="kpi-value color-warning">__V_RMS__<span class="kpi-unit">m</span></div>
+                __V_RMS_BLOCK__
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">最大水平偏差 (Max Error)</div>
-                <div class="kpi-value color-warning">__MAX_H_ERR__<span class="kpi-unit">m</span></div>
+                __MAX_H_ERR_BLOCK__
             </div>
         </div>
 
@@ -792,7 +834,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             // A. 水平误差图
             var seriesH = segmentsData.map(function(s) {
                 return {
-                    name: s.name, type: 'line', data: isTime ? s.h_time_series : s.h_epoch_series,
+                    name: s.name, type: 'line', connectNulls: true, data: isTime ? s.h_time_series : s.h_epoch_series,
                     lineStyle: { color: s.color, width: 1.8 },
                     itemStyle: { color: s.color },
                     showSymbol: false
@@ -813,7 +855,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             // B. 高程误差图
             var seriesV = segmentsData.map(function(s) {
                 return {
-                    name: s.name, type: 'line', data: isTime ? s.v_time_series : s.v_epoch_series,
+                    name: s.name, type: 'line', connectNulls: true, data: isTime ? s.v_time_series : s.v_epoch_series,
                     lineStyle: { color: s.color, width: 1.8 },
                     itemStyle: { color: s.color },
                     showSymbol: false
@@ -837,17 +879,17 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             for (var s = 0; s < segmentsData.length; s++) {
                 var seg = segmentsData[s];
                 seriesENU.push({
-                    name: seg.name + ' - dE', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+                    name: seg.name + ' - dE', type: 'line', connectNulls: true, xAxisIndex: 0, yAxisIndex: 0,
                     data: isTime ? seg.de_time_series : seg.de_epoch_series,
                     lineStyle: { color: seg.color, width: 1.6 }, itemStyle: { color: seg.color }, showSymbol: false
                 });
                 seriesENU.push({
-                    name: seg.name + ' - dN', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
+                    name: seg.name + ' - dN', type: 'line', connectNulls: true, xAxisIndex: 1, yAxisIndex: 1,
                     data: isTime ? seg.dn_time_series : seg.dn_epoch_series,
                     lineStyle: { color: seg.color, width: 1.6 }, itemStyle: { color: seg.color }, showSymbol: false
                 });
                 seriesENU.push({
-                    name: seg.name + ' - dU', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
+                    name: seg.name + ' - dU', type: 'line', connectNulls: true, xAxisIndex: 2, yAxisIndex: 2,
                     data: isTime ? seg.du_time_series : seg.du_epoch_series,
                     lineStyle: { color: seg.color, width: 1.6 }, itemStyle: { color: seg.color }, showSymbol: false
                 });
@@ -883,7 +925,7 @@ HTML_REPORT_TEMPLATE = """<!DOCTYPE html>
             // F. 运行速度图
             var seriesSpeed = segmentsData.map(function(s) {
                 return {
-                    name: s.name, type: 'line', data: isTime ? s.speed_time_series : s.speed_epoch_series,
+                    name: s.name, type: 'line', connectNulls: true, data: isTime ? s.speed_time_series : s.speed_epoch_series,
                     lineStyle: { color: s.color, width: 1.8 },
                     itemStyle: { color: s.color },
                     showSymbol: false
@@ -1238,66 +1280,103 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         if hasattr(parent_window, 'cb_abs_alt') and hasattr(parent_window.cb_abs_alt, 'isChecked'):
             show_absolute_alt = parent_window.cb_abs_alt.isChecked()
 
-        # 2. 汇总指标卡片数据
+        # 2. 统计指标提取与各分段明细对照
         total_epochs = sum(len(s.get('epochs', [])) for s in active_segs)
-        fix_rates, h_rms_list, h_95_list, v_rms_list, max_h_list = [], [], [], [], []
-        
-        for s in active_segs:
+        seg_kpi_list = []
+        for s_idx, s in enumerate(active_segs):
+            s_name = s.get('name', f"分段_{s_idx+1}")
+            s_color = s.get('color', '#38BDF8')
             m = s.get('metrics', {})
-            fr = m.get('rtk_fix_rate', m.get('fix_rate'))
-            if fr is not None: fix_rates.append(float(fr))
-            hr = m.get('rms_h', m.get('h_rms'))
-            if hr is not None: h_rms_list.append(float(hr))
-            c95 = m.get('cep95', m.get('h_95'))
-            if c95 is not None: h_95_list.append(float(c95))
-            vr = m.get('rms_v', m.get('v_rms'))
-            if vr is not None: v_rms_list.append(float(vr))
-            mh = m.get('max_h', m.get('h_max'))
-            if mh is not None: max_h_list.append(float(mh))
+            fr = m.get('rtk_fix_rate', m.get('fix_rate', 100.0))
+            hr = m.get('rms_h', m.get('h_rms', 0.0))
+            c95 = m.get('cep95', m.get('h_95', 0.0))
+            vr = m.get('rms_v', m.get('v_rms', 0.0))
+            mh = m.get('max_h', m.get('h_max', 0.0))
+            seg_kpi_list.append({
+                'name': s_name,
+                'color': s_color,
+                'fix_rate': float(fr) if fr is not None else 100.0,
+                'h_rms': float(hr) if hr is not None else 0.0,
+                'h_95': float(c95) if c95 is not None else 0.0,
+                'v_rms': float(vr) if vr is not None else 0.0,
+                'max_h': float(mh) if mh is not None else 0.0,
+            })
 
-        if table_metrics and (not h_rms_list or not fix_rates):
+        if table_metrics and table_metrics.rowCount() > 0:
             col_map = {}
             for col_i in range(table_metrics.columnCount()):
-                header_txt = table_metrics.horizontalHeaderItem(col_i).text() if table_metrics.horizontalHeaderItem(col_i) else ""
-                col_map[header_txt] = col_i
+                hdr = table_metrics.horizontalHeaderItem(col_i)
+                if hdr:
+                    col_map[hdr.text().strip()] = col_i
 
             for row_i in range(table_metrics.rowCount()):
-                for k in ["固定率", "RTK固定率", "Fix Rate"]:
-                    if k in col_map:
-                        item = table_metrics.item(row_i, col_map[k])
-                        if item and item.text().endswith('%'):
-                            try: fix_rates.append(float(item.text().rstrip('%')))
-                            except Exception: pass
-                for k in ["水平RMS(m)", "水平 RMS (m)", "H_RMS"]:
-                    if k in col_map:
-                        item = table_metrics.item(row_i, col_map[k])
-                        if item:
-                            try: h_rms_list.append(float(item.text().rstrip('m').strip()))
-                            except Exception: pass
-                for k in ["水平95%(m)", "水平 95% (m)", "95%"]:
-                    if k in col_map:
-                        item = table_metrics.item(row_i, col_map[k])
-                        if item:
-                            try: h_95_list.append(float(item.text().rstrip('m').strip()))
-                            except Exception: pass
-                for k in ["高程RMS(m)", "高程 RMS (m)", "V_RMS"]:
-                    if k in col_map:
-                        item = table_metrics.item(row_i, col_map[k])
-                        if item:
-                            try: v_rms_list.append(float(item.text().rstrip('m').strip()))
-                            except Exception: pass
-                for k in ["最大水平偏差(m)", "最大偏差", "Max H"]:
-                    if k in col_map:
-                        item = table_metrics.item(row_i, col_map[k])
-                        if item:
-                            try: max_h_list.append(float(item.text().rstrip('m').strip()))
-                            except Exception: pass
+                name_item = table_metrics.item(row_i, 0)
+                r_name = name_item.text().strip() if name_item else ""
+                matched_kpi = None
+                for it in seg_kpi_list:
+                    if it['name'] == r_name:
+                        matched_kpi = it
+                        break
+                if not matched_kpi and row_i < len(seg_kpi_list):
+                    matched_kpi = seg_kpi_list[row_i]
+                
+                if matched_kpi:
+                    for k in ["固定率", "固定解比例", "RTK固定率", "Fix Rate"]:
+                        if k in col_map:
+                            it = table_metrics.item(row_i, col_map[k])
+                            if it and it.text().strip():
+                                try: matched_kpi['fix_rate'] = float(it.text().rstrip('%').strip())
+                                except Exception: pass
+                    for k in ["水平RMS(m)", "水平 RMS (m)", "H_RMS"]:
+                        if k in col_map:
+                            it = table_metrics.item(row_i, col_map[k])
+                            if it and it.text().strip():
+                                try: matched_kpi['h_rms'] = float(it.text().rstrip('m').strip())
+                                except Exception: pass
+                    for k in ["水平95%(m)", "水平 95% (m)", "95%"]:
+                        if k in col_map:
+                            it = table_metrics.item(row_i, col_map[k])
+                            if it and it.text().strip():
+                                try: matched_kpi['h_95'] = float(it.text().rstrip('m').strip())
+                                except Exception: pass
+                    for k in ["高程RMS(m)", "高程 RMS (m)", "V_RMS"]:
+                        if k in col_map:
+                            it = table_metrics.item(row_i, col_map[k])
+                            if it and it.text().strip():
+                                try: matched_kpi['v_rms'] = float(it.text().rstrip('m').strip())
+                                except Exception: pass
+                    for k in ["最大水平偏差(m)", "最大偏差", "Max H"]:
+                        if k in col_map:
+                            it = table_metrics.item(row_i, col_map[k])
+                            if it and it.text().strip():
+                                try: matched_kpi['max_h'] = float(it.text().rstrip('m').strip())
+                                except Exception: pass
 
-        fix_rate_val = f"{sum(fix_rates)/len(fix_rates):.2f}" if fix_rates else "100.00"
-        h_rms_val = f"{sum(h_rms_list)/len(h_rms_list):.3f}" if h_rms_list else "0.000"
-        h_95_val = f"{sum(h_95_list)/len(h_95_list):.3f}" if h_95_list else "0.000"
-        v_rms_val = f"{sum(v_rms_list)/len(v_rms_list):.3f}" if v_rms_list else "0.000"
-        max_h_val = f"{max(max_h_list):.3f}" if max_h_list else "0.000"
+        # 渲染顶部 KPI 卡片：单分段直接显示数值；多分段时显示均值及各分段专属彩色对比胶囊
+        is_multi_seg = len(seg_kpi_list) > 1
+
+        def build_kpi_block(key, unit, val_color_cls, is_max=False, fmt=".3f"):
+            if not seg_kpi_list:
+                return f'<div class="kpi-value {val_color_cls}">0.000<span class="kpi-unit">{unit}</span></div>'
+            vals = [item[key] for item in seg_kpi_list]
+            main_v = max(vals) if is_max else (sum(vals) / len(vals))
+            main_str = f"{main_v:.2f}" if unit == "%" else f"{main_v:{fmt}}"
+            
+            sub_tag = ('<span class="kpi-sub-badge">(最大值)</span>' if is_max else '<span class="kpi-sub-badge">(均值)</span>') if is_multi_seg else ''
+            html = f'<div class="kpi-value {val_color_cls}">{main_str}<span class="kpi-unit">{unit}</span>{sub_tag}</div>'
+            if is_multi_seg:
+                html += '<div class="kpi-breakdown">'
+                for it in seg_kpi_list:
+                    sub_v_str = f"{it[key]:.2f}{unit}" if unit == "%" else f"{it[key]:{fmt}}{unit}"
+                    html += f'<div class="kpi-sub-item"><span class="kpi-dot" style="background:{it["color"]};"></span><span class="kpi-sub-name" title="{it["name"]}">{it["name"]}</span><span class="kpi-sub-val">{sub_v_str}</span></div>'
+                html += '</div>'
+            return html
+
+        fix_rate_block = build_kpi_block('fix_rate', '%', 'color-success')
+        h_rms_block = build_kpi_block('h_rms', 'm', 'color-brand')
+        h_95_block = build_kpi_block('h_95', 'm', 'color-brand')
+        v_rms_block = build_kpi_block('v_rms', 'm', 'color-warning')
+        max_h_block = build_kpi_block('max_h', 'm', 'color-warning', is_max=True)
 
         progress.setValue(30)
         QApplication.processEvents()
@@ -1318,22 +1397,45 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
             table_html += "</tr>"
         table_html += "</tbody></table>"
 
-        # 4. 构造多分段数据
-        all_timestamps = []
+        # 4. 构造多分段数据：毫秒级时间戳归一化与高精度插值采样 (彻底解决 1Hz/10Hz 混排断线)
+        import numpy as np
+
+        def norm_time_str(raw_time_str):
+            if not raw_time_str: return ""
+            t = raw_time_str.strip()
+            if ':' in t:
+                pts = t.split(':')
+                try:
+                    h = int(pts[0])
+                    m = int(pts[1])
+                    s = float(pts[2]) if len(pts) > 2 else 0.0
+                    return f"{h:02d}:{m:02d}:{s:06.3f}"
+                except Exception:
+                    return t
+            return t
+
+        # 收集所有有效时间戳并归一化
+        all_timestamps_dict = {}
         for s in active_segs:
             for ep in s.get('epochs', []):
-                t_str = ep.get('time_str')
-                if t_str and t_str not in all_timestamps:
-                    all_timestamps.append(t_str)
+                t_raw = ep.get('time_str')
+                if t_raw:
+                    t_norm = norm_time_str(t_raw)
+                    t_sec = ep.get('utc_time_sec', 0.0)
+                    if t_norm not in all_timestamps_dict:
+                        all_timestamps_dict[t_norm] = t_sec
 
-        if not all_timestamps:
+        if not all_timestamps_dict:
             max_len = max(len(s.get('epochs', [])) for s in active_segs) if active_segs else 0
             raw_timeline = [str(i+1) for i in range(max_len)]
+            raw_timeline_secs = [float(i+1) for i in range(max_len)]
         else:
-            raw_timeline = sorted(all_timestamps)
+            raw_timeline = sorted(all_timestamps_dict.keys(), key=lambda k: all_timestamps_dict[k])
+            raw_timeline_secs = [all_timestamps_dict[k] for k in raw_timeline]
 
         time_step = max(1, len(raw_timeline) // 4000)
         filtered_timeline = raw_timeline[::time_step]
+        filtered_timeline_secs = np.array(raw_timeline_secs[::time_step], dtype=float)
 
         max_epoch_len = max(len(s.get('epochs', [])) for s in active_segs) if active_segs else 0
         epoch_step = max(1, max_epoch_len // 4000)
@@ -1360,7 +1462,7 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 dn_list = [p.get('n', 0.0) for p in metrics['enu_points']]
                 du_list = [p.get('u', 0.0) for p in metrics['enu_points']]
 
-            h_time_dict, v_time_dict, de_time_dict, dn_time_dict, du_time_dict, sp_time_dict = {}, {}, {}, {}, {}, {}
+            seg_times = []
             h_raw_list, v_raw_list, de_raw_list, dn_raw_list, du_raw_list, sp_raw_list = [], [], [], [], [], []
 
             scatter_pts = []
@@ -1369,6 +1471,9 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
 
             for i, ep in enumerate(epochs):
                 t_str = ep.get('time_str', str(i+1))
+                t_sec = ep.get('utc_time_sec', 0.0)
+                seg_times.append(t_sec)
+
                 h_val = h_err_list[i] if i < len(h_err_list) else None
                 v_val = v_err_list[i] if i < len(v_err_list) else None
                 if v_val is not None and show_absolute_alt:
@@ -1407,13 +1512,6 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                         'h_err': h_val
                     })
 
-                h_time_dict[t_str] = h_val_r
-                v_time_dict[t_str] = v_val_r
-                de_time_dict[t_str] = de_r
-                dn_time_dict[t_str] = dn_r
-                du_time_dict[t_str] = du_r
-                sp_time_dict[t_str] = sp_r
-
                 h_raw_list.append(h_val_r)
                 v_raw_list.append(v_val_r)
                 de_raw_list.append(de_r)
@@ -1421,12 +1519,52 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
                 du_raw_list.append(du_r)
                 sp_raw_list.append(sp_r)
 
-            h_time_series = [h_time_dict.get(t) for t in filtered_timeline]
-            v_time_series = [v_time_dict.get(t) for t in filtered_timeline]
-            de_time_series = [de_time_dict.get(t) for t in filtered_timeline]
-            dn_time_series = [dn_time_dict.get(t) for t in filtered_timeline]
-            du_time_series = [du_time_dict.get(t) for t in filtered_timeline]
-            speed_time_series = [sp_time_dict.get(t) for t in filtered_timeline]
+            # 高精度插值采样：将该分段平滑投影到全局时间线上
+            def interp_to_timeline(raw_vals):
+                valid_mask = [v is not None for v in raw_vals]
+                if not any(valid_mask) or len(seg_times) < 1 or len(filtered_timeline_secs) < 1:
+                    return [None] * len(filtered_timeline)
+                
+                v_times = np.array([seg_times[j] for j in range(len(raw_vals)) if valid_mask[j]], dtype=float)
+                v_arr = np.array([raw_vals[j] for j in range(len(raw_vals)) if valid_mask[j]], dtype=float)
+                if len(v_times) == 0:
+                    return [None] * len(filtered_timeline)
+
+                sort_idx = np.argsort(v_times)
+                v_times = v_times[sort_idx]
+                v_arr = v_arr[sort_idx]
+
+                # 剔除重复时间
+                diffs = np.diff(v_times)
+                umask = np.insert(diffs > 0, 0, True)
+                v_times = v_times[umask]
+                v_arr = v_arr[umask]
+
+                if len(v_times) == 1:
+                    res = []
+                    t0 = v_times[0]
+                    val0 = round(float(v_arr[0]), 4)
+                    for gt in filtered_timeline_secs:
+                        res.append(val0 if abs(gt - t0) <= 1.0 else None)
+                    return res
+
+                interp_res = np.interp(filtered_timeline_secs, v_times, v_arr, left=np.nan, right=np.nan)
+                out = []
+                t_min, t_max = v_times[0], v_times[-1]
+                for k_i, val in enumerate(interp_res):
+                    gt = filtered_timeline_secs[k_i]
+                    if np.isnan(val) or gt < (t_min - 0.5) or gt > (t_max + 0.5):
+                        out.append(None)
+                    else:
+                        out.append(round(float(val), 4))
+                return out
+
+            h_time_series = interp_to_timeline(h_raw_list)
+            v_time_series = interp_to_timeline(v_raw_list)
+            de_time_series = interp_to_timeline(de_raw_list)
+            dn_time_series = interp_to_timeline(dn_raw_list)
+            du_time_series = interp_to_timeline(du_raw_list)
+            speed_time_series = interp_to_timeline(sp_raw_list)
 
             h_epoch_series = [h_raw_list[idx-1] if (idx-1) < len(h_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
             v_epoch_series = [v_raw_list[idx-1] if (idx-1) < len(v_raw_list) else None for idx in [int(ep) for ep in filtered_epochline]]
@@ -1475,11 +1613,11 @@ def export_html_report(parent_window, segments, truth, table_metrics, config=Non
         html_content = html_content.replace('__GEN_TIME__', gen_time)
         html_content = html_content.replace('__SEG_COUNT__', str(len(active_segs)))
         html_content = html_content.replace('__TOTAL_EPOCHS__', str(total_epochs))
-        html_content = html_content.replace('__FIX_RATE__', fix_rate_val)
-        html_content = html_content.replace('__H_RMS__', h_rms_val)
-        html_content = html_content.replace('__H_95__', h_95_val)
-        html_content = html_content.replace('__V_RMS__', v_rms_val)
-        html_content = html_content.replace('__MAX_H_ERR__', max_h_val)
+        html_content = html_content.replace('__FIX_RATE_BLOCK__', fix_rate_block)
+        html_content = html_content.replace('__H_RMS_BLOCK__', h_rms_block)
+        html_content = html_content.replace('__H_95_BLOCK__', h_95_block)
+        html_content = html_content.replace('__V_RMS_BLOCK__', v_rms_block)
+        html_content = html_content.replace('__MAX_H_ERR_BLOCK__', max_h_block)
         html_content = html_content.replace('__SELECT_EPOCH__', select_epoch_attr)
         html_content = html_content.replace('__SELECT_TIME__', select_time_attr)
         html_content = html_content.replace('__DEFAULT_XAXIS_MODE__', default_xaxis_mode)
